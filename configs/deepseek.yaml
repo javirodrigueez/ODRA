@@ -1,0 +1,8 @@
+therapist:
+  type: deepseek
+  model_id: deepseek-reasoner
+
+patient:
+  type: deepseek
+  model_id: deepseek-reasoner
+  seed_data: ./data/seeds/cactus_seeds.json

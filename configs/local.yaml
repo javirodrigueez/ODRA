@@ -1,0 +1,7 @@
+therapist:
+  type: local
+  model_id: http://localhost:8080/v1
+
+patient:
+  type: deepseek
+  model_id: deepseek-reasoner
