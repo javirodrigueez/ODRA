@@ -1,2 +1,4 @@
 __pycache__
 .launch_docker.sh
+/data/cactus.json
+/misc
