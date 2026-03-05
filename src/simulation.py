@@ -2,6 +2,7 @@ from graph import TherapyGraphBuilder
 import argparse
 import json
 import os
+from omegaconf import OmegaConf
 from dotenv import load_dotenv
 
 def run_simulation(cfg_path: str, profile: dict, max_turns: int, output_dir: str = None, verbose: bool = False):
@@ -39,18 +40,25 @@ def run_simulation(cfg_path: str, profile: dict, max_turns: int, output_dir: str
 
   return result
 
-def main(args):
+def main(cfg_path: str):
   load_dotenv()
+
+  cfg = OmegaConf.load(cfg_path)
+
+  profiles_path = cfg.patient.profiles
+  max_turns = cfg.env.max_turns
+  output_dir = cfg.env.get('output_dir', None)
+  verbose = cfg.env.get('verbose', False)
 
   # Load profiles from JSONL
   profiles = []
-  with open(args.profiles, 'r') as f:
+  with open(profiles_path, 'r') as f:
     for line in f:
       line = line.strip()
       if line:
         profiles.append(json.loads(line))
 
-  print(f'Loaded {len(profiles)} profiles from {args.profiles}\n')
+  print(f'Loaded {len(profiles)} profiles from {profiles_path}\n')
 
   for i, profile in enumerate(profiles):
     print(f'{"="*60}')
@@ -58,15 +66,11 @@ def main(args):
     print(f'Topic: {profile["topic"]}, Behavior: {profile["Behavior"]}')
     print(f'{"="*60}')
 
-    result = run_simulation(args.cfg, profile, args.max_turns, args.output_dir, args.verbose)
+    result = run_simulation(cfg_path, profile, max_turns, output_dir, verbose)
     print(f'  Total turns: {result["current_turn"]}\n')
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Run CBT therapy simulation')
-  parser.add_argument('--cfg', type=str, default='configs/bedrock.yaml', help='LLM configuration file.')
-  parser.add_argument('--profiles', type=str, default='data/profiles_test.jsonl', help='JSONL file with patient profiles.')
-  parser.add_argument('--max-turns', type=int, default=10, help='Maximum number of turns per simulation.')
-  parser.add_argument('--output-dir', type=str, default='outputs', help='Directory to save session transcripts.')
-  parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+  parser.add_argument('--cfg', type=str, default='configs/bedrock.yaml', help='YAML configuration file.')
   args = parser.parse_args()
-  main(args)
+  main(args.cfg)

@@ -5,3 +5,9 @@ therapist:
 patient:
   type: deepseek
   model_id: deepseek-chat
+  profiles: data/profiles_test.jsonl
+
+env:
+  max_turns: 10
+  output_dir: outputs
+  verbose: false

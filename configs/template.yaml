@@ -4,6 +4,11 @@ therapist:
 
 patient:
   type: 
-  model_id:
-  seed_data:
+  model_id: 
+  profiles: 
+
+env:
+  max_turns:
+  output_dir:
+  verbose:
   

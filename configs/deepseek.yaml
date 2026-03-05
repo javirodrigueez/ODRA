@@ -5,4 +5,9 @@ therapist:
 patient:
   type: deepseek
   model_id: deepseek-reasoner
-  seed_data: ./data/seeds/cactus_seeds.json
+  profiles: ./data/seeds/cactus_seeds.json
+
+env:
+  max_turns: 10
+  output_dir: out/deepseek
+  verbose: true

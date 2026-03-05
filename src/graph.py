@@ -50,7 +50,7 @@ class TherapyGraphBuilder:
   def shouldContinue(self, state: State):
     if state['current_turn'] >= state['max_turns']:
       return 'Fail'
-    if "goodbye" in state['messages'][-2].content.lower() or "goodbye" in state['messages'][-1].content.lower() or "good bye" in state['messages'][-2].content.lower() or "good bye" in state['messages'][-1].content.lower():  # check last therapist/client message
+    if "goodbye" in state['messages'][-1].content.lower() or "good bye" in state['messages'][-1].content.lower():  # check last patient message
       return 'Fail'
     return 'Pass'
 
