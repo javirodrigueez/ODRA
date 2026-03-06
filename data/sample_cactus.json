@@ -1,0 +1,29 @@
+[
+  {
+    "idx": 4438,
+    "personal_info": {
+      "name": "Gregory Kirk",
+      "age": "34",
+      "gender": "male",
+      "occupation": "Automotive assembly line worker",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives with a roommate"
+    },
+    "presenting_problem": "I feel like I am boring and lame because I love Mac and cheese, which affects my self-perception and self-esteem.\nThese feelings of being boring started about a year ago.\nI believe the cause of this issue is societal judgment and media influence on what is considered interesting or cool.\nThe problem has progressed to the point where I avoid socializing or trying new activities because I feel inadequate.\nI experience these feelings whenever I eat Mac and cheese or when I see others enjoying different, more diverse foods.\nI have attempted to try new foods and engage in different activities to break this cycle but have not succeeded.",
+    "reason_seeking_counseling": "I decided to seek counseling because I noticed that my feelings of inadequacy were limiting my social interactions and overall enjoyment of life.",
+    "patterns": [
+      "discounting the positive",
+      "mental filtering",
+      "overgeneralization",
+      "personalization",
+      "black-and-white or polarized thinking / all or nothing thinking"
+    ],
+    "attitude": "neutral",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological issues previously.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "",
+      "social_support_system": "I have a roommate whom I can talk to about everyday matters but do not feel comfortable discussing my feelings of inadequacy with them."
+    }
+  }
+]

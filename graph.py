@@ -1,15 +1,19 @@
 from langgraph.graph import MessagesState, StateGraph, START, END
 from langchain.messages import AnyMessage
-from agents import TherapistAgent, PatientAgent
-from typing import Annotated
+from agents.therapist import TherapistAgent
+from agents.patient import PatientAgent
+from typing import Annotated, Optional
 import operator
+import re
 from omegaconf import OmegaConf
-from agents import LLMFactory
+from agents.interfaces import LLMFactory
 
 # State
 class State(MessagesState):
   current_turn: Annotated[int, operator.add]
-  max_turns: int 
+  max_turns: int
+  min_turns: int 
+  session_ended: Optional[bool]
 
 class TherapyGraphBuilder:
   def __init__(self, config_path, profile: dict):
@@ -38,21 +42,29 @@ class TherapyGraphBuilder:
 
   def turnTherapist(self, state: State):
     context = self._format_context(state['messages'])
-    message = 'Therapist: ' + self.therapist.generate(context)
-    return {'messages': message, 'current_turn': 1}
+    should_wrap_up = state['current_turn'] >= state['min_turns']
+    response = self.therapist.generate(context, wrap_up=should_wrap_up)
+    ended = bool(re.search(r'</?\s*end\s*>', response, re.IGNORECASE))
+    if ended:
+      response = re.sub(r'</?\s*end\s*>', '', response, flags=re.IGNORECASE).strip()
+    message = 'Therapist: ' + response
+    return {'messages': message, 'current_turn': 1, 'session_ended': ended}
 
   def turnPatient(self, state: State):
     context = self._format_context(state['messages'])
     message = 'Patient: ' + self.patient.generate(context)
     return {'messages': message, 'current_turn': 1}
 
+  def finalPatient(self, state: State):
+    context = self._format_context(state['messages'])
+    message = 'Patient: ' + self.patient.generateClosing(context)
+    return {'messages': message, 'current_turn': 1}
+
   # Conditions
   def shouldContinue(self, state: State):
-    if state['current_turn'] >= state['max_turns']:
-      return 'Fail'
-    if "goodbye" in state['messages'][-1].content.lower() or "good bye" in state['messages'][-1].content.lower():  # check last patient message
-      return 'Fail'
-    return 'Pass'
+    if state.get('session_ended', False) or state['current_turn'] >= state['max_turns']:
+      return 'End'
+    return 'Continue'
 
   # Graph
   def createChain(self):
@@ -62,12 +74,14 @@ class TherapyGraphBuilder:
     workflow.add_node('openPatient', self.generateOpeningPatient)
     workflow.add_node('turnTherapist', self.turnTherapist)
     workflow.add_node('turnPatient', self.turnPatient)
+    workflow.add_node('finalPatient', self.finalPatient)
 
     workflow.add_edge(START, 'openTherapist')
     workflow.add_edge('openTherapist', 'openPatient')
     workflow.add_edge('openPatient', 'turnTherapist')
-    workflow.add_edge('turnTherapist', 'turnPatient')
-    workflow.add_conditional_edges('turnPatient', self.shouldContinue, {'Fail': END, 'Pass': 'turnTherapist'})  # patient is always the last one
+    workflow.add_conditional_edges('turnTherapist', self.shouldContinue, {'Continue': 'turnPatient', 'End': 'finalPatient'})
+    workflow.add_edge('turnPatient', 'turnTherapist')
+    workflow.add_edge('finalPatient', END)
 
     chain = workflow.compile()
     return chain
