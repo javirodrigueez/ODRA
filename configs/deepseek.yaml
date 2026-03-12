@@ -1,10 +1,10 @@
 therapist:
   type: deepseek
-  model_id: deepseek-reasoner
+  model_id: deepseek-chat
 
 patient:
   type: deepseek
-  model_id: deepseek-reasoner
+  model_id: deepseek-chat
   profiles: ./data/sample_cactus.json
 
 env:

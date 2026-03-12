@@ -1,11 +1,13 @@
+import json
 import os
-
-from langchain_huggingface import HuggingFacePipeline, ChatHuggingFace
 from abc import ABC, abstractmethod
-from langchain.messages import HumanMessage, SystemMessage, AIMessage
 from pathlib import Path
-from langchain_aws import ChatBedrock
+from typing import Any, Optional
+
 from dotenv import load_dotenv
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_aws import ChatBedrock
+from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from openai import OpenAI
 
 load_dotenv()
@@ -26,6 +28,65 @@ def _to_langchain_messages(messages: list[dict]) -> list:
     else:
       lc_messages.append(AIMessage(content=m["content"]))
   return lc_messages
+
+
+class StructuredOutputError(RuntimeError):
+  pass
+
+
+def clamp(value: float, low: float, high: float) -> float:
+  return max(low, min(high, value))
+
+
+def coerce_float(value: Any, default: float, low: Optional[float] = None, high: Optional[float] = None) -> float:
+  try:
+    parsed = float(value)
+  except (TypeError, ValueError):
+    parsed = default
+  if low is not None:
+    parsed = max(low, parsed)
+  if high is not None:
+    parsed = min(high, parsed)
+  return parsed
+
+
+def coerce_bool(value: Any, default: bool = False) -> bool:
+  if isinstance(value, bool):
+    return value
+  if isinstance(value, str):
+    lowered = value.strip().lower()
+    if lowered in {"true", "yes", "1"}:
+      return True
+    if lowered in {"false", "no", "0"}:
+      return False
+  return default
+
+
+def ensure_str(value: Any, default: str = "") -> str:
+  if isinstance(value, str):
+    return value.strip()
+  if value is None:
+    return default
+  return str(value).strip()
+
+
+def ensure_str_list(value: Any) -> list[str]:
+  if isinstance(value, list):
+    return [ensure_str(v) for v in value if ensure_str(v)]
+  if isinstance(value, str) and value.strip():
+    return [value.strip()]
+  return []
+
+
+def parse_json_response(raw_text: str) -> tuple[Any, dict]:
+  text = (raw_text or "").strip()
+  if not text:
+    raise StructuredOutputError("empty response")
+
+  try:
+    return json.loads(text), {"parsed": True, "mode": "direct"}
+  except json.JSONDecodeError as exc:
+    raise StructuredOutputError(f"invalid JSON: {exc.msg}") from exc
 
 # LLM interfaces
 class LLM(ABC):
@@ -138,10 +199,16 @@ class Agent(ABC):
   def __init__(self, llm: LLM):
     self.llm = llm
 
-  @abstractmethod
-  def generate(self, context: str) -> str:
-    pass
+  # @abstractmethod
+  # def generate(self, context: str) -> str:
+  #   pass
 
-  @abstractmethod
-  def generateOpening(self, context: str) -> str:
-    pass
+  # @abstractmethod
+  # def generateOpening(self, context: str) -> str:
+  #   pass
+
+  def generate_utterance(self, *args, **kwargs) -> str:
+    raise NotImplementedError
+
+  def generate_structured(self, *args, **kwargs):
+    raise NotImplementedError
