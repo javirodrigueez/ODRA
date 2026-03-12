@@ -1,5 +1,6 @@
 from graph import TherapyGraphBuilder
 import argparse
+from copy import deepcopy
 import json
 import os
 from omegaconf import OmegaConf
@@ -25,7 +26,26 @@ def _load_profiles(profiles_path: str) -> list[dict]:
   raise ValueError(f"Unsupported profiles payload in {profiles_path}")
 
 
-def run_simulation(cfg_path: str, profile: dict, max_turns: int, min_turns: int, output_dir: str = None, verbose: bool = False):
+def _load_resume_state(resume_path: str) -> dict:
+  with open(resume_path, "r", encoding="utf-8") as f:
+    payload = json.load(f)
+  if not isinstance(payload, dict):
+    raise ValueError(f"Unsupported resume payload in {resume_path}: expected a JSON object.")
+  profile = payload.get("patient_profile")
+  if not isinstance(profile, dict):
+    raise ValueError(f"Resume file {resume_path} is missing a valid patient_profile object.")
+  return payload
+
+
+def run_simulation(
+  cfg_path: str,
+  profile: dict,
+  max_turns: int,
+  min_turns: int,
+  output_dir: str = None,
+  verbose: bool = False,
+  resume_state: dict | None = None,
+):
   """Run a single simulation for a given profile."""
   result = {
     "messages": [],
@@ -39,7 +59,10 @@ def run_simulation(cfg_path: str, profile: dict, max_turns: int, min_turns: int,
   try:
     builder = TherapyGraphBuilder(cfg_path, profile)
     chain = builder.create_chain()
-    initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
+    if resume_state is None:
+      initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
+    else:
+      initial_state = builder.resume_state(deepcopy(resume_state), max_turns=max_turns, min_turns=min_turns)
     result = initial_state
 
     if verbose:
@@ -89,12 +112,33 @@ def main(cfg_path: str):
 
   cfg = OmegaConf.load(cfg_path)
 
-  profiles_path = cfg.patient.profiles
   max_turns = cfg.env.max_turns
   min_turns = cfg.env.get("min_turns", 0)
   output_dir = cfg.env.output_dir
   verbose = cfg.env.verbose
+  resume_file = cfg.env.get("resume_file")
 
+  if resume_file:
+    resume_state = _load_resume_state(resume_file)
+    profile = deepcopy(resume_state["patient_profile"])
+    profile.setdefault("idx", "unknown")
+    print(f"Resuming simulation from {resume_file}\n")
+    result = run_simulation(
+      cfg_path,
+      profile,
+      max_turns,
+      min_turns,
+      output_dir,
+      verbose,
+      resume_state=resume_state,
+    )
+    exchanges = sum(result.get("exchange_counts", {}).values())
+    print(f'  Total utterances: {result.get("utterance_index", 0)}')
+    print(f'  Total exchanges: {exchanges}')
+    print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
+    return
+
+  profiles_path = cfg.patient.profiles
   profiles = _load_profiles(profiles_path)
 
   print(f'Loaded {len(profiles)} profiles from {profiles_path}\n')

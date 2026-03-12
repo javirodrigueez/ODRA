@@ -165,10 +165,34 @@ class TherapyGraphBuilder:
       }
     )
 
+  def resume_state(self, saved_state: SessionState, max_turns: int, min_turns: int = 0) -> SessionState:
+    resumed: SessionState = deepcopy(saved_state)
+    resumed["session_ended"] = False
+    resumed["session_ended_reason"] = ""
+    resumed["conversation_error"] = ""
+    resumed["final_patient_pending_end"] = False
+    if isinstance(resumed.get("reasoning_traces"), list):
+      resumed["reasoning_traces"] = [
+        trace for trace in resumed["reasoning_traces"] if not self._is_error_trace(trace)
+      ]
+    resumed["max_turns"] = int(max_turns)
+    resumed["min_turns"] = int(min_turns)
+    return self._ensure_state_defaults(resumed)
+
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
     mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35}
     return mapping.get(attitude)
+
+  def _is_error_trace(self, trace: Any) -> bool:
+    if not isinstance(trace, dict):
+      return False
+    if trace.get("speaker") != "system":
+      return False
+    steps = trace.get("traces")
+    if not isinstance(steps, list):
+      return False
+    return any(isinstance(step, dict) and step.get("step") == "conversation_error" for step in steps)
 
   def _ensure_state_defaults(self, state: SessionState) -> SessionState:
     s: SessionState = dict(state)
@@ -535,7 +559,6 @@ class TherapyGraphBuilder:
       "rationale": ensure_str(payload.get("rationale")),
     }
 
-  # TODO: IN PATIENT IT GIVES R CHANGE, NOT ABSOLUTE R. WHAT APPROACH TO FOLLOW?
   def _run_resistance_prediction(self, state: SessionState, traces: list[dict]) -> None:
     old_r = state["predicted_resistance"]
     instruction = (
@@ -556,13 +579,13 @@ class TherapyGraphBuilder:
       0.15,
     )
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
-    traces.append(
-      {
-        "step": "resistance_prediction",
-        "input": f"old_r={old_r:.2f}",
-        "output": f"predicted_r={state['predicted_resistance']:.2f}, reasoning={payload.get('reasoning', '')}",
-      }
-    )
+    # traces.append(
+    #   {
+    #     "step": "resistance_prediction",
+    #     "input": f"old_r={old_r:.2f}",
+    #     "output": f"predicted_r={state['predicted_resistance']:.2f}, reasoning={payload.get('reasoning', '')}",
+    #   }
+    # )
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:
@@ -696,7 +719,6 @@ class TherapyGraphBuilder:
 
     # Ready to move on
     if ready:
-      raise ConversationProcessingError('Just trying...')
       band = self._current_band(state["predicted_resistance"])
       if band == "action":
         state["current_stage"] = "id_distortions"
@@ -1396,13 +1418,13 @@ class TherapyGraphBuilder:
       payload = self._require_dict(update, "resistance_update")
       r_change = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
       s["resistance"] = clamp(s["resistance"] + r_change, 0.0, 1.0)
-      traces.append(
-        {
-          "step": "resistance_update",
-          "input": f"old={old_r:.2f}",
-          "output": f"new_r={s['resistance']:.2f}, reasoning={payload.get('reasoning', '')}",
-        }
-      )
+      # traces.append(
+      #   {
+      #     "step": "resistance_update",
+      #     "input": f"old={old_r:.2f}",
+      #     "output": f"new_r={s['resistance']:.2f}, reasoning={payload.get('reasoning', '')}",
+      #   }
+      # )
 
       utterance = self.patient.generate_utterance(
         conversation=self._format_conversation(s["messages"]),

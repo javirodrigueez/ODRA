@@ -11,3 +11,4 @@ env:
   max_turns: 10
   output_dir: outputs
   verbose: false
+  resume_file:
