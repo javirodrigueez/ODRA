@@ -72,9 +72,12 @@ class SessionState(TypedDict, total=False):
   opening_patient_problem: str
 
   cognitive_model_sets: list[dict]
-  current_situation_index: int
-  current_extraction_target: str
   working_cognitive_set: dict
+  working_cognitive_summary: str
+  cognitive_gap_plan: str
+  active_cognitive_target: str
+  active_cognitive_question: str
+  active_cognitive_follow_up_attempts: int
 
   selected_techniques: list[dict]
   current_technique_index: int
@@ -150,12 +153,20 @@ class TherapyGraphBuilder:
         data = json.load(f)
     except Exception as exc:
       raise ConversationProcessingError(f"Failed to load techniques from {techniques_path}: {exc}") from exc
-    if not isinstance(data, dict):
-      raise ConversationProcessingError(f"Techniques payload in {techniques_path} must be a JSON object.")
     techniques = [ensure_str(name) for name in data.keys() if ensure_str(name)]
-    if not techniques:
-      raise ConversationProcessingError(f"Techniques payload in {techniques_path} does not contain any usable technique names.")
     return techniques
+  
+  def _load_distortions(self) -> dict:
+    distortions_path = Path(__file__).parent / "data" / "knowledge" / "cognitive_distortions.json"
+    if not distortions_path.exists():
+      raise ConversationProcessingError(f"Missing cognitive distortions file: {distortions_path}")
+    try:
+      with open(distortions_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    except Exception as exc:
+      raise ConversationProcessingError(f"Failed to load cognitive distortions from {distortions_path}: {exc}") from exc
+    distortions = {ensure_str(name): value for name, value in data.items() if ensure_str(name)}
+    return distortions
 
   def initial_state(self, max_turns: int, min_turns: int = 0) -> SessionState:
     return self._ensure_state_defaults(
@@ -209,9 +220,12 @@ class TherapyGraphBuilder:
     s.setdefault("opening_patient_problem", "")
 
     s.setdefault("cognitive_model_sets", [])
-    s.setdefault("current_situation_index", 0)
-    s.setdefault("current_extraction_target", "situation")
     s.setdefault("working_cognitive_set", self._new_cognitive_set(len(s["cognitive_model_sets"]) + 1))
+    s.setdefault("working_cognitive_summary", "")
+    s.setdefault("cognitive_gap_plan", "")
+    s.setdefault("active_cognitive_target", "")
+    s.setdefault("active_cognitive_question", "")
+    s.setdefault("active_cognitive_follow_up_attempts", 0)
 
     s.setdefault("selected_techniques", [])
     s.setdefault("current_technique_index", 0)
@@ -272,6 +286,11 @@ class TherapyGraphBuilder:
       "opening_patient_mood": state["opening_patient_mood"],
       "opening_patient_problem": state["opening_patient_problem"],
       "cognitive_model_sets": state["cognitive_model_sets"],
+      "working_cognitive_summary": state["working_cognitive_summary"],
+      "cognitive_gap_plan": state["cognitive_gap_plan"],
+      "active_cognitive_target": state["active_cognitive_target"],
+      "active_cognitive_question": state["active_cognitive_question"],
+      "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
       "selected_techniques": state["selected_techniques"],
       #"current_technique_index": state["current_technique_index"],
       #"current_technique_plan": state["current_technique_plan"],
@@ -420,17 +439,14 @@ class TherapyGraphBuilder:
     traces: list[dict],
     step_name: str,
     instruction: str,
-    parsed: Any,
-    meta: dict,
+    parsed: Any
   ) -> None:
+    format_parsed = json.dumps(parsed, ensure_ascii=True)
     traces.append(
       {
         "step": step_name,
         "input": instruction,
-        "output": json.dumps(
-          {"parsed": parsed, "meta": meta},
-          ensure_ascii=True,
-        ),
+        "output": format_parsed,
       }
     )
 
@@ -452,7 +468,7 @@ class TherapyGraphBuilder:
       )
     except StructuredOutputError as exc:
       raise ConversationProcessingError(f"{step_name} failed: {exc}") from exc
-    self._trace_structured_step(traces, step_name, instruction, parsed, meta)
+    self._trace_structured_step(traces, step_name, instruction, parsed)
     return parsed
 
   def _run_patient_structured(
@@ -473,7 +489,7 @@ class TherapyGraphBuilder:
       )
     except StructuredOutputError as exc:
       raise ConversationProcessingError(f"{step_name} failed: {exc}") from exc
-    self._trace_structured_step(traces, step_name, instruction, parsed, meta)
+    self._trace_structured_step(traces, step_name, instruction, parsed)
     return parsed
 
   def _enter_mi(self, state: SessionState, target_stage: str, resume_stage: Optional[str], reason: str) -> None:
@@ -690,10 +706,10 @@ class TherapyGraphBuilder:
     
     # Check if ready to move on
     ready = self._check_readiness(state, traces)
-    current_substage = state["current_substage"]
+    force_mi = opening_exchanges >= 20 and not ready
 
     # In case patient doesn't cooperates, after 20 exchanges force Topic Exploration to find engagement
-    if opening_exchanges >= 20 and not ready:
+    if force_mi:
       raise ConversationProcessingError("exchanges > 20. just trying...")
       state["opening_fallback_triggered"] = True
       state["cbt_resume_stage"] = "id_distortions"
@@ -702,6 +718,7 @@ class TherapyGraphBuilder:
 
     # Continue gathering information
     if not ready:
+      current_substage = state["current_substage"]
       if current_substage == "open_mood":
         instruction = (
           "Based on the conversation so far, ask the patient a question to understand their current mood. This is the mood check of a standard CBT session."
@@ -732,7 +749,8 @@ class TherapyGraphBuilder:
 
   def _merge_extracted_items(self, state: SessionState, extracted: dict) -> None:
     working = state["working_cognitive_set"]
-    situation = ensure_str_list(extracted.get("situation"))
+    raw_situation = extracted.get("situation")
+    situation = ensure_str(raw_situation)
     thoughts = ensure_str_list(extracted.get("auto_thoughts"))
     emotions = ensure_str_list(extracted.get("emotions"))
     behaviors = ensure_str_list(extracted.get("behaviors"))
@@ -747,21 +765,20 @@ class TherapyGraphBuilder:
           existing.append(item)
       working[key] = existing
 
-  def _update_extraction_target(self, state: SessionState) -> None:
+  def _current_extraction_target(self, state: SessionState) -> str:
+    active_target = state["active_cognitive_target"]
+    if active_target:
+      return active_target
     working = state["working_cognitive_set"]
     if not working.get("situation"):
-      state["current_extraction_target"] = "situation"
-      return
+      return "situation"
     if not working.get("automatic_thoughts"):
-      state["current_extraction_target"] = "auto_thoughts"
-      return
+      return "auto_thoughts"
     if not working.get("emotions"):
-      state["current_extraction_target"] = "emotions"
-      return
+      return "emotions"
     if not working.get("behaviors"):
-      state["current_extraction_target"] = "behaviors"
-      return
-    state["current_extraction_target"] = "core_belief"
+      return "behaviors"
+    return "core_belief"
 
   def _working_set_base_complete(self, state: SessionState) -> bool:
     working = state["working_cognitive_set"]
@@ -776,26 +793,265 @@ class TherapyGraphBuilder:
     working = state["working_cognitive_set"]
     return self._working_set_base_complete(state) and bool(working.get("core_belief")) and bool(working.get("distortion"))
 
-  def _handle_id_distortions(self, state: SessionState, traces: list[dict]) -> str:
-    last_patient = self._extract_last_patient_message(state)
-    if last_patient:
-      extraction_instruction = (
-        "Based on the patient's last utterance, extract Beck cognitive-model items. "
-        "If no items can be reliably extracted, respond with empty lists. "
-        'Respond JSON: {"situation": <string>, "auto_thoughts":[], "emotions":[], "behaviors":[]}'
-      )
-      extracted = self._run_therapist_structured(
-        state,
-        traces,
-        "cognitive_item_extraction",
-        extraction_instruction,
-      )
-      payload = self._require_dict(extracted, "cognitive_item_extraction")
-      self._merge_extracted_items(state, payload)
+  def _working_set_has_content(self, state: SessionState) -> bool:
+    working = state["working_cognitive_set"]
+    return bool(
+      working.get("situation")
+      or working.get("automatic_thoughts")
+      or working.get("emotions")
+      or working.get("behaviors")
+      or state["working_cognitive_summary"]
+    )
 
+  def _merge_working_summary(self, state: SessionState, summary: str) -> None:
+    text = ensure_str(summary)
+    if not text:
+      return
+    current = state["working_cognitive_summary"]
+    if not current:
+      state["working_cognitive_summary"] = text
+      return
+    if text in current:
+      return
+    state["working_cognitive_summary"] = f"{current} {text}".strip()
+
+  def _ordered_cognitive_gap_targets(self, state: SessionState) -> tuple[list[str], list[str]]:
+    working = state["working_cognitive_set"]
+    targets: list[str] = []
+    filled: list[str] = []
+    if not working.get("situation"):
+      targets.append("situation")
+    else: 
+      filled.append(f"situation: {working.get('situation')}")
+    if not working.get("automatic_thoughts"):
+      targets.append("auto_thoughts")
+    else:
+      filled.append(f"automatic_thoughts: {', '.join(working.get('automatic_thoughts', []))}")
+    if not working.get("emotions"):
+      targets.append("emotions")
+    else:
+      filled.append(f"emotions: {', '.join(working.get('emotions', []))}")
+    if not working.get("behaviors"):
+      targets.append("behaviors")
+    else:
+      filled.append(f"behaviors: {', '.join(working.get('behaviors', []))}")
+    return targets, filled
+
+  def _is_cognitive_target_filled(self, state: SessionState, target: str) -> bool:
+    working = state["working_cognitive_set"]
+    if target == "situation":
+      return bool(working.get("situation"))
+    if target == "auto_thoughts":
+      return bool(working.get("automatic_thoughts"))
+    if target == "emotions":
+      return bool(working.get("emotions"))
+    if target == "behaviors":
+      return bool(working.get("behaviors"))
+    return False
+
+  def _reset_cognitive_gap_tracking(self, state: SessionState) -> None:
+    state["cognitive_gap_plan"] = ""
+    state["active_cognitive_target"] = ""
+    state["active_cognitive_question"] = ""
+    state["active_cognitive_follow_up_attempts"] = 0
+
+  def _apply_cognitive_target_payload(self, state: SessionState, target: str, payload: Any) -> bool:
+    source = payload if isinstance(payload, dict) else {}
+    extracted: dict[str, Any] = {}
+    if target == "situation":
+      value = ensure_str(source.get("situation"))
+      if value:
+        extracted["situation"] = value
+    elif target == "auto_thoughts":
+      values = ensure_str_list(source.get("auto_thoughts"))
+      if values:
+        extracted["auto_thoughts"] = values
+    elif target == "emotions":
+      values = ensure_str_list(source.get("emotions"))
+      if values:
+        extracted["emotions"] = values
+    elif target == "behaviors":
+      values = ensure_str_list(source.get("behaviors"))
+      if values:
+        extracted["behaviors"] = values
+    if extracted:
+      self._merge_extracted_items(state, extracted)
+    return self._is_cognitive_target_filled(state, target)
+
+  def _plan_cognitive_gaps(self, state: SessionState, traces: list[dict]) -> str:
+    ordered_targets, filled = self._ordered_cognitive_gap_targets(state)
+    if not ordered_targets: # if bootstraping filled all gaps
+      return "", ""
+    preferred_target = state["active_cognitive_target"]
+    if preferred_target in ordered_targets:
+      ordered_targets = [preferred_target] + [target for target in ordered_targets if target != preferred_target]
+    summary = state["working_cognitive_summary"] or "No uncertain summary available yet."
+    instruction = (
+      "Create a therapist plan to fill the missing Beck cognitive model items. "
+      "Prioritize the targets in this exact order whenever they are still missing: situation, auto_thoughts, emotions, behaviors. "
+      "If the situation is missing, it means a new cognitive set is being started. Focus on extracting the situation to correctly initialize the new set."
+      f"Remaining targets in required order: {ordered_targets}. "
+      f"Keep this unresolved target first if it is still missing: {preferred_target or 'none'}. "
+      f"Use this uncertain summary to guide clarification: {summary} "
+      f"Already filled items of working set: {', '.join(filled)} "
+      "Return only the therapist's internal plan in plain text, not JSON and not the final utterance."
+    )
+    plan = self.therapist.generate_utterance(
+      conversation=self._format_conversation(state["messages"]),
+      current_stage=state["current_stage"],
+      session_context=self._build_session_context(state),
+      instruction=instruction,
+    )
+
+    return plan, ordered_targets[0]
+
+  def _next_cognitive_gap_target(self, state: SessionState) -> str:
+    ordered_targets, _ = self._ordered_cognitive_gap_targets(state)
+    preferred_target = state["active_cognitive_target"]
+    if preferred_target in ordered_targets:
+      return preferred_target
+    if ordered_targets:
+      return ordered_targets[0]
+    return ""
+
+  def _generate_cognitive_gap_utterance(self, state: SessionState, plan: str, target: str) -> str:
+    if not plan:  # if bootstraping filled all gaps
+      return ""
+    instruction = (
+      "Use the therapist plan below to produce only the next therapist utterance for the current step. "
+      f"Current target: {target}. "
+      f"Therapist plan: {plan} "
+      "Ask one concise, natural question that advances the next planned step and focuses only on the current target."
+    )
+    utterance = self.therapist.generate_utterance(
+      conversation=self._format_conversation(state["messages"]),
+      current_stage=state["current_stage"],
+      session_context=self._build_session_context(state),
+      instruction=instruction,
+    )
+    return ensure_str(utterance)
+
+  def _planning_and_asking(self, state: SessionState, traces: list[dict], last_patient: str = "") -> Optional[str]:
+    active_target = state["active_cognitive_target"]
+    active_question = state["active_cognitive_question"]
+    # Clear any stale tracking when the active target was already filled by prior extraction.
+    if active_target and self._is_cognitive_target_filled(state, active_target):
+      self._reset_cognitive_gap_tracking(state)
+      active_target = ""
+      active_question = ""
+
+    # Review the latest patient response when there is an outstanding target/question pair.
+    if last_patient and active_target and active_question:
+      follow_ups = state["active_cognitive_follow_up_attempts"]
+      summary = state["working_cognitive_summary"]
+      instruction = (
+        "Review the patient's last response to the current cognitive-model question and decide whether the target item was answered satisfactorily. "
+        f"Active target: {active_target}. "
+        f"Current question: {active_question}. "
+        f"Attempts already used for this target: {follow_ups}. "
+        f"Uncertain summary: {summary} "
+        "If the response clearly identifies the target, mark answered_satisfactorily=true and extract the identified item. "
+        "If the response is still insufficient, decide whether a follow-up question is needed for the same target. "
+        "Also provide an updated uncertain_summary and a best_guess for the active target based on the information currently available. "
+        'Respond JSON: {"answered_satisfactorily": true/false, "identified_items":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "needs_follow_up": true/false, "follow_up_question":"...", "uncertain_summary":"...", "best_guess":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "reasoning":"..."}'
+      )
+      reviewed = self._run_therapist_structured(state, traces, "cognitive_gap_response_review", instruction)
+      print(f"  <think_ther>{reviewed}</think_ther>") #devlog
+      payload = self._require_dict(reviewed, "cognitive_gap_response_review")
+      self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
+
+      # Saving or follow-up question depending on succesful response
+      correct_answer = self._require_bool(payload, "answered_satisfactorily", "cognitive_gap_response_review")
+      if correct_answer:
+        identified = payload.get("identified_items", {})
+        self._merge_extracted_items(state, identified)
+        # Reset tracking once the accepted answer has filled the current target.
+        if self._is_cognitive_target_filled(state, active_target):
+          self._reset_cognitive_gap_tracking(state)
+          active_target = ""
+          active_question = ""
+      else:
+        if follow_ups >= 5:
+          self._apply_cognitive_target_payload(state, active_target, payload.get("best_guess"))
+          self._reset_cognitive_gap_tracking(state)
+          active_target = ""
+          active_question = ""
+        else:
+          follow_up_question = ensure_str(payload.get("follow_up_question"))
+          state["active_cognitive_question"] = follow_up_question
+          active_question = follow_up_question
+        
+
+    # Stop asking gap questions once the base cognitive model is complete.
+    if self._working_set_base_complete(state):
+      self._reset_cognitive_gap_tracking(state)
+      return None
+
+    next_question = state["active_cognitive_question"]
+    next_target = state["active_cognitive_target"]
+    # Generate a new planned utterance when there is no active question currently queued.
+    if not next_question or not next_target:
+      plan, next_target = self._plan_cognitive_gaps(state, traces)
+      print(f"  <think_ther>plan: {plan}, next_target: {next_target}</think_ther>") #devlog
+      state["cognitive_gap_plan"] = plan
+      next_question = self._generate_cognitive_gap_utterance(state, plan, next_target)
+      # Reset counters when the planner selects a different cognitive target.
+      if next_target != state["active_cognitive_target"]:
+        state["active_cognitive_target"] = next_target
+        state["active_cognitive_follow_up_attempts"] = 0
+      state["active_cognitive_question"] = next_question
+
+    state["active_cognitive_follow_up_attempts"] = int(state["active_cognitive_follow_up_attempts"]) + 1
+    return next_question
+
+  def _bootstrap_first_cognitive_model(self, state: SessionState, traces: list[dict]) -> None:
+    instruction = (
+      "Review the full conversation so far and initialize the first Beck cognitive model using only already established session content. "
+      "Only fill situation, auto_thoughts, emotions, or behaviors if you are 100% certain the item is explicitly supported by the conversation. "
+      "If information is relevant but not certain enough to commit to a cognitive-model item, leave the item empty and place that information in uncertain_summary so it can guide clarification questions. "
+      'Respond JSON: {"items":{"situation":"", "auto_thoughts":[], "emotions":[], "behaviors":[]}, "uncertain_summary":"...", "reasoning":"..."}'
+    )
+    parsed = self._run_therapist_structured(
+      state,
+      traces,
+      "initial_cognitive_model_bootstrap",
+      instruction,
+    )
+    print(f"  <think_ther>{parsed}</think_ther>") #devlog
+    payload = self._require_dict(parsed, "initial_cognitive_model_bootstrap")
+    filled_items = payload.get("items", {})
+    if not isinstance(filled_items, dict):
+      raise ConversationProcessingError("initial_cognitive_model_bootstrap.filled_items must be a JSON object.")
+    self._merge_extracted_items(state, filled_items)
+    self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
+
+  def _id_distortions_prompt_prefix(self, state: SessionState) -> str:
+    summary = state["working_cognitive_summary"]
+    if not summary:
+      return ""
+    return f"From what you've already shared, {summary} "
+
+  def _handle_id_distortions(self, state: SessionState, traces: list[dict]) -> str:
+    breakpoint()
+    id_exchanges = int(state["exchange_counts"].get("id_distortions", 0))
+    # Bootstrap first cognitive model from Opening utterances
+    if id_exchanges == 0:
+      self._bootstrap_first_cognitive_model(state, traces)
+
+    # Core part. Plan and ask questions to fill cognitive model
+    last_patient = self._extract_last_patient_message(state)
+    next_gap_question = self._planning_and_asking(
+      state,
+      traces,
+      last_patient if id_exchanges > 0 else "",
+    )
+    if next_gap_question:
+      return next_gap_question
+
+    # Cognitive set completed, extract core belief
     if self._working_set_base_complete(state) and not state["working_cognitive_set"].get("core_belief"):
       belief_instruction = (
-        "Given the current cognitive set (situation, thoughts, emotions, behaviors), assign probabilities to core belief categories. "
+        "Given the current cognitive set (situation, thoughts, emotions, behaviors), assign probabilities to core belief categories. Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0."
         'Respond JSON: {"helplessness": <float>, "unlovability": <float>, "worthlessness": <float>}. '
       )
       belief_probs = self._run_therapist_structured(
@@ -804,49 +1060,50 @@ class TherapyGraphBuilder:
         "core_belief_probability",
         belief_instruction,
       )
-      #normalized_beliefs = self._normalize_probabilities(belief_probs, CORE_BELIEF_KEYS)
-      #state["working_cognitive_set"]["core_belief_probabilities"] = normalized_beliefs
-      #state["working_cognitive_set"]["core_belief"] = self._best_key(normalized_beliefs)
+      print(f"  <think_ther>{belief_probs}</think_ther>") #devlog
       state["working_cognitive_set"]["core_belief_probabilities"] = belief_probs
       state["working_cognitive_set"]["core_belief"] = self._best_key(belief_probs)
 
+    # Cognitive set with core belief, extract distortion
     if self._working_set_base_complete(state) and state["working_cognitive_set"].get("core_belief") and not state["working_cognitive_set"].get("distortion"):
+      format_working_cognitive_set = (
+        f"situation: {state['working_cognitive_set'].get('situation', '')}, "
+        f"automatic_thoughts: {', '.join(state['working_cognitive_set'].get('automatic_thoughts', []))}, "
+        f"emotions: {', '.join(state['working_cognitive_set'].get('emotions', []))}, "
+        f"behaviors: {', '.join(state['working_cognitive_set'].get('behaviors', []))}, "
+        f"core_belief: {state['working_cognitive_set'].get('core_belief', '')}"
+      )
+      distortions_dict = self._load_distortions()
+      format_distortions = ", ".join([f"{key} ({desc})" for key, desc in distortions_dict.items()])
       distortion_instruction = (
-        "Given the cognitive set including core belief, assign probabilities to distortions. "
+        f"Given the cognitive set ({format_working_cognitive_set}), assign probabilities to cognitive distortion categories. "
+        f"Distortion categories: {format_distortions}. "
+        "Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. "
         "Respond JSON with keys: "
         + ", ".join(DISTORTION_KEYS)
       )
-      distortion_parsed = self._run_therapist_structured(
+      distortion_probs = self._run_therapist_structured(
         state,
         traces,
         "distortion_probability",
         distortion_instruction,
       )
-      distortion_probs = self._normalize_probabilities(distortion_parsed, DISTORTION_KEYS)
+      print(f"  <think_ther>{distortion_probs}</think_ther>") #devlog
       state["working_cognitive_set"]["distortion_probabilities"] = distortion_probs
       state["working_cognitive_set"]["distortion"] = self._best_key(distortion_probs)
 
+    # Save complete cognitive model set and reset for next one
     if self._working_set_full_complete(state):
       completed_set = deepcopy(state["working_cognitive_set"])
       state["cognitive_model_sets"].append(completed_set)
-      state["current_situation_index"] = len(state["cognitive_model_sets"]) - 1
       state["working_cognitive_set"] = self._new_cognitive_set(len(state["cognitive_model_sets"]) + 1)
-      state["current_extraction_target"] = "situation"
+      state["working_cognitive_summary"] = ""
+      self._reset_cognitive_gap_tracking(state)
 
-    self._update_extraction_target(state)
+    # Check if enough congnitive sets
     completed_count = len(state["cognitive_model_sets"])
-    id_exchanges = int(state["exchange_counts"].get("id_distortions", 0))
-    enough_sets = completed_count >= 3 or (id_exchanges >= 20 and completed_count >= 2)
-
+    enough_sets = completed_count >= 3 or (id_exchanges >= 30 and completed_count >= 2)
     if enough_sets:
-      if id_exchanges >= 20 and completed_count == 2:
-        traces.append(
-          {
-            "step": "id_distortions_fallback",
-            "input": "20 exchanges reached with only 2 complete cognitive sets.",
-            "output": "Proceeding with hard floor of 2 complete sets.",
-          }
-        )
       need_more_instruction = (
         "Based on collected cognitive model sets, does the therapist need more information before technique application? "
         'Respond JSON: {"needs_more": true/false, "reasoning":"..."}'
@@ -857,26 +1114,22 @@ class TherapyGraphBuilder:
         "id_distortions_completion_check",
         need_more_instruction,
       )
+      print(f"  <think_ther>{need_more}</think_ther>") #devlog
       needs_more = self._require_bool(
         self._require_dict(need_more, "id_distortions_completion_check"),
         "needs_more",
         "id_distortions_completion_check",
       )
       if not needs_more:
+        raise ConversationProcessingError("ID Distortions stage should have produced enough cognitive sets to proceed, but therapist indicates more information is needed.")
         state["current_stage"] = "cbt_technique"
         return self._handle_stage_dispatch(state, traces)
-
-    target = state["current_extraction_target"]
-    situation = state["working_cognitive_set"].get("situation") or "the current problem situation"
-    if target == "situation":
-      return "Can you walk me through a specific recent situation where this problem became intense for you?"
-    if target == "auto_thoughts":
-      return f"In that situation ({situation}), what thoughts went through your mind right away?"
-    if target == "emotions":
-      return f"When that happened, what emotions did you notice most strongly, and how intense were they?"
-    if target == "behaviors":
-      return f"After those thoughts and feelings, what did you do or avoid doing?"
-    return "Let’s explore another similar situation so we can understand this pattern more clearly."
+    
+    # Fallback: not enough sets or bootstraped filled all gaps
+    fallback_plan_question = self._planning_and_asking(state, traces)
+    if fallback_plan_question:
+      return fallback_plan_question
+    raise ConversationProcessingError("Cognitive gap handling exhausted all strategies. This should not happen.")
 
   def _current_technique(self, state: SessionState) -> Optional[dict]:
     idx = state["current_technique_index"]
@@ -1237,7 +1490,7 @@ class TherapyGraphBuilder:
       chosen = self._require_non_empty_string(topic_payload, "topic", "mi_topic_selection")
       if chosen not in MI_TOPICS:
         raise ConversationProcessingError(f"mi_topic_selection.topic must be one of {MI_TOPICS}, got {chosen!r}.")
-      if chosen != state.get("current_mi_topic"):
+      if chosen != state["current_mi_topic"]:
         state["current_mi_topic"] = chosen
         if chosen not in state["mi_topics_tried"]:
           state["mi_topics_tried"].append(chosen)
