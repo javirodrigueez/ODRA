@@ -1,0 +1,56 @@
+--> Therapist: Hi! How are you doing today?
+
+--> Patient: Hey. I'm... okay, I guess. Just here.
+
+--> Therapist: "Okay, I guess" can cover a lot of ground. To help me understand a bit better, could you describe your mood right now in a word or two?
+
+--> Patient: Uh, mood? I'd say... flat. Just kind of flat. Like nothing's really good or bad, it's just there.
+
+--> Therapist: So, when you say "flat," it sounds like a lack of feeling or engagement. To help us focus, can you tell me about a specific situation or area in your life right now where this "flatness" feels most present or causes the most difficulty?
+
+--> Patient: Yeah, flat. It's... I don't know. It's like at work, mostly. The line, the noise, the same thing every day. It just feels pointless.
+
+--> Therapist: You mentioned work feels pointless. Can you tell me about a specific moment this week when that feeling of pointlessness was strongest?
+
+--> Patient: Yeah, work. It was... Tuesday, I think. I was tightening the same bolt on the same panel for the hundredth time that day, and I just looked down the line. It's endless. It doesn't matter if I do it or not, the car moves on. Just felt like I wasn't even there.
+
+--> Therapist: That's a powerful image—feeling invisible on the assembly line. To make sure we're focusing on the right thing, can you tell me what specific problem this "flatness" or pointlessness at work is causing for you? For example, is it making it hard to concentrate, affecting your relationships there, or maybe draining your energy for things you used to enjoy outside of work?
+
+--> Patient: Yeah, I guess it's mostly the energy thing. I come home from the line and I'm just... empty. My roommate will ask if I want to watch a game or something, and I just go to my room. It's like I have nothing left for anything else.
+
+--> Therapist: So, if we were to focus on one specific problem to work on today, would it be the feeling of emptiness and disconnection you experience after work that stops you from engaging with your roommate or other activities?
+
+--> Patient: Yeah, that's it. It's like I'm a battery that's just dead by the end of the day. I don't even want to be around people.
+
+--> Therapist: So, can you walk me through what happened last night, from the moment you got home?
+
+--> Patient: Got home, same as always. Took off my boots, put my lunchbox by the sink. My roommate, Mark, was on the couch. He said they ordered pizza, asked if I wanted a slice. I just said I wasn't hungry and went to my room. Closed the door. Just sat on the bed for a while, staring at the wall.
+
+--> Therapist: When Mark offered you the pizza and you decided to go to your room, what thoughts went through your mind in that moment?
+
+--> Patient: Just... that I should say yes. That I was being rude. That he probably thinks I'm a downer. But I didn't want to force a conversation or pretend to be interested. It's easier to just be alone.
+
+--> Therapist: So, when you were sitting on your bed after closing the door, what were you feeling emotionally in that moment?
+
+--> Patient: Just tired, I guess. And... kind of guilty. Like I'm letting him down by not being a better friend. But also just numb. Like the feeling from work followed me home and now I'm just a shell.
+
+--> Therapist: Can you think of a time outside of work, maybe this past weekend, when you felt that same "dead battery" feeling?
+
+--> Patient: Yeah, Saturday. I was supposed to go to a barbecue at my cousin's. I got up, got dressed, and then just... couldn't. Sat on the couch for an hour. Texted him that I wasn't feeling well. Spent the rest of the day just flipping through channels. Same dead feeling.
+
+--> Therapist: So, let's focus on that Saturday. You got up and got dressed, ready to go, and then you just couldn't. In that moment, when you decided not to go, what was going through your mind? What were you saying to yourself?
+
+--> Patient: Just... that I shouldn't have to force it. That everyone there would be having a real conversation and I'd just be sitting there, not knowing what to say. That I'd be the boring guy who brings the mood down. So what's the point?
+
+--> Therapist: Can you tell me about a specific moment this morning, or maybe yesterday, when you felt that "dead battery" feeling outside of work or home?
+
+--> Patient: This morning, on the drive in. I was stuck in traffic, and I saw a guy in the next car just... laughing, talking on the phone. And I just felt nothing. Just that same flat, dead feeling. Like I'm watching life happen from inside a glass box.
+
+--> Therapist: Can you think of a time in the last day or two, maybe when you were alone like eating breakfast or getting ready for bed, when you felt that same "dead battery" feeling?
+
+--> Patient: Yeah, last night. After I went to my room, I just sat there. I could hear Mark and his friend laughing in the living room. I just felt... separate. Like I was in a different world. Same feeling.
+
+--> Therapist: So, when you were sitting in your room last night, hearing the laughter from the living room, what was going through your mind in that moment? What were you saying to yourself?
+
+--> Patient: Just... that they're having a real moment, and I'm not part of it. That I wouldn't know what to say if I went out there. That I'd just kill the vibe. So it's better for everyone if I stay in here.
+
