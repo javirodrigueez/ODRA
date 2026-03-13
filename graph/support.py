@@ -135,6 +135,7 @@ class GraphSupportMixin:
     s.setdefault("techniques_completed", 0)
     s.setdefault("technique_turn_count", 0)
     s.setdefault("technique_slot_replaced", {})
+    s.setdefault("is_completed_reasoning", "")
 
     s.setdefault("mi_active", False)
     s.setdefault("mi_context", [])

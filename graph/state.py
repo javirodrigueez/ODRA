@@ -124,6 +124,7 @@ class SessionState(TypedDict, total=False):
   techniques_completed: int
   technique_turn_count: int
   technique_slot_replaced: dict
+  is_completed_reasoning: str
 
   mi_active: bool
   mi_context: list[dict]

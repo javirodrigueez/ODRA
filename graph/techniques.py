@@ -103,9 +103,15 @@ class TechniqueStageMixin:
       "completed",
       "technique_completion_check",
     )
-    completed_with_min_turns = completed and state["technique_turn_count"] >= 4
+    state["is_completed_reasoning"] = self._require_non_empty_string(
+      self._require_dict(parsed, "technique_completion_check"),
+      "reasoning",
+      "technique_completion_check",
+    )
 
-    return completed_with_min_turns
+    #completed_with_min_turns = completed and state["technique_turn_count"] >= 4
+
+    return completed
 
   def _evaluate_technique(self, state: SessionState, traces: list[dict], technique_name: str) -> None:
     instruction = (
@@ -268,15 +274,11 @@ class TechniqueStageMixin:
           "technique_plan",
         )
       else:
-        format_previous_plan = (
-          f'Technique plan: {state["current_technique_plan"]}. '
-          f'Expected outcome: {state["current_technique_expected_outcome"]}. '
-          f'Progress: {state["current_technique_current_progress"]}. '
-        )
         plan_instruction = (
-          f'Update the existing technique plan and progress done, for "{current["name"]}" based on previous plan and last patient utterance.'
-          f'Previous plan details: {format_previous_plan} '
-          'Respond JSON: {"detailed_plan_description":"...". "current_progress":"..."}'
+          f'Update the existing technique plan for "{current["name"]}" technique, given the last patient utterance and the last therapist reasoning regarding the patient utterance.'
+          f'Previous plan details: {state["current_technique_plan"]} '
+          f'Last therapist reasoning: {state["is_completed_reasoning"]}. '
+          'Respond JSON: {"detailed_plan_description":"..."}'
         )
         plan_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_plan", plan_instruction),
@@ -285,11 +287,6 @@ class TechniqueStageMixin:
         state["current_technique_plan"] = self._require_non_empty_string(
           plan_parsed,
           "detailed_plan_description",
-          "technique_plan",
-        )
-        state["current_technique_current_progress"] = self._require_non_empty_string(
-          plan_parsed,
-          "current_progress",
           "technique_plan",
         )
       self._set_substage(state, "cbt_deliver_current")
