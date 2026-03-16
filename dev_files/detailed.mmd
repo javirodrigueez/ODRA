@@ -13,109 +13,93 @@ graph LR
     subgraph Stage1 [1. Opening Stage]
         FirstUttCheck{Is first utterance?}:::logic
         
-        %% Step 1: Greeting
         BriefGreeting[Therapist: Brief Greeting]
         PatRespGreeting[Patient Responds]
         
-        %% Step 2: Check and Update Info
         CheckPrevInfo[Check Prev. Utterance for Mood/Problem]
         UpdateInfoCheck{Info Provided?}:::logic
         UpdateSavedInfo[Update Saved Mood/Problem]
         
-        %% Step 3: Check Readiness
         CheckEnoughInfo{Enough Info Collected?}:::logic
         CheckMissing{What is missing?}:::logic
         
-        %% Steps 4 & 5: Gather Missing Info
         GatherMood[Therapist: Gather Mood Info]
         PatRespMood[Patient Responds]
         
         GatherProblem[Therapist: Gather Problem Info]
         PatRespProb[Patient Responds]
 
-        %% 1. First Utterance Flow
         FirstUttCheck -- Yes --> BriefGreeting
         BriefGreeting --> PatRespGreeting
         PatRespGreeting --> CheckPrevInfo
         FirstUttCheck -- No --> CheckPrevInfo
 
-        %% 2. Info Update Flow
         CheckPrevInfo --> UpdateInfoCheck
         UpdateInfoCheck -- Yes --> UpdateSavedInfo
         UpdateSavedInfo --> CheckEnoughInfo
         UpdateInfoCheck -- No --> CheckEnoughInfo
 
-        %% 3. Readiness Flow
         CheckEnoughInfo -- No --> CheckMissing
         
-        %% 4. Gather Mood Flow
         CheckMissing -- "Refine Mood" --> GatherMood
         GatherMood --> PatRespMood
         PatRespMood --> CheckPrevInfo
         
-        %% 5. Gather Problem Flow
         CheckMissing -- "Refine Problem" --> GatherProblem
         GatherProblem --> PatRespProb
         PatRespProb --> CheckPrevInfo
     end
 
-    %% END of Stage 1 (Step 3 Yes)
+    %% END of Stage 1
     CheckEnoughInfo -- Yes --> PostOpenR{Evaluate Post-Opening R}:::logic
 
     %% POST-OPENING RESISTANCE ROUTING
-    PostOpenR -- "R > 0.75 (Precontemplation)" --> MITopicStart
+    PostOpenR -- "R > 0.75 (Precont)" --> MITopicStart
     PostOpenR -- "0.5 < R <= 0.75 (Contemplation)" --> MITechStart
     PostOpenR -- "R <= 0.5 (Action)" --> CBT_Gateway
 
-    %% MI TOPIC EXPLORATION (Precontemplation)
+    %% MI TOPIC EXPLORATION
     subgraph MI_Topic [MI Topic Exploration]
-        MITopicStart[Select MI Topic: Health, Economy, etc.] --> MITopicMiddle[MI Topic Utterance]
-        MITopicMiddle[MI Topic Utterance] --> MITopicResp[Patient Responds]
+        MITopicStart[Select MI Topic] --> MITopicMiddle[MI Topic Utterance]
+        MITopicMiddle --> MITopicResp[Patient Responds]
         MITopicResp --> UpdateR1[Update R]
         UpdateR1 --> CheckR1Trend{Check R Trend}:::logic
         CheckR1Trend -- "Higher R" --> MITopicStart
-        CheckR1Trend -- "Lower R (Still > 0.75)" --> MITopicMiddle
+        CheckR1Trend -- "Lower R (>0.75)" --> MITopicMiddle
     end
-
     CheckR1Trend -- "R <= 0.75" --> MITechStart
 
-    %% MI TECHNIQUES (Contemplation & CBT Interruption)
+    %% MI TECHNIQUES
     subgraph MI_Tech [MI Techniques]
-        MITechStart[Select MI Technique: Advise, Affirm, etc.] --> MITechResp[Patient Responds]
+        MITechStart[Select MI Technique] --> MITechResp[Patient Responds]
         MITechResp --> UpdateR2[Update R]
         UpdateR2 --> CheckR2Trend{Check R Trend}:::logic
-        CheckR2Trend -- "Higher R: Prompt similar tech." --> MITechStart
-        CheckR2Trend -- "Lower R (Still > 0.5): Prompt diff. tech." --> MITechStart
+        CheckR2Trend -- "Higher R" --> MITechStart
+        CheckR2Trend -- "Lower R (>0.5)" --> MITechStart
     end
-
-    CheckR2Trend -- "R <= 0.5" --> RestoreCBT[Restore CBT State / Enter CBT]
+    CheckR2Trend -- "R <= 0.5" --> RestoreCBT[Restore CBT State]
     RestoreCBT --> CBT_Gateway
 
-    %% CONTINUOUS CBT FLOW & INTERRUPTION CHECK
+    %% CONTINUOUS CBT FLOW
     subgraph CBT_Main [CBT Flow & Action State]
         CBT_Gateway{Prior to Utt: R <= 0.5?}:::logic
-        
         CBT_Gateway -- No --> SaveState[Save CBT State Summary]
         SaveState --> MITechStart
-
         CBT_Gateway -- Yes --> ID_DistStart
         
         %% 2. ID DISTORTIONS
         subgraph Stage2 [2. Id. Distortions]
-            ID_DistStart[Identify Situation] --> ExtractLoop[Extract Thoughts, Emotions, Behaviors]
+            ID_DistStart[Identify Situation] --> ExtractLoop[Extract Thoughts/Emotions/Behaviors]
             ExtractLoop --> InferCore[Infer Core Belief]
             InferCore --> AssignDist[Assign Highest Prob Distortion]
             AssignDist --> CheckDist{3 Sets & Enough Info?}:::logic
             CheckDist -- No --> ID_DistStart
         end
-        
         CheckDist -- Yes --> CBT_TechStart
 
-        %% 3. CBT TECHNIQUE (Updated to match Python logic)
+        %% 3. CBT TECHNIQUE
         subgraph Stage3 [3. CBT Technique]
             CBT_TechStart[Select Initial Techniques] --> DecideNext{Enough Techniques?}:::logic
-            
-            %% Decide Next Flow
             DecideNext -- Yes --> EndCBT[Finish CBT Stage]
             DecideNext -- No --> CheckSelected{All Selected Done?}:::logic
             
@@ -127,35 +111,47 @@ graph LR
             ValidateFit -- Yes --> PlanCurrent
             ReplaceTech --> PlanCurrent
             
-            %% Plan & Deliver Flow
-            PlanCurrent[Create / Update Detailed Plan] --> DeliverCurrent[Therapist Utterance]
+            PlanCurrent[Create / Update Detailed Plan] --> DeliverCurrent[Deliver Utterance]
             DeliverCurrent --> PatRespCBT[Patient Responds]
             PatRespCBT --> ReviewCurrent{Technique Complete?}:::logic
             
-            %% Review Flow
             ReviewCurrent -- No --> PlanCurrent
             ReviewCurrent -- Yes --> EvalTech[Evaluate & Complete Tech]
             EvalTech --> DecideNext
         end
     end
 
-    %% Transition to Homework
     EndCBT --> HWStart
 
-    %% 4. HOMEWORK
+    %% 4. HOMEWORK (Updated matching Python logic)
     subgraph Stage4 [4. Homework]
-        HWStart[Propose Homework] --> NegHW[Patient Feedback]
-        NegHW --> CheckHW{Agreement?}:::logic
-        CheckHW -- No --> HWStart
+        HWStart{Determine Substage}:::logic
+        
+        %% Proposal Flow
+        HWStart --> ProposeHW[Tasks Proposal]
+        ProposeHW --> PatRespHW[Patient Responds]
+        
+        %% Review Flow
+        PatRespHW --> CheckHW{Agreement Reached?}:::logic
+        
+        %% Branching from Review
+        CheckHW -- No --> CheckAttempts{Attempts >= 5?}:::logic
+        CheckAttempts -- No --> HWStart
+        
+        %% Fallback Flow
+        CheckAttempts -- Yes --> ApplyFallback[Propose Minimal Fallback Task]
+        ApplyFallback --> PatRespFallback[Patient Responds]
+        PatRespFallback --> EndFallback[Acknowledge Stance & Transition]
     end
 
+    %% Transition to Closing
     CheckHW -- Yes --> ClosingStart
+    EndFallback --> ClosingStart
 
     %% 5. CLOSING
     subgraph Stage5 [5. Closing]
         ClosingStart[Summarize Session] --> NextPlan[Propose Next Plan]
         NextPlan --> CheckPlan{Agreement?}:::logic
-
         CheckPlan -- Yes --> AskFB[Request Feedback]
         CheckPlan -- No --> NextPlan
     end

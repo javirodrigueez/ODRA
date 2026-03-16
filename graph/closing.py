@@ -25,6 +25,14 @@ class ClosingStageMixin:
     payload = self._require_dict(parsed, "next_session_plan_generation")
     return self._require_non_empty_string(payload, "next_session_plan", "next_session_plan_generation")
 
+  def _generate_closing_utterance(self, state: SessionState, instruction: str) -> str:
+    return self.therapist.generate_utterance(
+      conversation=self._format_conversation(state["messages"]),
+      current_stage=state["current_stage"],
+      session_context=self._build_session_context(state),
+      instruction=instruction,
+    )
+
   def _handle_closing(self, state: SessionState, traces: list[dict]) -> str:
     current_substage = state["current_substage"]
 
@@ -34,7 +42,12 @@ class ClosingStageMixin:
         state["session_summary"] = self._generate_closing_summary(state, traces)
       state["closing_phase"] = "summary"
       self._set_substage(state, "closing_share_plan")
-      return f"{state['session_summary']} Before we finish, does that summary fit your experience today?"
+      instruction = (
+        "Share the session summary with the patient and invite them to say whether it fits their experience today. "
+        f"Session summary to convey: {state['session_summary']}. "
+        "Generate only the therapist's next utterance."
+      )
+      return self._generate_closing_utterance(state, instruction)
 
     # Share the proposed next-session plan.
     if current_substage == "closing_share_plan":
@@ -42,7 +55,12 @@ class ClosingStageMixin:
         state["next_session_plan"] = self._generate_next_session_plan(state, traces)
       state["closing_phase"] = "plan_discussion"
       self._set_substage(state, "closing_review_plan")
-      return f"For next time, my proposed plan is: {state['next_session_plan']} How does that sound to you?"
+      instruction = (
+        "Present the proposed next-session plan to the patient and ask for their reaction in a natural way. "
+        f"Next-session plan to convey: {state['next_session_plan']}. "
+        "Generate only the therapist's next utterance."
+      )
+      return self._generate_closing_utterance(state, instruction)
 
     # Review the patient's response to the proposed plan.
     if current_substage == "closing_review_plan":
@@ -61,15 +79,23 @@ class ClosingStageMixin:
         "agreed",
         "closing_plan_agreement_check",
       )
-      if agreed or state["closing_plan_refinements"] >= 3:
+      if agreed or state["closing_plan_refinements"] >= 10:
         state["closing_phase"] = "await_feedback_response"
         self._set_substage(state, "closing_review_feedback")
-        return "Before we end, what feedback do you have about today’s session?"
+        instruction = (
+          "Proactively ask the patient for feedback about today's session. "
+        )
+        return self._generate_closing_utterance(state, instruction)
       state["closing_plan_refinements"] += 1
       state["next_session_plan"] = self._generate_next_session_plan(state, traces)
-      return f"Thanks for that feedback. Let me adjust the plan: {state['next_session_plan']} Would this version work better?"
+      instruction = (
+        "Acknowledge the patient's concern about the next-session plan, present the revised plan, and ask whether it fits better. "
+        f"Revised next-session plan to convey: {state['next_session_plan']}. "
+        "Generate only the therapist's next utterance."
+      )
+      return self._generate_closing_utterance(state, instruction)
 
-    # Review the patient's feedback about the session.
+    # Acknowledge the patient's feedback and show commitment for next session.
     if current_substage == "closing_review_feedback":
       feedback_instruction = (
         "Did the patient request something the therapist should improve next session? "
@@ -86,32 +112,18 @@ class ClosingStageMixin:
       description = ensure_str(feedback_payload.get("improvement_description"))
       plan = ensure_str(feedback_payload.get("improvement_plan"))
       state["patient_feedback"] = description
-      if requested:
-        state["closing_phase"] = "final_close_pending"
-        self._set_substage(state, "closing_finalize_feedback")
-        return (
-          "Thank you for that feedback. "
-          f"I hear that {description or 'you want us to adjust the process'}. "
-          f"Next session I’ll improve by {plan or 'adapting pacing and focus to your preference'}."
-        )
-      state["closing_phase"] = "completed"
-      self._set_substage(state, "closing_end_session")
-      return self._handle_closing(state, traces)
+      state["closing_phase"] = "final_close_pending"
+      self._set_substage(state, "closing_finalize_feedback")
+      current_substage = state["current_substage"]
 
-    # Provide the final response after specific improvement feedback.
+    # After acknowledging feedback, deliver the final closing turn.
     if current_substage == "closing_finalize_feedback":
-      state["closing_phase"] = "completed"
       state["final_patient_pending_end"] = True
       if not state["session_ended_reason"]:
         state["session_ended_reason"] = "normal_closing_completed"
-      self._set_substage(state, "closing_end_session")
-      return "I appreciate your openness today. Let’s pause here, and we’ll continue from this point next session."
-
-    # End the session with the standard closing utterance.
-    if current_substage == "closing_end_session":
-      state["final_patient_pending_end"] = True
-      if not state["session_ended_reason"]:
-        state["session_ended_reason"] = "normal_closing_completed"
-      return "Thank you for your work today. We’ll pick this up next time and build on what you practiced this week."
+      instruction = (
+        "Close the session naturally after acknowledging the patient's feedback, with a warm ending that fits the conversation and references continuing the work next time. "
+      )
+      return self._generate_closing_utterance(state, instruction)
 
     raise ConversationProcessingError(f"Unexpected closing substage: {current_substage}")

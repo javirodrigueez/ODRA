@@ -142,11 +142,12 @@ class SessionState(TypedDict, total=False):
   homework_waiting_for_patient: bool
   homework_fallback_done: bool
   agreed_tasks: list[dict]
+  hw_reasoning: str
+  homework_fallback_to_apply: bool
 
   session_summary: str
   next_session_plan: str
   patient_feedback: str
-  closing_phase: str
   closing_plan_refinements: int
 
   reasoning_traces: list[dict]

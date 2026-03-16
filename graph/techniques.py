@@ -191,13 +191,11 @@ class TechniqueStageMixin:
 
       # End conditions
       if max_techniques:
-        raise ConversationProcessingError("Finish. Just trying...")#devlog
         self._set_stage(state, "homework")
         return self._handle_stage_dispatch(state, traces)
       if enough_techniques:
-        apply_more = self._should_apply_more_techniques(state, traces) if state["techniques_completed"] in {3, 4} else False
+        apply_more = self._should_apply_more_techniques(state, traces)
         if not apply_more:
-          raise ConversationProcessingError("Finish. Just trying...")#devlog
           self._set_stage(state, "homework")
           return self._handle_stage_dispatch(state, traces)
       

@@ -153,11 +153,12 @@ class GraphSupportMixin:
     s.setdefault("homework_waiting_for_patient", False)
     s.setdefault("homework_fallback_done", False)
     s.setdefault("agreed_tasks", [])
+    s.setdefault("hw_reasoning", "")
+    s.setdefault("homework_fallback_to_apply", False)
 
     s.setdefault("session_summary", "")
     s.setdefault("next_session_plan", "")
     s.setdefault("patient_feedback", "")
-    s.setdefault("closing_phase", "summary")
     s.setdefault("closing_plan_refinements", 0)
 
     s.setdefault("reasoning_traces", [])
