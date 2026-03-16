@@ -82,7 +82,6 @@ graph LR
     %% MI TECHNIQUES (Contemplation & CBT Interruption)
     subgraph MI_Tech [MI Techniques]
         MITechStart[Select MI Technique: Advise, Affirm, etc.] --> MITechResp[Patient Responds]
-        %%CheckTech -- "Change Technique?" --> 
         MITechResp --> UpdateR2[Update R]
         UpdateR2 --> CheckR2Trend{Check R Trend}:::logic
         CheckR2Trend -- "Higher R: Prompt similar tech." --> MITechStart
@@ -112,16 +111,36 @@ graph LR
         
         CheckDist -- Yes --> CBT_TechStart
 
-        %% 3. CBT TECHNIQUE
+        %% 3. CBT TECHNIQUE (Updated to match Python logic)
         subgraph Stage3 [3. CBT Technique]
-            CBT_TechStart[Select Max 3 Strategies] --> ApplyStrat[Brief & Apply Strategy]
-            ApplyStrat --> ReEval[Re-evaluate Context]
-            ReEval --> CheckStrat{Strategies Completed?}:::logic
-            CheckStrat -- No --> ApplyStrat
+            CBT_TechStart[Select Initial Techniques] --> DecideNext{Enough Techniques?}:::logic
+            
+            %% Decide Next Flow
+            DecideNext -- Yes --> EndCBT[Finish CBT Stage]
+            DecideNext -- No --> CheckSelected{All Selected Done?}:::logic
+            
+            CheckSelected -- Yes --> SelectAdd[Select Additional Technique]
+            SelectAdd --> PlanCurrent
+            
+            CheckSelected -- No --> ValidateFit{Next Tech Fits?}:::logic
+            ValidateFit -- No --> ReplaceTech[Replace Technique]
+            ValidateFit -- Yes --> PlanCurrent
+            ReplaceTech --> PlanCurrent
+            
+            %% Plan & Deliver Flow
+            PlanCurrent[Create / Update Detailed Plan] --> DeliverCurrent[Therapist Utterance]
+            DeliverCurrent --> PatRespCBT[Patient Responds]
+            PatRespCBT --> ReviewCurrent{Technique Complete?}:::logic
+            
+            %% Review Flow
+            ReviewCurrent -- No --> PlanCurrent
+            ReviewCurrent -- Yes --> EvalTech[Evaluate & Complete Tech]
+            EvalTech --> DecideNext
         end
     end
 
-    CheckStrat -- Yes --> HWStart
+    %% Transition to Homework
+    EndCBT --> HWStart
 
     %% 4. HOMEWORK
     subgraph Stage4 [4. Homework]
