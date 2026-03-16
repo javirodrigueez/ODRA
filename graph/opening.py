@@ -58,16 +58,11 @@ class OpeningStageMixin:
         "It should be brief, for example: Hello, glad to meet you, or Hi, how are you doing?"
       )
       state["current_substage"] = ""
-      return self.therapist.generate_utterance(
-        conversation=[],
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      return self._generate_therapist_utterance(state, instruction)
 
     ready = self._check_readiness(state, traces)
     current_substage = state["current_substage"]
-    force_mi = opening_exchanges >= 3 and not ready #devlog
+    force_mi = opening_exchanges >= 10 and not ready #devlog
 
     # Patient doesn't cooperates, force MI
     if force_mi:
@@ -78,26 +73,18 @@ class OpeningStageMixin:
 
     # Not ready to continue to id_distortions
     if not ready:
-      readiness_reasoning = state["last_reasoning"]
       if current_substage == "open_mood":
         instruction = (
-          "Based on the conversation so far and the reasoning about last exchange, ask the patient a question to understand their current mood. "
-          "This is the mood check of a standard CBT session. "
-          f"Reasoning from the readiness check: {readiness_reasoning}"
+          "Based on the conversation so far, ask the patient a question to understand their current mood. "
+          "This is the mood check of a standard CBT session."
         )
       elif current_substage == "open_problem":
         instruction = (
-          "Based on the conversation so far and the reasoning about last exchange, ask the patient a question to clarify the specific problem they want to work on. "
-          "This should be a specific issue, not just a general area. "
-          f"Reasoning from the readiness check: {readiness_reasoning}"
+          "Based on the conversation so far, ask the patient a question to clarify the specific problem they want to work on. "
+          "This should be a specific issue, not just a general area."
         )
 
-      return self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      return self._generate_therapist_utterance(state, instruction)
 
     # Ready to move on to id_distortions
     if ready:

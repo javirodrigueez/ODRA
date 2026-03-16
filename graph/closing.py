@@ -26,12 +26,7 @@ class ClosingStageMixin:
     return self._require_non_empty_string(payload, "next_session_plan", "next_session_plan_generation")
 
   def _generate_closing_utterance(self, state: SessionState, instruction: str) -> str:
-    return self.therapist.generate_utterance(
-      conversation=self._format_conversation(state["messages"]),
-      current_stage=state["current_stage"],
-      session_context=self._build_session_context(state),
-      instruction=instruction,
-    )
+    return self._generate_therapist_utterance(state, instruction)
 
   def _handle_closing(self, state: SessionState, traces: list[dict]) -> str:
     current_substage = state["current_substage"]

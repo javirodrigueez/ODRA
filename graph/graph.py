@@ -37,6 +37,7 @@ class TherapyGraphBuilder(
     if stage == "opening":
       return self._handle_opening(state, traces)
     if stage == "id_distortions":
+      #raise ConversationProcessingError("just trying...") #devlog
       return self._handle_id_distortions(state, traces)
     if stage == "cbt_technique":
       return self._handle_cbt_technique(state, traces)

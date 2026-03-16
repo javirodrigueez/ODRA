@@ -84,7 +84,7 @@ class GraphSupportMixin:
 
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.95, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
+    mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
     return mapping.get(attitude, 0.55)
 
   def _is_error_trace(self, trace: Any) -> bool:
@@ -112,7 +112,7 @@ class GraphSupportMixin:
 
     base_resistance = self._initial_resistance()
     s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.95, 0.0, 1.0) #devlog
+    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog 0.95 should be 0.55
     s.setdefault("patient_profile", deepcopy(self.profile))
 
     s.setdefault("opening_patient_mood", "")
@@ -212,6 +212,26 @@ class GraphSupportMixin:
       "exchange_counts": state["exchange_counts"],
     }
     return json.dumps(summary, ensure_ascii=True)
+
+  def _instruction_with_previous_reasoning(self, state: SessionState, instruction: str) -> str:
+    text = ensure_str(instruction)
+    previous_reasoning = ensure_str(state.get("last_reasoning"))
+    if not previous_reasoning:
+      return text
+
+    return (
+      f"{text} "
+      f"Keep your response aligned with therapist reasoning towards last patient response: {previous_reasoning}.\n"
+      f"Don't repeat yourself with respect to last utterance. This was your last utterance: {state['messages'][-2]['content'] if state['messages'] else '(no messages yet)'}."
+    )
+
+  def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
+    return self.therapist.generate_utterance(
+      conversation=self._format_conversation(state["messages"]),
+      current_stage=state["current_stage"],
+      session_context=self._build_session_context(state),
+      instruction=self._instruction_with_previous_reasoning(state, instruction),
+    )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict]) -> None:
     state["reasoning_traces"].append(
@@ -377,6 +397,10 @@ class GraphSupportMixin:
       print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
     except StructuredOutputError as exc:
       raise ConversationProcessingError(f"{step_name} failed: {exc}") from exc
+    if isinstance(parsed, dict):
+      reasoning = ensure_str(parsed.get("reasoning"))
+      if reasoning:
+        state["last_reasoning"] = reasoning
     self._trace_structured_step(traces, step_name, instruction, parsed)
     return parsed
 
@@ -422,7 +446,7 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
-    print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog
+    print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog TODO: add R graph implementation
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

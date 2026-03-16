@@ -157,12 +157,7 @@ class CognitiveStageMixin:
       )
 
     # Plan generation
-    plan = self.therapist.generate_utterance(
-      conversation=self._format_conversation(state["messages"]),
-      current_stage=state["current_stage"],
-      session_context=self._build_session_context(state),
-      instruction=instruction,
-    )
+    plan = self._generate_therapist_utterance(state, instruction)
     traces.append({"step": "cognitive_gap_planning", "input": instruction, "output": ensure_str(plan)})
     return plan, ordered_targets[0]
 
@@ -175,12 +170,7 @@ class CognitiveStageMixin:
       f"Therapist plan: {plan}. "
       "Ask one concise, natural question that advances the next planned step and focuses only on the current target."
     )
-    utterance = self.therapist.generate_utterance(
-      conversation=self._format_conversation(state["messages"]),
-      current_stage=state["current_stage"],
-      session_context=self._build_session_context(state),
-      instruction=instruction,
-    )
+    utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
 
   def _planning_and_asking(self, state: SessionState, traces: list[dict], last_patient: str = "") -> Optional[str]:

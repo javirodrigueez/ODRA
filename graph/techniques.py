@@ -21,6 +21,7 @@ class TechniqueStageMixin:
       "Given the conversation context, cognitive model sets, and identified distortions, choose up to 3 CBT techniques. "
       "You must select only from the following catalog and you must preserve the technique names exactly as written.\n"
       f"{formatted_catalog}\n"
+      "Techniques conducted should be able to be completed within the session, discard homework-based techniques for now as homework will be assigned separately."
       'Respond JSON: {"selected_techniques": [{"name":"...", "target_distortion":"...", "rationale":"..."}]}'
     )
     parsed = self._run_therapist_structured(state, traces, "technique_selection", instruction)
@@ -81,6 +82,9 @@ class TechniqueStageMixin:
   def _evaluate_technique_completion(self, state: SessionState, traces: list[dict]) -> bool:
     if not state["current_technique_plan"]:
       return False
+    current = self._current_technique(state)
+    if current is None:
+      raise ConversationProcessingError("Current CBT technique could not be resolved.")
     max_technique_turns = state["technique_turn_count"] >= 12
     
     if max_technique_turns:
@@ -93,8 +97,16 @@ class TechniqueStageMixin:
       )
       return True
     
-    instruction = (
-      "Based on the technique plan and conversation, can be current technique marked as complete? "
+    instruction = ( #TODO: Check if now evaluating current technique dont mix info with previous technique
+      f'The technique currently in progress is "{current["name"]}". '
+      "Evaluate only this in-progress technique. Do not evaluate any previously completed technique or any other technique mentioned in the conversation. "
+      f'Technique rationale: {ensure_str(current.get("rationale"))}. '
+      f'Target distortion: {ensure_str(current.get("target_distortion")) or "not explicitly specified"}. '
+      f'Current technique plan: {state["current_technique_plan"]}. '
+      f'Expected outcome for this technique: {state["current_technique_expected_outcome"]}. '
+      f'Technique turn count so far: {state["technique_turn_count"]}. '
+      "Based on this in-progress technique and the conversation, can this current technique now be marked as complete? "
+      #f'If your reasoning refers to any technique other than "{current["name"]}", it is incorrect and must be revised to focus only on "{current["name"]}". '
       'Respond JSON: {"completed": true/false, "reasoning":"..."}'
     )
     parsed = self._run_therapist_structured(state, traces, "technique_completion_check", instruction)
@@ -307,12 +319,7 @@ class TechniqueStageMixin:
         "The utterance must be aligned with the plan, directly address the patient's problems, and feel like a natural CBT intervention. "
         "Do not describe the plan abstractly and do not list steps; say only the next therapist utterance."
       )
-      utterance =  self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      utterance = self._generate_therapist_utterance(state, instruction)
       state["current_substage"] = "cbt_review_current"
       current_substage = state["current_substage"]
       return utterance

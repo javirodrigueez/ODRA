@@ -126,15 +126,10 @@ class MIStageMixin:
       state["last_mi_predicted_resistance"] = current_pred
       instruction = (
         f'You are doing motivational interviewing topic exploration. Focus on the topic "{topic}". '
-        "Generate only the therapist's next utterance. It should feel natural, empathic, and fully written by the therapist model. "
-        "Use the conversation and session context to explore how the patient's current struggle affects this topic area, without sounding templated."
+        "Use the conversation and session context to explore how the patient's current struggle affects this topic area, without sounding templated. ",
+        "This utterance should be designed to elicit the patient's own motivations for change related to this topic and to gently challenge their resistance. "
       )
-      return self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      return self._generate_therapist_utterance(state, instruction)
 
     raise ConversationProcessingError(f"Unexpected MI topic substage: {current_substage}")
 
@@ -159,10 +154,6 @@ class MIStageMixin:
       parsed = self._run_therapist_structured(state, traces, "mi_technique_selection", instruction)
       payload = self._require_dict(parsed, "mi_technique_selection")
       technique = self._require_non_empty_string(payload, "technique", "mi_technique_selection")
-      if technique not in MI_TECHNIQUES:
-        raise ConversationProcessingError(
-          f"mi_technique_selection.technique must be one of {MI_TECHNIQUES}, got {technique!r}."
-        )
       state["mi_techniques_used"].append(technique)
       self._set_substage(state, "mi_raise_technique")
       current_substage = state["current_substage"]
@@ -172,15 +163,9 @@ class MIStageMixin:
       technique = state["mi_techniques_used"][-1]
       instruction = (
         f'You are doing motivational interviewing using the technique "{technique}". '
-        "Generate only the therapist's next utterance. It should be fully written by the therapist model, feel natural and empathic, "
-        "and apply that MI technique to the patient's current resistance and problems using the conversation and session context."
+        "Generate a therapist utterance that applies this technique to the patient's current resistance and problems, using the conversation and session context. "
       )
-      return self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      return self._generate_therapist_utterance(state, instruction)
 
     raise ConversationProcessingError(f"Unexpected MI technique substage: {current_substage}")
 
@@ -193,7 +178,7 @@ class MIStageMixin:
       return "mi_meta_adjust"
     return "mi_meta_close"
 
-  def _handle_meta_conversation(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_meta_conversation(self, state: SessionState, traces: list[dict]) -> str:  #TODO: LLM dynamism
     turns = state["meta_conversation_turns"]
     if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "anticipated_closing")

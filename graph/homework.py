@@ -110,12 +110,7 @@ class HomeworkStageMixin:
         f"Proposed task: {format_task_str}"
       )
 
-      utterance =  self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      utterance = self._generate_therapist_utterance(state, instruction)
 
       return utterance
 
@@ -129,12 +124,7 @@ class HomeworkStageMixin:
         f"The last reasoning was: {state['hw_reasoning']}. ",
         "Previously in the convesation the therapist could have already proposed homework tasks, and the patient could have accepted or rejected them. Use this history to inform your proposal. If patient has already agreed, mention briefly the task to avoid repetition. If not, propose the task putting focus on emphasizing its relevance and benefits."
       )
-      utterance = self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      utterance = self._generate_therapist_utterance(state, instruction)
 
       state["homework_waiting_for_patient"] = True
 
@@ -145,12 +135,7 @@ class HomeworkStageMixin:
         "Independently of homework agreement, generate a therapist utterance that acknowledges the patient's stance and smoothly transitions toward closing, based on conversation context.",
         "If homework agreement was not reached, remember the importance of engaging with the treatment to make real progress."
       )
-      utterance = self.therapist.generate_utterance(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
-        instruction=instruction,
-      )
+      utterance = self._generate_therapist_utterance(state, instruction)
 
       return utterance
 
