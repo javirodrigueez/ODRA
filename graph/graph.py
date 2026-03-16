@@ -53,7 +53,7 @@ class TherapyGraphBuilder(
     if stage == "anticipated_closing":
       return self._handle_anticipated_closing(state, traces)
     if stage == "forced_closing":
-      return self._handle_forced_closing(state, traces)
+      return self._handle_forced_closing(state, traces) #TODO: review it
     self._set_stage(state, "opening")
     return self._handle_opening(state, traces)
 

@@ -84,7 +84,7 @@ class GraphSupportMixin:
 
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35}
+    mapping = {"negative": 0.90, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
     return mapping.get(attitude, 0.55)
 
   def _is_error_trace(self, trace: Any) -> bool:

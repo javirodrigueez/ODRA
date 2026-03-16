@@ -56,6 +56,7 @@ class OpeningStageMixin:
         "This is the first utterance of the therapy session. Begin the session with an open and empathetic greeting. "
         "It should be brief, for example: Hello, glad to meet you, or Hi, how are you doing?"
       )
+      state["current_substage"] = ""
       return self.therapist.generate_utterance(
         conversation=[],
         current_stage=state["current_stage"],
@@ -65,13 +66,13 @@ class OpeningStageMixin:
 
     ready = self._check_readiness(state, traces)
     current_substage = state["current_substage"]
-    force_mi = opening_exchanges >= 20 and not ready
+    force_mi = opening_exchanges >= 10 and not ready
 
     # Patient doesn't cooperates, force MI
     if force_mi:
       state["opening_fallback_triggered"] = True
       state["cbt_resume_stage"] = "id_distortions"
-      self._enter_mi(state, "mi_topic_exploration", "id_distortions", "Opening fallback after 20 exchanges")
+      self._enter_mi(state, "mi_topic_exploration", "id_distortions", "Opening fallback after 10 exchanges")
       return self._handle_stage_dispatch(state, traces)
 
     # Not ready to continue to id_distortions
@@ -86,10 +87,7 @@ class OpeningStageMixin:
           "Based on the conversation so far, ask the patient a question to clarify the specific problem they want to work on. "
           "This should be a specific issue, not just a general area."
         )
-      else:
-        instruction = (
-          "Based on the conversation so far, ask one open question that helps the patient describe what brought them here today."
-        )
+
       return self.therapist.generate_utterance(
         conversation=self._format_conversation(state["messages"]),
         current_stage=state["current_stage"],

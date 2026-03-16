@@ -123,40 +123,48 @@ graph LR
 
     EndCBT --> HWStart
 
-    %% 4. HOMEWORK (Updated matching Python logic)
+    %% 4. HOMEWORK
     subgraph Stage4 [4. Homework]
         HWStart{Determine Substage}:::logic
         
-        %% Proposal Flow
-        HWStart --> ProposeHW[Tasks Proposal]
-        ProposeHW --> PatRespHW[Patient Responds]
+        HWStart -- "Propose Tasks" --> ProposeHW[Propose 1-2 Tasks & Increment Attempts]
+        ProposeHW --> DeliverHW[Deliver Proposal Utterance]
+        DeliverHW --> PatRespHW[Patient Responds]
         
-        %% Review Flow
-        PatRespHW --> CheckHW{Agreement Reached?}:::logic
+        PatRespHW --> ReviewHW[Review Response]
+        ReviewHW --> CheckHW{Agreement Reached?}:::logic
         
-        %% Branching from Review
         CheckHW -- No --> CheckAttempts{Attempts >= 5?}:::logic
         CheckAttempts -- No --> HWStart
         
-        %% Fallback Flow
-        CheckAttempts -- Yes --> ApplyFallback[Propose Minimal Fallback Task]
-        ApplyFallback --> PatRespFallback[Patient Responds]
+        CheckAttempts -- Yes --> ApplyFallback[Apply Minimal Fallback Task]
+        ApplyFallback --> DeliverFallback[Deliver Fallback Utterance]
+        DeliverFallback --> PatRespFallback[Patient Responds]
         PatRespFallback --> EndFallback[Acknowledge Stance & Transition]
     end
 
     %% Transition to Closing
-    CheckHW -- Yes --> ClosingStart
-    EndFallback --> ClosingStart
+    CheckHW -- Yes --> ShareSummary
+    EndFallback --> ShareSummary
 
-    %% 5. CLOSING
+    %% 5. CLOSING (Updated matching Python logic)
     subgraph Stage5 [5. Closing]
-        ClosingStart[Summarize Session] --> NextPlan[Propose Next Plan]
-        NextPlan --> CheckPlan{Agreement?}:::logic
-        CheckPlan -- Yes --> AskFB[Request Feedback]
-        CheckPlan -- No --> NextPlan
+        %% Phase 1: Summary
+        ShareSummary[Session Summary] --> SharePlan[Next Session Plan]
+        
+        %% Phase 2: Plan Discussion
+        SharePlan --> ReviewPlan{Plan Agreed or Refinements >= 10?}:::logic
+        
+        %% Phase 3: Plan Refinement Loop
+        ReviewPlan -- No --> RevisePlan[Plan Refinement]
+        RevisePlan --> ReviewPlan
+        
+        %% Phase 4: Feedback & Final Close
+        ReviewPlan -- Yes --> AskFB[Ask for Feedback]
+        AskFB --> FinalClose[Final Closing]
     end
 
-    AskFB --> End((End Session)):::terminal
+    FinalClose --> End((End Session)):::terminal
 
     %% Apply Classes
     class Stage1,Stage2,Stage3,Stage4,Stage5 cbtStage;
