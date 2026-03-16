@@ -106,6 +106,7 @@ class SessionState(TypedDict, total=False):
 
   opening_patient_mood: str
   opening_patient_problem: str
+  last_reasoning: str
 
   cognitive_model_sets: list[dict]
   working_cognitive_set: dict

@@ -9,7 +9,7 @@ from .state import SessionState
 class OpeningStageMixin:
   def _check_readiness(self, state: SessionState, traces: list[dict]) -> bool:
     instruction = (
-      f"Based on the last patient response, the current saved mood='{state['opening_patient_mood']}' "
+      f"Based on the last patient response='{state['messages'][-1]['content']}', the current saved mood='{state['opening_patient_mood']}' "
       f"and problem='{state['opening_patient_problem']}', can the patient's mood/problem be updated based on the new information? "
       "If so, provide the updated mood and/or problem. If not, respond with the current values. "
       'Respond JSON: {"mood":"...", "problem":"..."}'
@@ -31,11 +31,12 @@ class OpeningStageMixin:
       "If both fields are issues, begin exploring the patient's mood. Include a reasoning field to explain your decision. "
       "The specific problem should be concrete, for example: the relationship with my family is degraded because of drug consumption, "
       "not just a general area like stress or anxiety. "
-      'Respond JSON: {"ready": true/false, "issue": "mood/problem", "mood": "...", "problem": "...", "reasoning":"..."}'
+      'Respond JSON: {"ready": true/false, "issue": "mood/problem", "reasoning":"..."}'
     )
     readiness = self._run_therapist_structured(state, traces, "opening_readiness_check", instruction)
     payload = self._require_dict(readiness, "opening_readiness_check")
     ready = self._require_bool(payload, "ready", "opening_readiness_check")
+    state["last_reasoning"] = ensure_str(payload.get("reasoning", ""))
     issue = ensure_str(payload.get("issue", ""))
     if issue == "problem":
       state["current_substage"] = "open_problem"
@@ -66,7 +67,7 @@ class OpeningStageMixin:
 
     ready = self._check_readiness(state, traces)
     current_substage = state["current_substage"]
-    force_mi = opening_exchanges >= 10 and not ready
+    force_mi = opening_exchanges >= 3 and not ready #devlog
 
     # Patient doesn't cooperates, force MI
     if force_mi:
@@ -77,15 +78,18 @@ class OpeningStageMixin:
 
     # Not ready to continue to id_distortions
     if not ready:
+      readiness_reasoning = state["last_reasoning"]
       if current_substage == "open_mood":
         instruction = (
-          "Based on the conversation so far, ask the patient a question to understand their current mood. "
-          "This is the mood check of a standard CBT session."
+          "Based on the conversation so far and the reasoning about last exchange, ask the patient a question to understand their current mood. "
+          "This is the mood check of a standard CBT session. "
+          f"Reasoning from the readiness check: {readiness_reasoning}"
         )
       elif current_substage == "open_problem":
         instruction = (
-          "Based on the conversation so far, ask the patient a question to clarify the specific problem they want to work on. "
-          "This should be a specific issue, not just a general area."
+          "Based on the conversation so far and the reasoning about last exchange, ask the patient a question to clarify the specific problem they want to work on. "
+          "This should be a specific issue, not just a general area. "
+          f"Reasoning from the readiness check: {readiness_reasoning}"
         )
 
       return self.therapist.generate_utterance(

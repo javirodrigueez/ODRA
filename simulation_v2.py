@@ -72,7 +72,7 @@ def run_simulation(
       for chunk in chain.stream(initial_state, stream_mode="values"):
         messages = chunk.get("messages", [])
         for msg in messages[last_msg_count:]:
-          print(f'  {msg["role"].capitalize()}: {msg["content"]}')
+          print(f'    {msg["role"].capitalize()}: {msg["content"]}')
         last_msg_count = len(messages)
         result = chunk
       if result.get("conversation_error"):

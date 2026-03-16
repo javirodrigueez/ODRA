@@ -84,7 +84,7 @@ class GraphSupportMixin:
 
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.90, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
+    mapping = {"negative": 0.95, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
     return mapping.get(attitude, 0.55)
 
   def _is_error_trace(self, trace: Any) -> bool:
@@ -112,11 +112,12 @@ class GraphSupportMixin:
 
     base_resistance = self._initial_resistance()
     s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0)
+    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.95, 0.0, 1.0) #devlog
     s.setdefault("patient_profile", deepcopy(self.profile))
 
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
+    s.setdefault("last_reasoning", "")
 
     s.setdefault("cognitive_model_sets", [])
     s.setdefault("working_cognitive_set", self._new_cognitive_set(len(s["cognitive_model_sets"]) + 1))
@@ -421,6 +422,7 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
+    print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

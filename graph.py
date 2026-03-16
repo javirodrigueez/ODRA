@@ -585,7 +585,6 @@ class TherapyGraphBuilder:
       'Respond JSON: {"r_change": 0.0, "reasoning":"..."}'
     )
     parsed = self._run_therapist_structured(state, traces, "resistance_prediction", instruction)
-    #print(f"  <think_ther>{parsed}</think_ther>") #devlog
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(
       payload,
@@ -664,7 +663,6 @@ class TherapyGraphBuilder:
       "Respond JSON: {'mood': '...', 'problem': '...'}"
     )
     update = self._run_therapist_structured(state, traces, "opening_info_update", instruction)
-    #print(f"  <think_ther>{update}</think_ther>") #devlog
     update_payload = self._require_dict(update, "opening_info_update")
     updated_mood = ensure_str(update_payload.get("mood", state["opening_patient_mood"]))
     updated_problem = ensure_str(update_payload.get("problem", state["opening_patient_problem"]))
@@ -682,7 +680,6 @@ class TherapyGraphBuilder:
       'Respond JSON: {"ready": true/false, "issue": "mood/problem", "mood": "...", "problem": "...", "reasoning":"..."}'
     )
     readiness = self._run_therapist_structured(state, traces, "opening_readiness_check", instruction)
-    print(f"  <think_ther>{readiness}</think_ther>") #devlog
     payload = self._require_dict(readiness, "opening_readiness_check")
     ready = self._require_bool(payload, "ready", "opening_readiness_check")
     issue = ensure_str(payload.get("issue", ""))
@@ -956,7 +953,6 @@ class TherapyGraphBuilder:
         'Respond JSON: {"answered_satisfactorily": true/false, "identified_items":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "needs_follow_up": true/false, "follow_up_question":"...", "uncertain_summary":"...", "best_guess":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "reasoning":"..."}'
       )
       reviewed = self._run_therapist_structured(state, traces, "cognitive_gap_response_review", instruction)
-      print(f"  <think_ther>{reviewed}</think_ther>") #devlog
       payload = self._require_dict(reviewed, "cognitive_gap_response_review")
       self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
 
@@ -992,7 +988,6 @@ class TherapyGraphBuilder:
     # Generate a new planned utterance when there is no active question currently queued.
     if not next_question or not next_target:
       plan, next_target = self._plan_cognitive_gaps(state, traces)
-      print(f"  <think_ther>plan: {plan}, next_target: {next_target}</think_ther>") #devlog
       state["cognitive_gap_plan"] = plan
       next_question = self._generate_cognitive_gap_utterance(state, plan, next_target)
       # Reset counters when the planner selects a different cognitive target.
@@ -1017,7 +1012,6 @@ class TherapyGraphBuilder:
       "initial_cognitive_model_bootstrap",
       instruction,
     )
-    print(f"  <think_ther>{parsed}</think_ther>") #devlog
     payload = self._require_dict(parsed, "initial_cognitive_model_bootstrap")
     filled_items = payload.get("items", {})
     if not isinstance(filled_items, dict):
