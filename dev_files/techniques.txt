@@ -1,0 +1,128 @@
+--> Therapist: Hi! How are you doing today?
+
+--> Patient: Hey. I'm... okay, I guess. Just here.
+
+--> Therapist: "Okay, I guess" can cover a lot of ground. To help me understand a bit better, could you describe your mood right now in a word or two?
+
+--> Patient: Uh, mood? I'd say... flat. Just kind of flat. Like nothing's really good or bad, it's just there.
+
+--> Therapist: So, when you say "flat," it sounds like a lack of feeling or engagement. To help us focus, can you tell me about a specific situation or area in your life right now where this "flatness" feels most present or causes the most difficulty?
+
+--> Patient: Yeah, flat. It's... I don't know. It's like at work, mostly. The line, the noise, the same thing every day. It just feels pointless.
+
+--> Therapist: You mentioned work feels pointless. Can you tell me about a specific moment this week when that feeling of pointlessness was strongest?
+
+--> Patient: Yeah, work. It was... Tuesday, I think. I was tightening the same bolt on the same panel for the hundredth time that day, and I just looked down the line. It's endless. It doesn't matter if I do it or not, the car moves on. Just felt like I wasn't even there.
+
+--> Therapist: That's a powerful image—feeling invisible on the assembly line. To make sure we're focusing on the right thing, can you tell me what specific problem this "flatness" or pointlessness at work is causing for you? For example, is it making it hard to concentrate, affecting your relationships there, or maybe draining your energy for things you used to enjoy outside of work?
+
+--> Patient: Yeah, I guess it's mostly the energy thing. I come home from the line and I'm just... empty. My roommate will ask if I want to watch a game or something, and I just go to my room. It's like I have nothing left for anything else.
+
+--> Therapist: So, if we were to focus on one specific problem to work on today, would it be the feeling of emptiness and disconnection you experience after work that stops you from engaging with your roommate or other activities?
+
+--> Patient: Yeah, that's it. It's like I'm a battery that's just dead by the end of the day. I don't even want to be around people.
+
+--> Therapist: So, can you walk me through what happened last night, from the moment you got home?
+
+--> Patient: Got home, same as always. Took off my boots, put my lunchbox by the sink. My roommate, Mark, was on the couch. He said they ordered pizza, asked if I wanted a slice. I just said I wasn't hungry and went to my room. Closed the door. Just sat on the bed for a while, staring at the wall.
+
+--> Therapist: When Mark offered you the pizza and you decided to go to your room, what thoughts went through your mind in that moment?
+
+--> Patient: Just... that I should say yes. That I was being rude. That he probably thinks I'm a downer. But I didn't want to force a conversation or pretend to be interested. It's easier to just be alone.
+
+--> Therapist: So, when you were sitting on your bed after closing the door, what were you feeling emotionally in that moment?
+
+--> Patient: Just tired, I guess. And... kind of guilty. Like I'm letting him down by not being a better friend. But also just numb. Like the feeling from work followed me home and now I'm just a shell.
+
+--> Therapist: Can you think of a time outside of work, maybe this past weekend, when you felt that same "dead battery" feeling?
+
+--> Patient: Yeah, Saturday. I was supposed to go to a barbecue at my cousin's. I got up, got dressed, and then just... couldn't. Sat on the couch for an hour. Texted him that I wasn't feeling well. Spent the rest of the day just flipping through channels. Same dead feeling.
+
+--> Therapist: So, let's focus on that Saturday. You got up and got dressed, ready to go, and then you just couldn't. In that moment, when you decided not to go, what was going through your mind? What were you saying to yourself?
+
+--> Patient: Just... that I shouldn't have to force it. That everyone there would be having a real conversation and I'd just be sitting there, not knowing what to say. That I'd be the boring guy who brings the mood down. So what's the point?
+
+--> Therapist: Can you tell me about a specific moment this morning, or maybe yesterday, when you felt that "dead battery" feeling outside of work or home?
+
+--> Patient: This morning, on the drive in. I was stuck in traffic, and I saw a guy in the next car just... laughing, talking on the phone. And I just felt nothing. Just that same flat, dead feeling. Like I'm watching life happen from inside a glass box.
+
+--> Therapist: Can you think of a time in the last day or two, maybe when you were alone like eating breakfast or getting ready for bed, when you felt that same "dead battery" feeling?
+
+--> Patient: Yeah, last night. After I went to my room, I just sat there. I could hear Mark and his friend laughing in the living room. I just felt... separate. Like I was in a different world. Same feeling.
+
+--> Therapist: So, when you were sitting in your room last night, hearing the laughter from the living room, what was going through your mind in that moment? What were you saying to yourself?
+
+--> Patient: Just... that they're having a real moment, and I'm not part of it. That I wouldn't know what to say if I went out there. That I'd just kill the vibe. So it's better for everyone if I stay in here.
+
+--> Therapist: Let's take one of those predictions you mentioned, like the thought from Saturday: "I'd be the boring guy who brings the mood down." Can you tell me, what was the evidence you had in that moment that made that thought seem true?
+
+--> Patient: I guess... I just always feel like that in groups. Like at the last family thing I went to, I mostly just listened. I didn't have any big stories to tell. So I figured, if I go, I'll just be quiet again. That's boring, right? So why would they want me there?
+
+--> Therapist: You mentioned that at the last family gathering, you mostly listened and didn't have big stories to tell. Let's look at that evidence for the thought "I'd be the boring guy who brings the mood down." Does feeling quiet or not having a big story automatically mean you brought the mood down?
+
+--> Patient: I guess not. But it feels like it. If you're not adding anything, you're just taking up space.
+
+--> Therapist: That's a really important thought to examine: "If you're not adding anything, you're just taking up space." Let's look at that. What does "adding something" mean to you in a social situation? Does it only mean telling stories or being the center of the conversation, or could listening, being present, or simply showing up for someone also be a form of adding value?
+
+--> Patient: I guess... it means being interesting. Having something to say. Not just sitting there like a lump. Listening is fine, but if that's all you do, you're not really participating. You're just... there.
+
+--> Therapist: So, let's take that thought you had on Saturday, "I'd be the boring guy who brings the mood down," and the belief that "If you're not adding anything, you're just taking up space." Let's treat these as hypotheses we can test. First, what are the facts or experiences that make that prediction—that you'd be boring and kill the vibe—seem true to you?
+
+--> Patient: The facts? I guess... I don't have a lot of friends. I don't get invited out much. And when I do go, like to that family thing, I don't leave feeling like I had a good time. I just feel drained and like I was just... there. So it seems true because that's what always happens. I go, I'm quiet, I leave. That's the pattern.
+
+--> Therapist: I can see how those experiences make the thought feel true—it's a pattern you've noticed. Now, let's put that thought on trial and look for evidence on the other side. What are some facts or experiences that might *not* support the idea that you're a boring burden?
+
+--> Patient: I don't know. I guess... sometimes Mark will still ask me to hang out, even after I've said no a bunch of times. That doesn't really fit, does it? If I was such a burden, he'd probably stop trying. And... at that family thing, my aunt did ask me about my job. She listened. I guess that means she thought I was worth talking to, even if I didn't have a big story.
+
+--> Therapist: That's a really important observation. Mark keeps inviting you, and your aunt showed genuine interest. Let's look a little closer at what that might mean. What does it tell you that Mark continues to ask, even after you've said no a few times? What might that say about how he sees you or what he values about your company?
+
+--> Patient: I guess it means he doesn't see me as a total burden. Maybe he just... wants me around. Or he's just being polite. It's hard to tell.
+
+--> Therapist: You mentioned it's hard to tell if Mark is just being polite or genuinely wants you around. What would be a sign, to you, that it was genuine? Has he ever given you a sign like that?
+
+--> Patient: I don't know. I guess he's never said anything like, "I really need you there" or anything. But... he does remember things. Like last month, he got the kind of chips I like without me asking. That felt... nice. Like he was thinking about me.
+
+--> Therapist: That's a really important observation—Mark remembering the chips you like. Let's look at that specific action. What does it tell you about his intentions? Does that feel more like a polite gesture to you, or does it feel like a sign of genuine care and attention?
+
+--> Patient: I guess it felt genuine. Like he was paying attention. It wasn't a big thing, but it was... thoughtful.
+
+--> Therapist: So, if that felt genuine, what does that tell you about how Mark sees you? Does it fit with the idea that you're a burden or that he just wants you around?
+
+--> Patient: I guess it doesn't fit. If he thought I was a burden, he probably wouldn't bother with little things like that. So maybe he does just... want me around. But that's just him. It doesn't mean I'm not boring in general.
+
+--> Therapist: You said, "That's just him." What makes you think the evidence from Mark doesn't apply more broadly? Is it possible that other people might also see you in a similar, non-burdening way, even if they show it differently?
+
+--> Patient: Maybe. I don't know. It's just... easier to think it's just him. If I assume other people feel the same way, and then they don't, that's worse. It's safer to just expect the worst.
+
+--> Therapist: You said it's safer to expect the worst. That makes sense—it protects you from disappointment. But what's the cost of that safety? How does expecting the worst affect your mood, your energy, and your actions, like going to your room or skipping the barbecue?
+
+--> Patient: It makes me feel worse, honestly. It makes me feel lonely. And tired. And then I just... don't do anything. So I guess the cost is that I end up alone in my room, feeling guilty.
+
+--> Therapist: So, expecting the worst does protect you from potential disappointment, but the cost is feeling lonely, tired, and guilty, and it leads to you being alone. That's a high price. You mentioned Mark's actions feel genuine and thoughtful. If we take that evidence seriously, what would a more balanced thought be? Instead of 'I'm a boring burden,' could it be 'Sometimes I feel like a burden, but there's evidence that at least one person finds my company worthwhile'? Can you put that in your own words?
+
+--> Patient: I guess a more balanced thought would be... "I feel like a burden sometimes, but Mark's actions show he cares, so maybe I'm not a total burden to everyone."
+
+--> Therapist: That's a great balanced thought you've developed. Now, to really put it to the test, what if we designed a small experiment? For example, what if you agreed to join Mark for just 15 minutes the next time he's watching a game or eating pizza?
+
+--> Patient: I guess I could try that. Just for 15 minutes. But what if I go out there and I just sit there and don't say anything? Then it'll just be awkward and prove my point.
+
+--> Therapist: That's a great point to bring up—it's exactly what we want to test. So, let's define "awkward" together. If you did go out and sit quietly for 15 minutes, what specific things would you be looking for that would tell you it's awkward?
+
+--> Patient: I guess I'd be looking for him to stop talking, or for there to be long silences. Or for him to look uncomfortable, like he's trying to think of something to say to me. If he just kept watching the game and didn't even acknowledge I was there, that would feel awkward too.
+
+--> Therapist: Perfect. So we have a clear list of what "awkward" would look like: long silences, Mark stopping talking, him looking uncomfortable, or him not acknowledging you at all. Now, to make this a real experiment, let's decide exactly what you'll do to test this. The next time Mark is in the living room watching a game or eating, you'll join him for 15 minutes. While you're there, what specific things could you observe to see if your "awkward" prediction comes true? For example, could you notice if he says hello, if he offers you something, or if the conversation flows naturally?
+
+--> Patient: I guess I could just... go out and sit down. And then I could watch for those things. Like, does he say hi? Does he offer me a slice of pizza or a drink? Does he try to include me in what he's watching or talking about? Or does he just ignore me and the conversation dies?
+
+--> Therapist: Excellent. You've already started defining what "awkward" would look like, which is exactly what we need. So, for our experiment, let's finalize that list. You'll join Mark for 15 minutes, and you'll be a scientist observing for these specific signs: long silences, him stopping talking, him looking uncomfortable, or him not acknowledging you at all. Now, let's also decide what you'll be looking for that would suggest it's *not* awkward. What would be a sign, even a small one, that your presence is okay or even welcome?
+
+--> Patient: I guess a sign it's not awkward would be if he just... keeps doing what he's doing, but maybe smiles or nods when I sit down. Or if he asks a simple question, like "How was work?" and then just lets it be. If the TV is on and we're both just watching, that's not really awkward either. It's just... being in the same room.
+
+--> Therapist: That's a great start. You've identified clear signs for both outcomes. So, to finalize our experiment, let's agree on the specifics. The trigger is: the next time Mark is in the living room watching a game or eating. You'll go out and join him for 15 minutes. What's the simplest first thing you'll do when you walk out?
+
+--> Patient: I guess I'd just say "Hey" and sit down on the other end of the couch.
+
+--> Therapist: Perfect. So we have a clear list of what "awkward" would look like: long silences, Mark stopping talking, him looking uncomfortable, or him not acknowledging you at all. And we have signs it's *not* awkward: him smiling or nodding, asking a simple question, or you both just watching TV comfortably. Now, let's lock in the plan. The next time Mark is in the living room watching a game or eating, you'll go out, say "Hey," and sit down for 15 minutes. While you're there, you'll be a scientist observing for those specific signs. Does that sound like a plan you're willing to try?
+
+--> Patient: Yeah, okay. I can try that. Just 15 minutes. And I'll watch for those things.
+
