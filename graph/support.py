@@ -48,6 +48,23 @@ class GraphSupportMixin:
       for name, description in data.items()
       if ensure_str(name)
     }
+  
+  def _load_mi_techniques(self) -> dict[str, str]:
+    techniques_path = self._project_root() / "data" / "knowledge" / "mi_techniques.json"
+    if not techniques_path.exists():
+      raise ConversationProcessingError(f"Missing MI techniques file: {techniques_path}")
+    try:
+      with open(techniques_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    except Exception as exc:
+      raise ConversationProcessingError(f"Failed to load MI techniques from {techniques_path}: {exc}") from exc
+    if not isinstance(data, dict):
+      raise ConversationProcessingError(f"MI Techniques file must contain a JSON object: {techniques_path}")
+    return {
+      ensure_str(name): ensure_str(description)
+      for name, description in data.items()
+      if ensure_str(name)
+    }
 
   def _load_distortions(self) -> dict:
     distortions_path = self._project_root() / "data" / "knowledge" / "cognitive_distortions.json"

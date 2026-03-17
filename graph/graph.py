@@ -31,6 +31,7 @@ class TherapyGraphBuilder(
     self.profile = profile
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
+    self.mi_techniques = self._load_mi_techniques()
 
   def _handle_stage_dispatch(self, state: SessionState, traces: list[dict]) -> str:
     stage = state["current_stage"]

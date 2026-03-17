@@ -70,16 +70,6 @@ DISTORTION_KEYS = [
   "discounting_the_positive",
 ]
 MI_TOPICS = ["Health", "Economy", "Interpersonal Relationships", "Law", "Education"]
-MI_TECHNIQUES = [
-  "Open Question",
-  "Complex Reflection",
-  "Simple Reflection",
-  "Affirm",
-  "Support",
-  "Emphasize Control",
-  "Reframe",
-  "Inform",
-]
 
 DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "opening": "open_initial",

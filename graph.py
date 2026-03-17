@@ -137,6 +137,7 @@ class TherapyGraphBuilder:
     self.profile = profile
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
+    self.mi_techniques = self._load_mi_techniques()
 
   def _init_agents(self):
     therapist_llm = LLMFactory.create(self.cfg.therapist.type, self.cfg.therapist.model_id)
@@ -144,6 +145,18 @@ class TherapyGraphBuilder:
     self.therapist = TherapistAgent(therapist_llm, self.profile)
     self.patient = PatientAgent(patient_llm, self.profile)
 
+  def _load_mi_techniques(self) -> list[str]:
+    techniques_path = Path(__file__).parent / "data" / "knowledge" / "mi_techniques.json"
+    if not techniques_path.exists():
+      raise ConversationProcessingError(f"Missing MI techniques file: {techniques_path}")
+    try:
+      with open(techniques_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    except Exception as exc:
+      raise ConversationProcessingError(f"Failed to load MI techniques from {techniques_path}: {exc}") from exc
+    techniques = [ensure_str(name) for name in data.keys() if ensure_str(name)]
+    return techniques
+  
   def _load_techniques(self) -> list[str]:
     techniques_path = Path(__file__).parent / "data" / "knowledge" / "cactus_techniques.json"
     if not techniques_path.exists():

@@ -3,7 +3,7 @@ from __future__ import annotations
 from agents.interfaces import ensure_str
 
 from .support import ConversationProcessingError
-from .state import CBT_STAGES, MI_TECHNIQUES, MI_TOPICS, SessionState
+from .state import CBT_STAGES, MI_TOPICS, SessionState
 
 
 class MIStageMixin:
@@ -147,8 +147,15 @@ class MIStageMixin:
 
     # Choose the next MI communication technique.
     if current_substage == "mi_choose_technique":
+      techniques_catalog = self.mi_techniques
+      formatted_catalog = "\n".join(
+        f'- {name}: {description}'
+        for name, description in techniques_catalog.items()
+      )
       instruction = (
-        f"Choose one MI communication technique from {', '.join(MI_TECHNIQUES)} for the next utterance. "
+        f"Choose one MI communication technique from the following ones. "
+        f"{formatted_catalog} "
+        "Select the technique that best fits the patient's current resistance, mood, and conversation. "
         'Respond JSON: {"technique":"...", "reasoning":"..."}'
       )
       parsed = self._run_therapist_structured(state, traces, "mi_technique_selection", instruction)
