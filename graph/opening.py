@@ -62,7 +62,7 @@ class OpeningStageMixin:
 
     ready = self._check_readiness(state, traces)
     current_substage = state["current_substage"]
-    force_mi = opening_exchanges >= 10 and not ready #devlog
+    force_mi = opening_exchanges >= 10 and not ready
 
     # Patient doesn't cooperates, force MI
     if force_mi:

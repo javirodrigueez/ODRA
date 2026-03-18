@@ -1067,7 +1067,6 @@ class TherapyGraphBuilder:
         "core_belief_probability",
         belief_instruction,
       )
-      print(f"  <think_ther>{belief_probs}</think_ther>") #devlog
       state["working_cognitive_set"]["core_belief_probabilities"] = belief_probs
       state["working_cognitive_set"]["core_belief"] = self._best_key(belief_probs)
 
@@ -1095,7 +1094,6 @@ class TherapyGraphBuilder:
         "distortion_probability",
         distortion_instruction,
       )
-      print(f"  <think_ther>{distortion_probs}</think_ther>") #devlog
       state["working_cognitive_set"]["distortion_probabilities"] = distortion_probs
       state["working_cognitive_set"]["distortion"] = self._best_key(distortion_probs)
 
@@ -1121,7 +1119,6 @@ class TherapyGraphBuilder:
         "id_distortions_completion_check",
         need_more_instruction,
       )
-      print(f"  <think_ther>{need_more}</think_ther>") #devlog
       needs_more = self._require_bool(
         self._require_dict(need_more, "id_distortions_completion_check"),
         "needs_more",
@@ -1673,7 +1670,6 @@ class TherapyGraphBuilder:
         "resistance_update",
         update_instruction,
       )
-      #print(f"  <thinkPat>{update}</thinkPat>") #devlog
 
       payload = self._require_dict(update, "resistance_update")
       r_change = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
