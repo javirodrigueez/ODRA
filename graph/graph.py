@@ -139,10 +139,6 @@ class TherapyGraphBuilder(
       s["exchange_counts"][active_stage] = int(s["exchange_counts"].get(active_stage, 0)) + 1
       if active_stage == "cbt_technique" and s["current_technique_plan"]:
         s["technique_turn_count"] += 1
-      if active_stage == "mi_techniques":
-        s["mi_technique_turns"] += 1
-      if active_stage == "meta_conversation":
-        s["meta_conversation_turns"] += 1
 
       if s["current_stage"] in MI_STAGES or s["current_stage"] in {"anticipated_closing"}:
         s["mi_context"].append({"role": "patient", "content": utterance})

@@ -7,6 +7,18 @@ from .state import CBT_STAGES, MI_TOPICS, SessionState
 
 
 class MIStageMixin:
+  def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict], reason: str) -> None:
+    if not state["mi_techniques_paused_until_precontemplation"]:
+      return
+    state["mi_techniques_paused_until_precontemplation"] = False
+    traces.append(
+      {
+        "step": "mi_techniques_reactivated",
+        "input": "MI techniques were paused after a max-turn contemplation escape.",
+        "output": reason,
+      }
+    )
+
   def _enter_mi(self, state: SessionState, target_stage: str, resume_stage: str | None, reason: str) -> None:
     if resume_stage:
       state["cbt_resume_stage"] = resume_stage
@@ -19,10 +31,8 @@ class MIStageMixin:
       )
     self._set_stage(state, target_stage)
     state["mi_context"].append({"role": "system_note", "content": reason})
-    if target_stage == "mi_techniques":
-      state["mi_technique_turns"] = 0
-    if target_stage == "meta_conversation":
-      state["meta_conversation_turns"] = 0
+    if target_stage in {"mi_techniques", "meta_conversation"}:
+      state["exchange_counts"][target_stage] = 0
 
   def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict], note: str = "") -> None:
     instruction = (
@@ -43,8 +53,8 @@ class MIStageMixin:
       }
     )
     state["mi_active"] = False
-    state["mi_technique_turns"] = 0
-    state["meta_conversation_turns"] = 0
+    state["exchange_counts"]["mi_techniques"] = 0
+    state["exchange_counts"]["meta_conversation"] = 0
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
     self._set_stage(state, state["cbt_resume_stage"] or "id_distortions")
 
@@ -57,8 +67,14 @@ class MIStageMixin:
 
     if stage in CBT_STAGES:
       if band == "contemplation":
-        self._enter_mi(state, "mi_techniques", stage, "CBT interrupted due to contemplation-level resistance")
+        if not state["mi_techniques_paused_until_precontemplation"]:
+          self._enter_mi(state, "mi_techniques", stage, "CBT interrupted due to contemplation-level resistance")
       elif band == "precontemplation":
+        self._reactivate_mi_techniques(
+          state,
+          traces,
+          "Predicted resistance returned to precontemplation, so MI techniques can be used again.",
+        )
         self._enter_mi(state, "mi_topic_exploration", stage, "CBT interrupted due to precontemplation resistance")
       return
 
@@ -69,7 +85,7 @@ class MIStageMixin:
       if band == "action":
         self._evaluate_mi_and_resume(state, traces, note="MI reached action band")
         return
-      if state["mi_technique_turns"] >= 10:
+      if int(state["exchange_counts"].get("mi_techniques", 0)) >= 10:
         traces.append(
           {
             "step": "mi_techniques_escape",
@@ -77,6 +93,7 @@ class MIStageMixin:
             "output": "Proceeding with CBT and noting unresolved resistance.",
           }
         )
+        state["mi_techniques_paused_until_precontemplation"] = True
         self._evaluate_mi_and_resume(state, traces, note="MI reached max-turn escape condition")
       return
 
@@ -186,7 +203,7 @@ class MIStageMixin:
     return "mi_meta_close"
 
   def _handle_meta_conversation(self, state: SessionState, traces: list[dict]) -> str:  #TODO: LLM dynamism
-    turns = state["meta_conversation_turns"]
+    turns = int(state["exchange_counts"].get("meta_conversation", 0))
     if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "anticipated_closing")
       if not state["session_ended_reason"]:

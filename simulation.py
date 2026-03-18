@@ -1,10 +1,11 @@
-from graph import TherapyGraphBuilder
+from graph.graph import TherapyGraphBuilder
 import argparse
 from copy import deepcopy
 import json
 import os
 from omegaconf import OmegaConf
 from dotenv import load_dotenv
+
 
 def _load_profiles(profiles_path: str) -> list[dict]:
   if profiles_path.endswith(".jsonl"):
@@ -69,9 +70,9 @@ def run_simulation(
       print()
       last_msg_count = len(initial_state.get("messages", []))
       for chunk in chain.stream(initial_state, stream_mode="values"):
-        messages = chunk.get('messages', [])
+        messages = chunk.get("messages", [])
         for msg in messages[last_msg_count:]:
-          print(f'  {msg["role"].capitalize()}: {msg["content"]}')
+          print(f'    {msg["role"].capitalize()}: {msg["content"]}')
         last_msg_count = len(messages)
         result = chunk
       if result.get("conversation_error"):
@@ -92,20 +93,21 @@ def run_simulation(
   if output_dir:
     os.makedirs(output_dir, exist_ok=True)
     sim_idx = profile.get("idx", "unknown")
-    transcript_file = os.path.join(output_dir, f'simulation_{sim_idx}.txt')
-    json_file = os.path.join(output_dir, f'simulation_{sim_idx}.json')
-    with open(transcript_file, 'w', encoding="utf-8") as f:
-      for message in result['messages']:
+    transcript_file = os.path.join(output_dir, f"simulation_{sim_idx}.txt")
+    json_file = os.path.join(output_dir, f"simulation_{sim_idx}.json")
+    with open(transcript_file, "w", encoding="utf-8") as f:
+      for message in result["messages"]:
         f.write(f'--> {message["role"].capitalize()}: {message["content"]}\n\n')
-    with open(json_file, 'w', encoding="utf-8") as f:
+    with open(json_file, "w", encoding="utf-8") as f:
       json.dump(result, f, indent=2, ensure_ascii=True)
-    print(f'  Saved transcript: {transcript_file}')
-    print(f'  Saved state JSON: {json_file}')
+    print(f"  Saved transcript: {transcript_file}")
+    print(f"  Saved state JSON: {json_file}")
 
   if verbose and result.get("conversation_error") and not error_printed:
     print(f'ERROR: {result["conversation_error"]}')
 
   return result
+
 
 def main(cfg_path: str):
   load_dotenv()
@@ -134,14 +136,14 @@ def main(cfg_path: str):
     )
     exchanges = sum(result.get("exchange_counts", {}).values())
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
-    print(f'  Total exchanges: {exchanges}')
+    print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
     return
 
   profiles_path = cfg.patient.profiles
   profiles = _load_profiles(profiles_path)
 
-  print(f'Loaded {len(profiles)} profiles from {profiles_path}\n')
+  print(f"Loaded {len(profiles)} profiles from {profiles_path}\n")
 
   for i, profile in enumerate(profiles):
     if "idx" not in profile:
@@ -153,11 +155,12 @@ def main(cfg_path: str):
     result = run_simulation(cfg_path, profile, max_turns, min_turns, output_dir, verbose)
     exchanges = sum(result.get("exchange_counts", {}).values())
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
-    print(f'  Total exchanges: {exchanges}')
+    print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
 
+
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description='Run CBT therapy simulation')
-  parser.add_argument('--cfg', type=str, default='configs/bedrock.yaml', help='YAML configuration file.')
+  parser = argparse.ArgumentParser(description="Run CBT therapy simulation")
+  parser.add_argument("--cfg", type=str, default="configs/bedrock.yaml", help="YAML configuration file.")
   args = parser.parse_args()
   main(args.cfg)

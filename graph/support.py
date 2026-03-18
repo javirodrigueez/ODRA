@@ -153,7 +153,6 @@ class GraphSupportMixin:
     s.setdefault("techniques_completed", 0)
     s.setdefault("technique_turn_count", 0)
     s.setdefault("technique_slot_replaced", {})
-    s.setdefault("is_completed_reasoning", "")
 
     s.setdefault("mi_active", False)
     s.setdefault("mi_context", [])
@@ -161,8 +160,7 @@ class GraphSupportMixin:
     s.setdefault("cbt_resume_stage", "id_distortions")
     s.setdefault("mi_topics_tried", [])
     s.setdefault("mi_techniques_used", [])
-    s.setdefault("meta_conversation_turns", 0)
-    s.setdefault("mi_technique_turns", 0)
+    s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
 
@@ -223,6 +221,7 @@ class GraphSupportMixin:
       "mi_active": state["mi_active"],
       "mi_topics_tried": state["mi_topics_tried"],
       "mi_techniques_used": state["mi_techniques_used"][-5:],
+      "mi_techniques_paused_until_precontemplation": state["mi_techniques_paused_until_precontemplation"],
       "cbt_resume_stage": state["cbt_resume_stage"],
       "proposed_tasks": state["proposed_tasks"],
       "agreed_tasks": state["agreed_tasks"],

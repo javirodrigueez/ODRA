@@ -110,13 +110,14 @@ class TechniqueStageMixin:
       'Respond JSON: {"completed": true/false, "reasoning":"..."}'
     )
     parsed = self._run_therapist_structured(state, traces, "technique_completion_check", instruction)
+    parsed_payload = self._require_dict(parsed, "technique_completion_check")
     completed = self._require_bool(
-      self._require_dict(parsed, "technique_completion_check"),
+      parsed_payload,
       "completed",
       "technique_completion_check",
     )
-    state["is_completed_reasoning"] = self._require_non_empty_string(
-      self._require_dict(parsed, "technique_completion_check"),
+    state["last_reasoning"] = self._require_non_empty_string(
+      parsed_payload,
       "reasoning",
       "technique_completion_check",
     )
@@ -287,7 +288,7 @@ class TechniqueStageMixin:
         plan_instruction = (
           f'Update the existing technique plan for "{current["name"]}" technique, given the last patient utterance and the last therapist reasoning regarding the patient utterance.'
           f'Previous plan details: {state["current_technique_plan"]} '
-          f'Last therapist reasoning: {state["is_completed_reasoning"]}. '
+          f'Last therapist reasoning: {state["last_reasoning"]}. '
           'Respond JSON: {"detailed_plan_description":"..."}'
         )
         plan_parsed = self._require_dict(

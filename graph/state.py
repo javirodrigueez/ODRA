@@ -75,7 +75,7 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "mi_topic_exploration": "mi_choose_topic",
   "mi_techniques": "mi_choose_technique",
   "meta_conversation": "mi_meta_open",
-  "id_distortions": "cognitive_bootstrap",
+  "id_distortions": "cognitive_review_active_question",
   "cbt_technique": "cbt_select_techniques",
   "homework": "homework_check_existing",
   "closing": "closing_share_summary",
@@ -114,7 +114,6 @@ class SessionState(TypedDict, total=False):
   techniques_completed: int
   technique_turn_count: int
   technique_slot_replaced: dict
-  is_completed_reasoning: str
 
   mi_active: bool
   mi_context: list[dict]
@@ -122,8 +121,7 @@ class SessionState(TypedDict, total=False):
   cbt_resume_stage: str
   mi_topics_tried: list[str]
   mi_techniques_used: list[str]
-  meta_conversation_turns: int
-  mi_technique_turns: int
+  mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float
 
