@@ -135,6 +135,9 @@ class GraphSupportMixin:
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
     s.setdefault("last_reasoning", "")
+    legacy_is_complete_reasoning = s.get("is_completed_reasoning")    
+    if legacy_is_complete_reasoning and not s.get("last_reasoning"):
+      s["last_reasoning"] = ensure_str(legacy_is_complete_reasoning)
 
     s.setdefault("cognitive_model_sets", [])
     s.setdefault("working_cognitive_set", self._new_cognitive_set(len(s["cognitive_model_sets"]) + 1))
@@ -180,8 +183,17 @@ class GraphSupportMixin:
     s.setdefault("reasoning_traces", [])
     s["utterance_index"] = int(s.get("utterance_index", 0))
     s.setdefault("exchange_counts", {})
+    
+    # devlog. remove when create new conversations
+    legacy_metaconv_turns = s.get("meta_conversation_turns")
+    if legacy_metaconv_turns is not None and "meta_conversation" not in s["exchange_counts"]:
+      s["exchange_counts"]["meta_conversation"] = int(legacy_metaconv_turns)
+    legacy_mi_technique_turns = s.get("mi_technique_turns")
+    if legacy_mi_technique_turns is not None and "mi_technique" not in s["exchange_counts"]:
+      s["exchange_counts"]["mi_technique"] = int(legacy_mi_technique_turns)
     s.setdefault("active_exchange_stage", "")
-
+    # devlog end
+    
     s.setdefault("final_patient_pending_end", False)
     s.setdefault("session_ended", False)
     s.setdefault("session_ended_reason", "")
