@@ -1,0 +1,1 @@
+Given conversation, cognitive sets, distortions and technique evaluations, should we apply an additional technique today? Respond JSON: {"apply_more": true/false, "reasoning":"..."}

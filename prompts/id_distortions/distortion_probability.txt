@@ -1,0 +1,1 @@
+Given the cognitive set ({working_cognitive_set}), assign probabilities to cognitive distortion categories. Distortion categories: {distortions}. Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. Respond JSON with keys: {distortion_keys}

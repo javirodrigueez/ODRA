@@ -1,0 +1,1 @@
+Independently of homework agreement, generate a therapist utterance that acknowledges the patient's stance and smoothly transitions toward closing, based on conversation context.If homework agreement was not reached, remember the importance of engaging with the treatment to make real progress.

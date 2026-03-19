@@ -1,17 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Optional
 
 from langchain_core.prompts import PromptTemplate
 
 from .interfaces import Agent, LLM, StructuredOutputError, load_prompt, parse_json_response
-
-ATTITUDE_DESCRIPTIONS = {
-  "negative": "Express reluctance, skepticism, or emotional resistance toward the therapeutic process",
-  "positive": "Be open, cooperative, and willing to engage with the therapeutic process",
-  "neutral": "Be balanced and measured in your emotional responses",
-}
 
 class PatientAgent(Agent):
   def __init__(self, llm: LLM, profile: dict):
@@ -33,8 +28,16 @@ class PatientAgent(Agent):
       presenting_problem=self.profile["presenting_problem"],
       reason_seeking_counseling=self.profile["reason_seeking_counseling"],
       attitude=attitude,
-      attitude_description=ATTITUDE_DESCRIPTIONS.get(attitude, "Respond naturally"),
+      attitude_description=self._attitude_description(attitude),
     )
+
+  def _attitude_description(self, attitude: str) -> str:
+    attitudes_path = Path(__file__).parent.parent / "data" / "knowledge" / "attitudes.json"
+    with attitudes_path.open("r", encoding="utf-8") as f:
+      attitude_descriptions = json.load(f)
+    if not isinstance(attitude_descriptions, dict):
+      return "Respond naturally"
+    return str(attitude_descriptions.get(attitude)).strip()
 
   def _format_persona(self) -> str:
     info = self.profile["personal_info"]

@@ -1,0 +1,1 @@
+Update the existing technique plan for "{technique_name}" technique, given the last patient utterance and the last therapist reasoning regarding the patient utterance.Previous plan details: {previous_plan_details} Last therapist reasoning: {last_reasoning}. Respond JSON: {{"detailed_plan_description":"..."}}

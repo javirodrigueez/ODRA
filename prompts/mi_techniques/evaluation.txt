@@ -1,0 +1,1 @@
+Using mi_context, create an MI intervention evaluation. Respond with JSON: {"reason_for_mi":"...", "conclusions":"...", "patient_state_change":"..."}

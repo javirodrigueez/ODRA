@@ -1,0 +1,1 @@
+Based on collected cognitive model sets, does the therapist need more information before technique application? Respond JSON: {"needs_more": true/false, "reasoning":"..."}

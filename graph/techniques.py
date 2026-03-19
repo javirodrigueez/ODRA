@@ -17,12 +17,10 @@ class TechniqueStageMixin:
     )
 
     # Generate the initial set of techniques from the approved catalog only.
-    instruction = (
-      "Given the conversation context, cognitive model sets, and identified distortions, choose up to 3 CBT techniques. "
-      "You must select only from the following catalog and you must preserve the technique names exactly as written.\n"
-      f"{formatted_catalog}\n"
-      "Techniques conducted should be able to be completed within the session, discard homework-based techniques for now as homework will be assigned separately."
-      'Respond JSON: {"selected_techniques": [{"name":"...", "target_distortion":"...", "rationale":"..."}]}'
+    instruction = self._load_stage_prompt(
+      "cbt_technique",
+      "technique_selection",
+      formatted_catalog=formatted_catalog,
     )
     parsed = self._run_therapist_structured(state, traces, "technique_selection", instruction)
     payload = self._require_dict(parsed, "technique_selection")
@@ -57,11 +55,10 @@ class TechniqueStageMixin:
       for name, description in techniques_catalog.items()
     )
 
-    instruction = (
-      "Choose one additional CBT technique that fits the current session after previous evaluations. "
-      "You must select only from the following catalog and you must preserve the technique name exactly as written.\n"
-      f"{formatted_catalog}\n"
-      'Respond JSON: {"name":"...", "target_distortion":"...", "rationale":"..."}'
+    instruction = self._load_stage_prompt(
+      "cbt_technique",
+      "additional_technique_selection",
+      formatted_catalog=formatted_catalog,
     )
     parsed = self._run_therapist_structured(state, traces, "additional_technique_selection", instruction)
     payload = self._require_dict(parsed, "additional_technique_selection")
@@ -97,17 +94,15 @@ class TechniqueStageMixin:
       )
       return True
     
-    instruction = ( #TODO: Check if now evaluating current technique dont mix info with previous technique
-      f'The technique currently in progress is "{current["name"]}". '
-      "Evaluate only this in-progress technique. Do not evaluate any previously completed technique or any other technique mentioned in the conversation. "
-      f'Technique rationale: {ensure_str(current.get("rationale"))}. '
-      f'Target distortion: {ensure_str(current.get("target_distortion")) or "not explicitly specified"}. '
-      f'Current technique plan: {state["current_technique_plan"]}. '
-      f'Expected outcome for this technique: {state["current_technique_expected_outcome"]}. '
-      f'Technique turn count so far: {state["technique_turn_count"]}. '
-      "Based on this in-progress technique and the conversation, can this current technique now be marked as complete? "
-      #f'If your reasoning refers to any technique other than "{current["name"]}", it is incorrect and must be revised to focus only on "{current["name"]}". '
-      'Respond JSON: {"completed": true/false, "reasoning":"..."}'
+    instruction = self._load_stage_prompt( #TODO: Check if now evaluating current technique dont mix info with previous technique
+      "cbt_technique",
+      "completion_check",
+      technique_name=current["name"],
+      technique_rationale=ensure_str(current.get("rationale")),
+      target_distortion=ensure_str(current.get("target_distortion")) or "not explicitly specified",
+      current_technique_plan=state["current_technique_plan"],
+      expected_outcome=state["current_technique_expected_outcome"],
+      technique_turn_count=state["technique_turn_count"],
     )
     parsed = self._run_therapist_structured(state, traces, "technique_completion_check", instruction)
     parsed_payload = self._require_dict(parsed, "technique_completion_check")
@@ -127,13 +122,7 @@ class TechniqueStageMixin:
     return completed
 
   def _evaluate_technique(self, state: SessionState, traces: list[dict], technique_name: str) -> None:
-    instruction = (
-      "Evaluate the completed technique. "
-      "You have to evaluate the resistance towards the technique presented by the patient and the fulfillment of expected outcomes. If expected outcomes were not fulfilled, identify problems that arose during execution, and learnings for addressing better subsequent techniques. If expected outcomes were fulfilled, you can also identify problems and learnings, but focus more on what went well and should be repeated in future techniques. "
-      "Respond JSON with fields: "
-      '{"patient_resistance":"...", "results":"...", "expected_outcomes_fulfilled":true/false, '
-      '"problems":"...", "learnings":"..."}'
-    )
+    instruction = self._load_stage_prompt("cbt_technique", "technique_evaluation")
     evaluation = self._require_dict(
       self._run_therapist_structured(state, traces, "technique_evaluation", instruction),
       "technique_evaluation",
@@ -147,10 +136,7 @@ class TechniqueStageMixin:
     )
 
   def _should_apply_more_techniques(self, state: SessionState, traces: list[dict]) -> bool:
-    instruction = (
-      "Given conversation, cognitive sets, distortions and technique evaluations, should we apply an additional technique today? "
-      'Respond JSON: {"apply_more": true/false, "reasoning":"..."}'
-    )
+    instruction = self._load_stage_prompt("cbt_technique", "apply_more_check")
     parsed = self._run_therapist_structured(state, traces, "apply_more_techniques_check", instruction)
     return self._require_bool(
       self._require_dict(parsed, "apply_more_techniques_check"),
@@ -232,9 +218,10 @@ class TechniqueStageMixin:
       is_technique_check = not state["current_technique_plan"] and not is_first_technique
 
       if is_technique_check:
-        fit_instruction = (
-          f'The next planned technique is "{current["name"]}". Does it fit now? '
-          'Respond JSON: {"fits": true/false, "reasoning":"...", "alternative_technique":"<name or null>", "alternative_reasoning":"..."}'
+        fit_instruction = self._load_stage_prompt(
+          "cbt_technique",
+          "fit_check",
+          technique_name=current["name"],
         )
         fit_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_fit_check", fit_instruction),
@@ -261,9 +248,10 @@ class TechniqueStageMixin:
       if current is None:
         raise ConversationProcessingError("Current CBT technique could not be resolved.")
       if not state["current_technique_plan"]:
-        plan_instruction = (
-          f'Create a technique plan for "{current["name"]}" for this patient. '
-          'Respond JSON: {"detailed_plan_description":"...", "expected_outcome":"...", "current_progress":"..."}'
+        plan_instruction = self._load_stage_prompt(
+          "cbt_technique",
+          "plan_initial",
+          technique_name=current["name"],
         )
         plan_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_plan", plan_instruction),
@@ -285,11 +273,12 @@ class TechniqueStageMixin:
           "technique_plan",
         )
       else:
-        plan_instruction = (
-          f'Update the existing technique plan for "{current["name"]}" technique, given the last patient utterance and the last therapist reasoning regarding the patient utterance.'
-          f'Previous plan details: {state["current_technique_plan"]} '
-          f'Last therapist reasoning: {state["last_reasoning"]}. '
-          'Respond JSON: {"detailed_plan_description":"..."}'
+        plan_instruction = self._load_stage_prompt(
+          "cbt_technique",
+          "plan_update",
+          technique_name=current["name"],
+          previous_plan_details=state["current_technique_plan"],
+          last_reasoning=state["last_reasoning"],
         )
         plan_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_plan", plan_instruction),
@@ -308,17 +297,15 @@ class TechniqueStageMixin:
       current = self._current_technique(state)
       if current is None:
         raise ConversationProcessingError("Current CBT technique could not be resolved.")
-      instruction = (
-        f'You are applying the CBT technique "{current["name"]}" in the current session. '
-        f'Technique rationale: {ensure_str(current.get("rationale"))}. '
-        f'Target distortion: {ensure_str(current.get("target_distortion")) or "not explicitly specified"}. '
-        f'Detailed technique plan: {state["current_technique_plan"]}. '
-        f'Expected outcome: {state["current_technique_expected_outcome"]}. '
-        f'Current progress in the technique: {state["current_technique_current_progress"]}. '
-        "Using the patient's cognitive model sets, identified beliefs and distortions, and the full conversation context, "
-        "generate only the next therapist utterance for this technique step. "
-        "The utterance must be aligned with the plan, directly address the patient's problems, and feel like a natural CBT intervention. "
-        "Do not describe the plan abstractly and do not list steps; say only the next therapist utterance."
+      instruction = self._load_stage_prompt(
+        "cbt_technique",
+        "deliver_current",
+        technique_name=current["name"],
+        technique_rationale=ensure_str(current.get("rationale")),
+        target_distortion=ensure_str(current.get("target_distortion")) or "not explicitly specified",
+        current_technique_plan=state["current_technique_plan"],
+        expected_outcome=state["current_technique_expected_outcome"],
+        current_progress=state["current_technique_current_progress"],
       )
       utterance = self._generate_therapist_utterance(state, instruction)
       state["current_substage"] = "cbt_review_current"

@@ -1,0 +1,1 @@
+Has agreement been reached for at least one homework task? If the patient shows hesitation but does not flat out reject, consider that agreement. Respond JSON: {"agreement_reached": true/false, "agreed_tasks": ["<task_title_1>", "<task_title_n>", ...], "reasoning":"..."}

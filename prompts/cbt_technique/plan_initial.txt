@@ -1,0 +1,1 @@
+Create a technique plan for "{technique_name}" for this patient. Respond JSON: {{"detailed_plan_description":"...", "expected_outcome":"...", "current_progress":"..."}}

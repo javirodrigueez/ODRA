@@ -12,12 +12,12 @@ class HomeworkStageMixin:
     format_csets_str = "\n".join([f'Situation: {cset["situation"]}\n  Automatic Thought: {cset["automatic_thoughts"]}\n  Emotion: {cset["emotions"]}\n  Behavior: {cset["behaviors"]}\n  Core Belief: {cset["core_belief"]}\n  Distortions: {", ".join(cset["distortion"])}' for cset in state["cognitive_model_sets"]])
     # Format technique evaluations
     format_evals_str = "\n".join([f'Technique: {e["technique"]}\n  Evaluation: {e["evaluation"]}' for e in state["technique_evaluations"]])
-    instruction = (
-      "Propose 1-2 homework tasks based on cognitive sets, distortions, technique evaluations, reasoning about last patient response (if any), and conversation. "
-      f"Cognitive sets with distortions: {format_csets_str}. "
-      f"Technique evaluations: {format_evals_str}. "
-      f"Last reasoning: {state['hw_reasoning']}. "
-      'Respond JSON: {"tasks": [{"task_title":"...", "task_description":"...", "rationale":"...", "expected_outcomes":"..."}], "reasoning":"..."}'
+    instruction = self._load_stage_prompt(
+      "homework",
+      "task_proposal",
+      cognitive_sets=format_csets_str,
+      technique_evaluations=format_evals_str,
+      last_reasoning=state["hw_reasoning"],
     )
     parsed = self._run_therapist_structured(state, traces, "homework_task_proposal", instruction)
     payload = self._require_dict(parsed, "homework_task_proposal")
@@ -43,10 +43,7 @@ class HomeworkStageMixin:
     state["homework_waiting_for_patient"] = True
 
   def _check_homework_agreement(self, state: SessionState, traces: list[dict]):
-    instruction = (
-      "Has agreement been reached for at least one homework task? If the patient shows hesitation but does not flat out reject, consider that agreement. ",
-      'Respond JSON: {"agreement_reached": true/false, "agreed_tasks": ["<task_title_1>", "<task_title_n>", ...], "reasoning":"..."}'
-    )
+    instruction = self._load_stage_prompt("homework", "agreement_check")
     parsed = self._run_therapist_structured(state, traces, "homework_agreement_check", instruction)
     payload = self._require_dict(parsed, "homework_agreement_check")
 
@@ -105,9 +102,10 @@ class HomeworkStageMixin:
       )
 
       format_task_str = f'Title: {state["proposed_tasks"][0]["task_title"]}\nDescription: {state["proposed_tasks"][0]["task_description"]}'
-      instruction = (
-        "Generate a therapist utterance proposing the simplified homework task to the patient, based on the task and conversation context."
-        f"Proposed task: {format_task_str}"
+      instruction = self._load_stage_prompt(
+        "homework",
+        "fallback_task_proposal_utterance",
+        proposed_task=format_task_str,
       )
 
       utterance = self._generate_therapist_utterance(state, instruction)
@@ -118,11 +116,11 @@ class HomeworkStageMixin:
     if current_substage == "homework_propose_tasks":
       self._propose_homework_tasks(state, traces)
       format_tasks_str = "\n".join([f'Title: {task["task_title"]}\nDescription: {task["task_description"]}' for task in state["proposed_tasks"]])
-      instruction = (
-        "Generate a therapist utterance proposing the homework tasks to the patient, based on the proposed tasks, reasoning about last patient response, and conversation context. ",
-        f"The proposed tasks are: {format_tasks_str}. ",
-        f"The last reasoning was: {state['hw_reasoning']}. ",
-        "Previously in the convesation the therapist could have already proposed homework tasks, and the patient could have accepted or rejected them. Use this history to inform your proposal. If patient has already agreed, mention briefly the task to avoid repetition. If not, propose the task putting focus on emphasizing its relevance and benefits."
+      instruction = self._load_stage_prompt(
+        "homework",
+        "propose_tasks_utterance",
+        proposed_tasks=format_tasks_str,
+        last_reasoning=state["hw_reasoning"],
       )
       utterance = self._generate_therapist_utterance(state, instruction)
 
@@ -131,10 +129,7 @@ class HomeworkStageMixin:
       return utterance
 
     if current_substage == "homework_end_fallback":
-      instruction = (
-        "Independently of homework agreement, generate a therapist utterance that acknowledges the patient's stance and smoothly transitions toward closing, based on conversation context.",
-        "If homework agreement was not reached, remember the importance of engaging with the treatment to make real progress."
-      )
+      instruction = self._load_stage_prompt("homework", "end_fallback_utterance")
       utterance = self._generate_therapist_utterance(state, instruction)
 
       return utterance

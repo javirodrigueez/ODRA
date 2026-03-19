@@ -35,10 +35,7 @@ class MIStageMixin:
       state["exchange_counts"][target_stage] = 0
 
   def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict], note: str = "") -> None:
-    instruction = (
-      "Using mi_context, create an MI intervention evaluation. "
-      'Respond with JSON: {"reason_for_mi":"...", "conclusions":"...", "patient_state_change":"..."}'
-    )
+    instruction = self._load_stage_prompt("mi_techniques", "evaluation")
     mi_eval = self._require_dict(
       self._run_therapist_structured(state, traces, "mi_evaluation", instruction),
       "mi_evaluation",
@@ -118,9 +115,10 @@ class MIStageMixin:
       available = [topic for topic in MI_TOPICS if topic not in state["mi_topics_tried"]]
       if not available:
         available = MI_TOPICS
-      topic_instruction = (
-        f"Select the best MI topic to explore next from: {', '.join(available)}. "
-        'Respond JSON: {"topic":"...", "reasoning":"..."}'
+      topic_instruction = self._load_stage_prompt(
+        "mi_topic_exploration",
+        "topic_selection",
+        available_topics=", ".join(available),
       )
       topic = self._run_therapist_structured(state, traces, "mi_topic_selection", topic_instruction)
       topic_payload = self._require_dict(topic, "mi_topic_selection")
@@ -141,10 +139,10 @@ class MIStageMixin:
     if current_substage == "mi_raise_topic":
       topic = state["current_mi_topic"]
       state["last_mi_predicted_resistance"] = current_pred
-      instruction = (
-        f'You are doing motivational interviewing topic exploration. Focus on the topic "{topic}". '
-        "Use the conversation and session context to explore how the patient's current struggle affects this topic area, without sounding templated. ",
-        "This utterance should be designed to elicit the patient's own motivations for change related to this topic and to gently challenge their resistance. "
+      instruction = self._load_stage_prompt(
+        "mi_topic_exploration",
+        "raise_topic_utterance",
+        topic=topic,
       )
       return self._generate_therapist_utterance(state, instruction)
 
@@ -169,11 +167,10 @@ class MIStageMixin:
         f'- {name}: {description}'
         for name, description in techniques_catalog.items()
       )
-      instruction = (
-        f"Choose one MI communication technique from the following ones. "
-        f"{formatted_catalog} "
-        "Select the technique that best fits the patient's current resistance, mood, and conversation. "
-        'Respond JSON: {"technique":"...", "reasoning":"..."}'
+      instruction = self._load_stage_prompt(
+        "mi_techniques",
+        "technique_selection",
+        formatted_catalog=formatted_catalog,
       )
       parsed = self._run_therapist_structured(state, traces, "mi_technique_selection", instruction)
       payload = self._require_dict(parsed, "mi_technique_selection")
@@ -185,9 +182,10 @@ class MIStageMixin:
     # Deliver the selected MI technique as the next therapist utterance.
     if current_substage == "mi_raise_technique":
       technique = state["mi_techniques_used"][-1]
-      instruction = (
-        f'You are doing motivational interviewing using the technique "{technique}". '
-        "Generate a therapist utterance that applies this technique to the patient's current resistance and problems, using the conversation and session context. "
+      instruction = self._load_stage_prompt(
+        "mi_techniques",
+        "raise_technique_utterance",
+        technique=technique,
       )
       return self._generate_therapist_utterance(state, instruction)
 
@@ -215,25 +213,19 @@ class MIStageMixin:
 
     # Open the meta-conversation by acknowledging the difficulty.
     if current_substage == "mi_meta_open":
-      return (
-        "It seems this process has felt difficult, and I appreciate you staying here. "
-        "What would make therapy feel safer or more useful for you right now?"
-      )
+      return self._load_stage_prompt("meta_conversation", "open_utterance")
 
     # Probe the process for specific points of friction.
     if current_substage == "mi_meta_probe":
-      return "What specific parts of this process feel hardest or least helpful from your perspective?"
+      return self._load_stage_prompt("meta_conversation", "probe_utterance")
 
     # Offer a concrete adjustment after the patient has named a barrier.
     if current_substage == "mi_meta_adjust":
-      return (
-        "Thank you for naming that. "
-        "Would it help if we adjusted the pace and focused only on one small, practical point today?"
-      )
+      return self._load_stage_prompt("meta_conversation", "adjust_utterance")
 
     # Keep the meta-conversation focused on a manageable next step.
     if current_substage == "mi_meta_close":
-      return "I hear you. What would feel like a manageable next step that still respects your boundaries?"
+      return self._load_stage_prompt("meta_conversation", "close_utterance")
 
     raise ConversationProcessingError(f"Unexpected meta-conversation substage: {current_substage}")
 
@@ -248,10 +240,7 @@ class MIStageMixin:
         "output": "Ending session with warm open-door close.",
       }
     )
-    return (
-      "Thank you for attending today. Even if this wasn’t the right moment to go deeper, "
-      "you’re welcome to return whenever you feel ready."
-    )
+    return self._load_stage_prompt("anticipated_closing", "final_utterance")
 
   def _handle_forced_closing(self, state: SessionState, traces: list[dict]) -> str:
     state["final_patient_pending_end"] = True
@@ -263,4 +252,4 @@ class MIStageMixin:
         "output": "Triggering brief forced closing exchange.",
       }
     )
-    return "We need to pause here for today. Thank you for your time, and we can continue from this point next session."
+    return self._load_stage_prompt("forced_closing", "final_utterance")

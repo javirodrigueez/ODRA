@@ -1,0 +1,3 @@
+Choose one additional CBT technique that fits the current session after previous evaluations. You must select only from the following catalog and you must preserve the technique name exactly as written.
+{formatted_catalog}
+Respond JSON: {{"name":"...", "target_distortion":"...", "rationale":"..."}}

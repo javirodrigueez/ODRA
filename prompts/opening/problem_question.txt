@@ -1,0 +1,1 @@
+Based on the conversation so far, ask the patient a question to clarify the specific problem they want to work on. This should be a specific issue, not just a general area.

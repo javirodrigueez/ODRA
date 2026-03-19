@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
 
-from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_float, ensure_str, ensure_str_list
+from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_float, ensure_str, ensure_str_list, load_prompt, render_prompt
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
@@ -31,6 +31,12 @@ class GraphSupportMixin:
     patient_llm = LLMFactory.create(self.cfg.patient.type, self.cfg.patient.model_id)
     self.therapist = TherapistAgent(therapist_llm, self.profile)
     self.patient = PatientAgent(patient_llm, self.profile)
+
+  def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
+    filename = f"{stage}/{name}.txt"
+    if values:
+      return render_prompt(filename, **values)
+    return load_prompt(filename)
 
   def _load_techniques(self) -> dict[str, str]:
     techniques_path = self._project_root() / "data" / "knowledge" / "cactus_techniques.json"
@@ -247,11 +253,13 @@ class GraphSupportMixin:
     if not previous_reasoning:
       return text
 
-    return (
-      f"{text} "
-      f"Keep your response aligned with therapist reasoning towards last patient response: {previous_reasoning}.\n"
-      f"Don't repeat yourself with respect to last utterance. This was your last utterance: {state['messages'][-2]['content'] if state['messages'] else '(no messages yet)'}."
+    suffix = self._load_stage_prompt(
+      "shared",
+      "previous_reasoning_suffix",
+      previous_reasoning=previous_reasoning,
+      last_utterance=state["messages"][-2]["content"] if state["messages"] else "(no messages yet)",
     )
+    return f"{text} {suffix}"
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     return self.therapist.generate_utterance(
@@ -461,14 +469,10 @@ class GraphSupportMixin:
 
   def _run_resistance_prediction(self, state: SessionState, traces: list[dict]) -> None:
     old_r = state["predicted_resistance"]
-    instruction = (
-      f"Given the conversation, last patient response, and previous predicted resistance R (R={old_r:.2f}), "
-      "predict the change in patient resistance R. "
-      "Predict the change in patient's resistance level for the next turn as a float between [-0.10, +0.15], "
-      "where negative values indicate a decrease in resistance (more openness) and positive values indicate an increase in resistance (more pushback). "
-      "The prediction must reflect how the patient responded to the therapist's last utterance. "
-      "Additionally, provide your reasoning for this update. "
-      'Respond JSON: {"r_change": 0.0, "reasoning":"..."}'
+    instruction = self._load_stage_prompt(
+      "shared",
+      "resistance_prediction",
+      old_r=f"{old_r:.2f}",
     )
     parsed = self._run_therapist_structured(state, traces, "resistance_prediction", instruction)
     payload = self._require_dict(parsed, "resistance_prediction")

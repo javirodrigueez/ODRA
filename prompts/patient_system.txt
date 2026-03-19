@@ -2,10 +2,6 @@
 {conversation}
 </conversation>
 
-<current_stage>
-{current_stage}
-</current_stage>
-
 <persona>
 {persona}
 </persona>

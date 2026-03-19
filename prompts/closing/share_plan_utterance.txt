@@ -1,0 +1,1 @@
+Present the proposed next-session plan to the patient and ask for their reaction in a natural way. Next-session plan to convey: {next_session_plan}. Generate only the therapist's next utterance.

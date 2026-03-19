@@ -1,0 +1,1 @@
+Use the therapist plan below to produce only the next therapist utterance for the current step. Current target: {current_target}. Therapist plan: {therapist_plan}. Ask one concise, natural question that advances the next planned step and focuses only on the current target.

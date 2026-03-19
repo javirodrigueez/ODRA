@@ -1,0 +1,1 @@
+Did the patient request something the therapist should improve next session? Respond JSON: {"improvement_requested": true/false, "improvement_description":"...", "improvement_plan":"..."}

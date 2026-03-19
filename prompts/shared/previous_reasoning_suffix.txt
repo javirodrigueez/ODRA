@@ -1,0 +1,2 @@
+Keep your response aligned with therapist reasoning towards last patient response: {previous_reasoning}.
+Don't repeat yourself with respect to last utterance. This was your last utterance: {last_utterance}.

@@ -1,0 +1,1 @@
+Choose one MI communication technique from the following ones. {formatted_catalog} Select the technique that best fits the patient's current resistance, mood, and conversation. Respond JSON: {{"technique":"...", "reasoning":"..."}}

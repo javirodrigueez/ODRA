@@ -1,0 +1,1 @@
+Acknowledge the patient's concern about the next-session plan, present the revised plan, and ask whether it fits better. Revised next-session plan to convey: {next_session_plan}. Generate only the therapist's next utterance.

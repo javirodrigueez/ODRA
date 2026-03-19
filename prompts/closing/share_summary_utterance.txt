@@ -1,0 +1,1 @@
+Share the session summary with the patient and invite them to say whether it fits their experience today. Session summary to convey: {session_summary}. Generate only the therapist's next utterance.

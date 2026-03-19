@@ -1,0 +1,1 @@
+You are doing motivational interviewing using the technique "{technique}". Generate a therapist utterance that applies this technique to the patient's current resistance and problems, using the conversation and session context.

@@ -1,0 +1,1 @@
+Has the patient agreed with the next session plan? Respond JSON: {"agreed": true/false, "reasoning":"..."}

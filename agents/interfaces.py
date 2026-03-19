@@ -7,6 +7,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_aws import ChatBedrock
+from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from openai import OpenAI
 
@@ -15,7 +16,13 @@ load_dotenv()
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 def load_prompt(filename: str) -> str:
-  return (PROMPTS_DIR / filename).read_text().strip()
+  return (PROMPTS_DIR / filename).read_text(encoding="utf-8").strip()
+
+def render_prompt(filename: str, **values: Any) -> str:
+  template = PromptTemplate.from_template(load_prompt(filename))
+  return template.format(
+    **{key: "" if value is None else str(value) for key, value in values.items()}
+  )
 
 def _to_langchain_messages(messages: list[dict]) -> list:
   """Convert dict messages to LangChain message objects."""

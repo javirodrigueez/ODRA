@@ -141,19 +141,18 @@ class CognitiveStageMixin:
 
     # Plan instruction, special when situation must be identified
     if is_discover_situation:
-      instruction = (
-        "The situation is the central event or context that triggers the patient's automatic thoughts, emotions, and behaviors. "
-        "Create a plan to discover a new problematic situation of the patient's life that is not yet in already identified cognitive sets. "
-        f"Already identified situations from previous sets: {id_situations}. "
-        "Try to find a situation that is distinct from previously identified ones to expand the understanding of the patient's problems. "
+      instruction = self._load_stage_prompt(
+        "id_distortions",
+        "plan_new_situation",
+        identified_situations=id_situations,
       )
     else:
-      instruction = (
-        "Create a therapist plan to fill the missing Beck cognitive model items. "
-        f"Already filled items of the working set: {', '.join(filled)}. "
-        f"Remaining targets in required order: {ordered_targets}. "
-        f"Use this uncertain summary to guide clarification: {summary}. "
-        "Return only the therapist's internal plan in plain text, not JSON and not the final utterance."
+      instruction = self._load_stage_prompt(
+        "id_distortions",
+        "plan_missing_items",
+        filled_items=", ".join(filled),
+        remaining_targets=ordered_targets,
+        uncertain_summary=summary,
       )
 
     # Plan generation
@@ -164,11 +163,11 @@ class CognitiveStageMixin:
   def _generate_cognitive_gap_utterance(self, state: SessionState, plan: str, target: str) -> str:
     if not plan:
       return ""
-    instruction = (
-      "Use the therapist plan below to produce only the next therapist utterance for the current step. "
-      f"Current target: {target}. "
-      f"Therapist plan: {plan}. "
-      "Ask one concise, natural question that advances the next planned step and focuses only on the current target."
+    instruction = self._load_stage_prompt(
+      "id_distortions",
+      "gap_utterance_from_plan",
+      current_target=target,
+      therapist_plan=plan,
     )
     utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
@@ -188,16 +187,13 @@ class CognitiveStageMixin:
     if target_in_progress:
       follow_ups = state["active_cognitive_follow_up_attempts"]
       summary = state["working_cognitive_summary"]
-      instruction = (
-        "Review the patient's last response to the current cognitive-model question and decide whether the target item was answered satisfactorily. "
-        f"Active target: {active_target}. "
-        f"Current question: {active_question}. "
-        f"Attempts already used for this target: {follow_ups}. "
-        f"Uncertain summary: {summary}. "
-        "If the response clearly identifies the target, mark answered_satisfactorily=true and extract the identified item. "
-        "If the response is still insufficient, decide whether a follow-up question is needed for the same target. "
-        "Also provide an updated uncertain_summary and a best_guess for the active target based on the information currently available. "
-        'Respond JSON: {"answered_satisfactorily": true/false, "identified_items":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "needs_follow_up": true/false, "follow_up_question":"...", "uncertain_summary":"...", "best_guess":{"situation":"","auto_thoughts":[],"emotions":[],"behaviors":[]}, "reasoning":"..."}'
+      instruction = self._load_stage_prompt(
+        "id_distortions",
+        "gap_response_review",
+        active_target=active_target,
+        current_question=active_question,
+        follow_up_attempts=follow_ups,
+        uncertain_summary=summary,
       )
       reviewed = self._run_therapist_structured(state, traces, "cognitive_gap_response_review", instruction)
       payload = self._require_dict(reviewed, "cognitive_gap_response_review")
@@ -241,12 +237,7 @@ class CognitiveStageMixin:
     return next_question
 
   def _bootstrap_first_cognitive_model(self, state: SessionState, traces: list[dict]) -> None:
-    instruction = (
-      "Review the full conversation so far and initialize the first Beck cognitive model using only already established session content. "
-      "Only fill situation, auto_thoughts, emotions, or behaviors if you are 100% certain the item is explicitly supported by the conversation. "
-      "If information is relevant but not certain enough to commit to a cognitive-model item, leave the item empty and place that information in uncertain_summary so it can guide clarification questions. "
-      'Respond JSON: {"items":{"situation":"", "auto_thoughts":[], "emotions":[], "behaviors":[]}, "uncertain_summary":"...", "reasoning":"..."}'
-    )
+    instruction = self._load_stage_prompt("id_distortions", "bootstrap_first_cognitive_model")
     parsed = self._run_therapist_structured(state, traces, "initial_cognitive_model_bootstrap", instruction)
     payload = self._require_dict(parsed, "initial_cognitive_model_bootstrap")
     filled_items = payload.get("items", {})
@@ -256,11 +247,7 @@ class CognitiveStageMixin:
     self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
 
   def _assign_core_belief(self, state: SessionState, traces: list[dict]) -> None:
-    belief_instruction = (
-      "Given the current cognitive set (situation, thoughts, emotions, behaviors), assign probabilities to core belief categories. "
-      "Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. "
-      'Respond JSON: {"helplessness": <float>, "unlovability": <float>, "worthlessness": <float>}.'
-    )
+    belief_instruction = self._load_stage_prompt("id_distortions", "core_belief_probability")
     belief_probs = self._run_therapist_structured(state, traces, "core_belief_probability", belief_instruction)
     normalized = self._normalize_probabilities(
       self._require_dict(belief_probs, "core_belief_probability"),
@@ -280,12 +267,12 @@ class CognitiveStageMixin:
     )
     distortions_dict = self._load_distortions()
     format_distortions = ", ".join([f"{key} ({desc})" for key, desc in distortions_dict.items()])
-    distortion_instruction = (
-      f"Given the cognitive set ({format_working_cognitive_set}), assign probabilities to cognitive distortion categories. "
-      f"Distortion categories: {format_distortions}. "
-      "Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. "
-      "Respond JSON with keys: "
-      + ", ".join(DISTORTION_KEYS)
+    distortion_instruction = self._load_stage_prompt(
+      "id_distortions",
+      "distortion_probability",
+      working_cognitive_set=format_working_cognitive_set,
+      distortions=format_distortions,
+      distortion_keys=", ".join(DISTORTION_KEYS),
     )
     distortion_probs = self._run_therapist_structured(state, traces, "distortion_probability", distortion_instruction)
     normalized = self._normalize_probabilities(
@@ -307,10 +294,7 @@ class CognitiveStageMixin:
       return False
     
     # Check if more sets are needed
-    need_more_instruction = (
-      "Based on collected cognitive model sets, does the therapist need more information before technique application? "
-      'Respond JSON: {"needs_more": true/false, "reasoning":"..."}'
-    )
+    need_more_instruction = self._load_stage_prompt("id_distortions", "completion_check")
     need_more = self._run_therapist_structured(
       state,
       traces,

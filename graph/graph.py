@@ -106,13 +106,10 @@ class TherapyGraphBuilder(
 
     traces: list[dict] = []
     try:
-      update_instruction = (
-        f"Given the conversation and current resistance {s['resistance']:.2f} to engage in treatment, "
-        "predict the change in the patient's resistance level for the next turn as a float between [-0.10, +0.15], "
-        "where negative values indicate a decrease in resistance (more openness) and positive values indicate an increase in resistance (more pushback). "
-        "The prediction must reflect how the last therapist message helped to address the patient's problems. "
-        "Additionally, provide your reasoning for this update. "
-        'Respond JSON: {"r_change": 0.0, "reasoning":"..."}'
+      update_instruction = self._load_stage_prompt(
+        "shared",
+        "patient_resistance_update",
+        resistance=f"{s['resistance']:.2f}",
       )
       update = self._run_patient_structured(
         s,

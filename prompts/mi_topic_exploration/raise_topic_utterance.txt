@@ -1,0 +1,1 @@
+You are doing motivational interviewing topic exploration. Focus on the topic "{topic}". Use the conversation and session context to explore how the patient's current struggle affects this topic area, without sounding templated. This utterance should be designed to elicit the patient's own motivations for change related to this topic and to gently challenge their resistance.

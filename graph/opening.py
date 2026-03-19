@@ -8,11 +8,12 @@ from .state import SessionState
 
 class OpeningStageMixin:
   def _check_readiness(self, state: SessionState, traces: list[dict]) -> bool:
-    instruction = (
-      f"Based on the last patient response='{state['messages'][-1]['content']}', the current saved mood='{state['opening_patient_mood']}' "
-      f"and problem='{state['opening_patient_problem']}', can the patient's mood/problem be updated based on the new information? "
-      "If so, provide the updated mood and/or problem. If not, respond with the current values. "
-      'Respond JSON: {"mood":"...", "problem":"..."}'
+    instruction = self._load_stage_prompt(
+      "opening",
+      "info_update",
+      last_patient_response=state["messages"][-1]["content"],
+      opening_patient_mood=state["opening_patient_mood"],
+      opening_patient_problem=state["opening_patient_problem"],
     )
     update = self._run_therapist_structured(state, traces, "opening_info_update", instruction)
     update_payload = self._require_dict(update, "opening_info_update")
@@ -23,15 +24,11 @@ class OpeningStageMixin:
     if updated_problem and updated_problem != state["opening_patient_problem"]:
       state["opening_patient_problem"] = updated_problem
 
-    instruction = (
-      f"Based on the conversation so far, current saved mood='{state['opening_patient_mood']}' "
-      f"and problem='{state['opening_patient_problem']}', is there enough information to proceed beyond the opening stage? "
-      "Consider if the patient's mood and problem are sufficiently understood to move to CBT. "
-      "If you are not sure about the patient's mood or specific problem, respond with ready=false and specify the issue in the 'issue' field. "
-      "If both fields are issues, begin exploring the patient's mood. Include a reasoning field to explain your decision. "
-      "The specific problem should be concrete, for example: the relationship with my family is degraded because of drug consumption, "
-      "not just a general area like stress or anxiety. "
-      'Respond JSON: {"ready": true/false, "issue": "mood/problem", "reasoning":"..."}'
+    instruction = self._load_stage_prompt(
+      "opening",
+      "readiness_check",
+      opening_patient_mood=state["opening_patient_mood"],
+      opening_patient_problem=state["opening_patient_problem"],
     )
     readiness = self._run_therapist_structured(state, traces, "opening_readiness_check", instruction)
     payload = self._require_dict(readiness, "opening_readiness_check")
@@ -53,10 +50,7 @@ class OpeningStageMixin:
 
     # Initial greeting
     if current_substage == "open_initial":
-      instruction = (
-        "This is the first utterance of the therapy session. Begin the session with an open and empathetic greeting. "
-        "It should be brief, for example: Hello, glad to meet you, or Hi, how are you doing?"
-      )
+      instruction = self._load_stage_prompt("opening", "initial_greeting")
       state["current_substage"] = ""
       return self._generate_therapist_utterance(state, instruction)
 
@@ -74,15 +68,9 @@ class OpeningStageMixin:
     # Not ready to continue to id_distortions
     if not ready:
       if current_substage == "open_mood":
-        instruction = (
-          "Based on the conversation so far, ask the patient a question to understand their current mood. "
-          "This is the mood check of a standard CBT session."
-        )
+        instruction = self._load_stage_prompt("opening", "mood_question")
       elif current_substage == "open_problem":
-        instruction = (
-          "Based on the conversation so far, ask the patient a question to clarify the specific problem they want to work on. "
-          "This should be a specific issue, not just a general area."
-        )
+        instruction = self._load_stage_prompt("opening", "problem_question")
 
       return self._generate_therapist_utterance(state, instruction)
 

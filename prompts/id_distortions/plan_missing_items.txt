@@ -1,0 +1,1 @@
+Create a therapist plan to fill the missing Beck cognitive model items. Already filled items of the working set: {filled_items}. Remaining targets in required order: {remaining_targets}. Use this uncertain summary to guide clarification: {uncertain_summary}. Return only the therapist's internal plan in plain text, not JSON and not the final utterance.

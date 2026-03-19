@@ -1,0 +1,1 @@
+Based on the last patient response='{last_patient_response}', the current saved mood='{opening_patient_mood}' and problem='{opening_patient_problem}', can the patient's mood/problem be updated based on the new information? If so, provide the updated mood and/or problem. If not, respond with the current values. Respond JSON: {{"mood":"...", "problem":"..."}}

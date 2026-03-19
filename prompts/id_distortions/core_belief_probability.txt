@@ -1,0 +1,1 @@
+Given the current cognitive set (situation, thoughts, emotions, behaviors), assign probabilities to core belief categories. Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. Respond JSON: {"helplessness": <float>, "unlovability": <float>, "worthlessness": <float>}.
