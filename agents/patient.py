@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -12,32 +11,19 @@ class PatientAgent(Agent):
   def __init__(self, llm: LLM, profile: dict):
     super().__init__(llm)
     self.profile = profile
-    prompt_filename = "patient_system.txt"
-    if not (Path(__file__).parent.parent / "prompts" / prompt_filename).exists():
-      prompt_filename = "patient_system.txt"
-    self._system_template = self._build_template(prompt_filename)
+    prompt_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
+    self.system_prompt = self._build_template(prompt_path)
 
   def _build_template(self, filename: str) -> PromptTemplate:
     template = load_prompt(filename)
     prompt_template = PromptTemplate.from_template(template)
-    attitude = self.profile.get("attitude", "neutral")
     return prompt_template.partial(
       persona=self._format_persona(),
       more_info=self._format_more_info(),
       patterns=self._format_patterns(),
       presenting_problem=self.profile["presenting_problem"],
       reason_seeking_counseling=self.profile["reason_seeking_counseling"],
-      attitude=attitude,
-      attitude_description=self._attitude_description(attitude),
     )
-
-  def _attitude_description(self, attitude: str) -> str:
-    attitudes_path = Path(__file__).parent.parent / "data" / "knowledge" / "attitudes.json"
-    with attitudes_path.open("r", encoding="utf-8") as f:
-      attitude_descriptions = json.load(f)
-    if not isinstance(attitude_descriptions, dict):
-      return "Respond naturally"
-    return str(attitude_descriptions.get(attitude)).strip()
 
   def _format_persona(self) -> str:
     info = self.profile["personal_info"]
@@ -59,30 +45,43 @@ class PatientAgent(Agent):
   def _format_patterns(self) -> str:
     return "\n".join(f"- {p}" for p in self.profile["patterns"])
 
-  def _get_system_prompt(self, conversation: str, resistance_level: float = 0.5, current_stage: str = "opening") -> str:
-    return self._system_template.format(
-      conversation=conversation,
-      resistance_level=f"{resistance_level:.2f}",
-      current_stage=current_stage,
+  def _build_user_prompt(
+    self,
+    instruction: str,
+    full_conversation: str,
+    last_utterances: str,
+    resistance_level: float,
+    suffix: str,
+  ) -> str:
+    return (
+      f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
+      f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
+      f"<resistance_level>\n{resistance_level:.2f}\n</resistance_level>\n\n"
+      f"Instruction: {instruction}\n"
+      f"{suffix}"
     )
 
   def generate_utterance(
     self,
-    conversation: str,
+    full_conversation: str,
+    last_utterances: str,
     resistance_level: float,
     instruction: str,
     current_stage: str = "opening",
     max_tokens: int = 5000,
     temperature: float = 0.8,
   ) -> str:
-    system_prompt = self._get_system_prompt(conversation, resistance_level=resistance_level, current_stage=current_stage)
+    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "patient_utterance_suffix.txt"
     messages = [
-      {"role": "system", "content": system_prompt},
+      {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
-        "content": (
-          f"{instruction}\n\n"
-          "Produce only the patient's next utterance. Do not output JSON, analysis, or speaker labels."
+        "content": self._build_user_prompt(
+          instruction=instruction,
+          full_conversation=full_conversation,
+          last_utterances=last_utterances,
+          resistance_level=resistance_level,
+          suffix=self.load_prompt(suffix_path),
         ),
       },
     ]
@@ -90,21 +89,24 @@ class PatientAgent(Agent):
 
   def generate_structured(
     self,
-    conversation: str,
+    full_conversation: str,
+    last_utterances: str,
     resistance_level: float,
     instruction: str,
-    current_stage: str = "opening",
     max_retries: int = 2,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> tuple[Any, dict]:
-    system_prompt = self._get_system_prompt(conversation, resistance_level=resistance_level, current_stage=current_stage)
+    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "patient_structured_suffix.txt"
     messages = [
-      {"role": "system", "content": system_prompt},
+      {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
-        "content": (
-          f"{instruction}\n\n"
-          "Respond with valid JSON only. No markdown fences, no prose outside JSON."
+        "content": self._build_user_prompt(
+          instruction=instruction,
+          full_conversation=full_conversation,
+          last_utterances=last_utterances,
+          resistance_level=resistance_level,
+          suffix=self.load_prompt(suffix_path),
         ),
       },
     ]

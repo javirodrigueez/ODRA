@@ -122,7 +122,8 @@ class TherapyGraphBuilder(
       s["resistance"] = clamp(s["resistance"] + r_change, 0.0, 1.0)
 
       utterance = self.patient.generate_utterance(
-        conversation=self._format_conversation(s["messages"]),
+        full_conversation=self._format_conversation(s["messages"]),
+        last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
         current_stage=s["current_stage"],
         instruction=self._patient_utterance_instruction(s),

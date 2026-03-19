@@ -1,0 +1,1 @@
+Your output should be aligned with the ongoing conversation <full_conversation> and with the most recent exchanges <last_utterances>. Strongly adapt your output to your <resistance_level>. Respond with valid JSON only. No markdown fences, no prose outside JSON. Generate now the JSON response following the given instruction.

@@ -1,0 +1,1 @@
+Your utterance should be aligned with the ongoing conversation <full_conversation>, the most recent exchanges <last_utterances>, and the therapist's reasoning about the last patient turn <last_reasoning>. You must only produce the therapist's next utterance, do not output JSON, analysis, or speaker labels. Generate now your next utterance following the given instruction.

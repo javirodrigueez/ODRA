@@ -219,33 +219,115 @@ class GraphSupportMixin:
 
   def _format_conversation(self, messages: list[dict]) -> str:
     if not messages:
-      return "(conversation just started)"
+      return "(not utterances yet)"
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in messages)
 
-  def _build_session_context(self, state: SessionState) -> str:
-    summary = {
+  def _format_last_utterances(self, messages: list[dict], limit: int = 6) -> str:
+    if not messages:
+      return "(no utterances yet)"
+    recent = messages[-limit:]
+    return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
+
+  def _build_stage_user_context(self, state: SessionState) -> str:
+    stage = state["current_stage"]
+    context: dict[str, Any] = {
+      "current_stage": stage,
       "predicted_resistance": state["predicted_resistance"],
-      "opening_patient_mood": state["opening_patient_mood"],
-      "opening_patient_problem": state["opening_patient_problem"],
-      "cognitive_model_sets": state["cognitive_model_sets"],
-      "working_cognitive_summary": state["working_cognitive_summary"],
-      "cognitive_gap_plan": state["cognitive_gap_plan"],
-      "active_cognitive_target": state["active_cognitive_target"],
-      "active_cognitive_question": state["active_cognitive_question"],
-      "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
-      "selected_techniques": state["selected_techniques"],
-      "techniques_completed": state["techniques_completed"],
-      "technique_evaluations": state["technique_evaluations"][-3:],
-      "mi_active": state["mi_active"],
-      "mi_topics_tried": state["mi_topics_tried"],
-      "mi_techniques_used": state["mi_techniques_used"][-5:],
-      "mi_techniques_paused_until_precontemplation": state["mi_techniques_paused_until_precontemplation"],
-      "cbt_resume_stage": state["cbt_resume_stage"],
-      "proposed_tasks": state["proposed_tasks"],
-      "agreed_tasks": state["agreed_tasks"],
-      "exchange_counts": state["exchange_counts"],
+      "stage_exchange_count": int(state["exchange_counts"].get(stage, 0)),
     }
-    return json.dumps(summary, ensure_ascii=True)
+
+    if stage == "opening":
+      context.update(
+        {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "opening_fallback_triggered": state["opening_fallback_triggered"],
+        }
+      )
+    elif stage == "id_distortions":
+      context.update(
+        {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "working_cognitive_set": state["working_cognitive_set"],
+          "working_cognitive_summary": state["working_cognitive_summary"],
+          "active_cognitive_target": state["active_cognitive_target"],
+          "active_cognitive_question": state["active_cognitive_question"],
+          "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
+        }
+      )
+    elif stage == "cbt_technique":
+      context.update(
+        {
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "selected_techniques": state["selected_techniques"],
+          "current_technique_index": state["current_technique_index"],
+          "current_technique_plan": state["current_technique_plan"],
+          "current_technique_expected_outcome": state["current_technique_expected_outcome"],
+          "current_technique_current_progress": state["current_technique_current_progress"],
+          "technique_turn_count": state["technique_turn_count"],
+          "techniques_completed": state["techniques_completed"],
+          "technique_evaluations": state["technique_evaluations"][-3:],
+        }
+      )
+    elif stage == "homework":
+      context.update(
+        {
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "technique_evaluations": state["technique_evaluations"][-3:],
+          "proposed_tasks": state["proposed_tasks"],
+          "agreed_tasks": state["agreed_tasks"],
+          "hw_reasoning": state["hw_reasoning"],
+          "homework_proposal_attempts": state["homework_proposal_attempts"],
+          "homework_waiting_for_patient": state["homework_waiting_for_patient"],
+        }
+      )
+    elif stage == "closing":
+      context.update(
+        {
+          "opening_patient_problem": state["opening_patient_problem"],
+          "session_summary": state["session_summary"],
+          "next_session_plan": state["next_session_plan"],
+          "agreed_tasks": state["agreed_tasks"],
+          "patient_feedback": state["patient_feedback"],
+          "closing_plan_refinements": state["closing_plan_refinements"],
+        }
+      )
+    elif stage == "mi_topic_exploration":
+      context.update(
+        {
+          "current_mi_topic": state["current_mi_topic"],
+          "mi_topics_tried": state["mi_topics_tried"],
+          "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+    elif stage == "mi_techniques":
+      context.update(
+        {
+          "mi_techniques_used": state["mi_techniques_used"][-5:],
+          "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+    elif stage == "meta_conversation":
+      context.update(
+        {
+          "mi_topics_tried": state["mi_topics_tried"],
+          "mi_techniques_used": state["mi_techniques_used"][-5:],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+    elif stage in {"anticipated_closing", "forced_closing"}:
+      context.update(
+        {
+          "session_ended_reason": state["session_ended_reason"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+
+    return json.dumps(context, ensure_ascii=True)
 
   def _instruction_with_previous_reasoning(self, state: SessionState, instruction: str) -> str:
     text = ensure_str(instruction)
@@ -263,10 +345,11 @@ class GraphSupportMixin:
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     return self.therapist.generate_utterance(
-      conversation=self._format_conversation(state["messages"]),
-      current_stage=state["current_stage"],
-      session_context=self._build_session_context(state),
-      instruction=self._instruction_with_previous_reasoning(state, instruction),
+      full_conversation=self._format_conversation(state["messages"]),
+      last_utterances=self._format_last_utterances(state["messages"]),
+      last_reasoning=state.get("last_reasoning", ""),
+      session_context=self._build_stage_user_context(state),
+      instruction=instruction,
     )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict]) -> None:
@@ -424,9 +507,10 @@ class GraphSupportMixin:
   ) -> Any:
     try:
       parsed, _meta = self.therapist.generate_structured(
-        conversation=self._format_conversation(state["messages"]),
-        current_stage=state["current_stage"],
-        session_context=self._build_session_context(state),
+        full_conversation=self._format_conversation(state["messages"]),
+        last_utterances=self._format_last_utterances(state["messages"]),
+        last_reasoning=state["last_reasoning"],
+        session_context=self._build_stage_user_context(state),
         instruction=instruction,
         expected_type=expected_type,
       )
@@ -450,9 +534,9 @@ class GraphSupportMixin:
   ) -> Any:
     try:
       parsed, _meta = self.patient.generate_structured(
-        conversation=self._format_conversation(state["messages"]),
+        full_conversation=self._format_conversation(state["messages"]),
+        last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
-        current_stage=state["current_stage"],
         instruction=instruction,
         expected_type=expected_type,
       )

@@ -12,39 +12,49 @@ class TherapistAgent(Agent):
   def __init__(self, llm: LLM, profile: dict):
     super().__init__(llm)
     self.profile = profile
-    prompt_filename = "therapist_system.txt"
-    if not (Path(__file__).parent.parent / "prompts" / prompt_filename).exists():
-      prompt_filename = "therapist_system.txt"
-    self._system_template = self._build_template(prompt_filename)
+    prompt_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
+    self.system_prompt = self.load_prompt(prompt_path)
 
-  def _build_template(self, filename: str) -> PromptTemplate:
-    template = load_prompt(filename)
-    return PromptTemplate.from_template(template)
-
-  def _get_system_prompt(self, conversation: str, current_stage: str = "opening", session_context: str = "") -> str:
-    return self._system_template.format(
-      conversation=conversation,
-      current_stage=current_stage,
-      session_context=session_context or "N/A",
+  def _build_user_prompt(
+    self,
+    instruction: str,
+    full_conversation: str,
+    last_utterances: str,
+    last_reasoning: str,
+    session_context: str,
+    suffix: str,
+  ) -> str:
+    return (
+      f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
+      f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
+      f"<last_reasoning>\n{last_reasoning}\n</last_reasoning>\n\n"
+      f"<session_context>\n{session_context or 'N/A'}\n</session_context>\n\n"
+      f"Instruction: {instruction}\n"
+      f"{suffix}"
     )
 
   def generate_utterance(
     self,
-    conversation: str,
-    current_stage: str,
+    full_conversation: str,
+    last_utterances: str,
+    last_reasoning: str,
     session_context: str,
     instruction: str,
     max_tokens: int = 5000,
     temperature: float = 0.7,
   ) -> str:
-    system_prompt = self._get_system_prompt(conversation, current_stage=current_stage, session_context=session_context)
+    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "utterance_suffix.txt"
     messages = [
-      {"role": "system", "content": system_prompt},
+      {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
-        "content": (
-          f"{instruction}\n\n"
-          "Produce only the therapist's next utterance. Do not output JSON, analysis, or speaker labels."
+        "content": self._build_user_prompt(
+          instruction=instruction,
+          full_conversation=full_conversation,
+          last_utterances=last_utterances,
+          last_reasoning=last_reasoning,
+          session_context=session_context,
+          suffix=self.load_prompt(suffix_path),
         ),
       },
     ]
@@ -52,21 +62,26 @@ class TherapistAgent(Agent):
 
   def generate_structured(
     self,
-    conversation: str,
-    current_stage: str,
+    full_conversation: str,
+    last_utterances: str,
+    last_reasoning: str,
     session_context: str,
     instruction: str,
     max_retries: int = 2,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> tuple[Any, dict]:
-    system_prompt = self._get_system_prompt(conversation, current_stage=current_stage, session_context=session_context)
+    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "structured_suffix.txt"
     messages = [
-      {"role": "system", "content": system_prompt},
+      {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
-        "content": (
-          f"{instruction}\n\n"
-          "Respond with valid JSON only. No markdown fences, no prose outside JSON."
+        "content": self._build_user_prompt(
+          instruction=instruction,
+          full_conversation=full_conversation,
+          last_utterances=last_utterances,
+          last_reasoning=last_reasoning,
+          session_context=session_context,
+          suffix=self.load_prompt(suffix_path),
         ),
       },
     ]
