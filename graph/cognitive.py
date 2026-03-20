@@ -47,20 +47,7 @@ class CognitiveStageMixin:
       or working.get("automatic_thoughts")
       or working.get("emotions")
       or working.get("behaviors")
-      or state["working_cognitive_summary"]
     )
-
-  def _merge_working_summary(self, state: SessionState, summary: str) -> None:
-    text = ensure_str(summary)
-    if not text:
-      return
-    current = state["working_cognitive_summary"]
-    if not current:
-      state["working_cognitive_summary"] = text
-      return
-    if text in current:
-      return
-    state["working_cognitive_summary"] = f"{current} {text}".strip()
 
   def _ordered_cognitive_gap_targets(self, state: SessionState) -> tuple[list[str], list[str]]:
     working = state["working_cognitive_set"]
@@ -131,7 +118,6 @@ class CognitiveStageMixin:
     if not ordered_targets:
       return "", ""
     is_discover_situation = ordered_targets and ordered_targets[0] == "situation"
-    summary = state["working_cognitive_summary"] or "No uncertain summary available yet."
     id_situations = ". ".join([set_.get("situation") for set_ in state["cognitive_model_sets"] if set_.get("situation")])
 
     # Put first active target
@@ -152,7 +138,6 @@ class CognitiveStageMixin:
         "plan_missing_items",
         filled_items=", ".join(filled),
         remaining_targets=ordered_targets,
-        uncertain_summary=summary,
       )
 
     # Plan generation
@@ -160,19 +145,39 @@ class CognitiveStageMixin:
     traces.append({"step": "cognitive_gap_planning", "input": instruction, "output": ensure_str(plan)})
     return plan, ordered_targets[0]
 
+  def _generate_cognitive_follow_up_utterance(self, state: SessionState, plan: str, target: str) -> str:
+    instruction = self._load_stage_prompt(
+      "id_distortions",
+      "gap_utterance_follow_up",
+      active_target=target,
+      current_plan=plan,
+    )
+    utterance = self._generate_therapist_utterance(state, instruction)
+    return ensure_str(utterance)
+
   def _generate_cognitive_gap_utterance(self, state: SessionState, plan: str, target: str) -> str:
     if not plan:
       return ""
     instruction = self._load_stage_prompt(
       "id_distortions",
-      "gap_utterance_from_plan",
+      "gap_utterance",
       current_target=target,
       therapist_plan=plan,
     )
     utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
 
-  def _planning_and_asking(self, state: SessionState, traces: list[dict], last_patient: str = "") -> Optional[str]:
+  def _generate_cognitive_gap_best_guess(self, state: SessionState, traces: list[dict], target: str) -> Any:
+    instruction = self._load_stage_prompt(
+      "id_distortions",
+      "gap_best_guess",
+      active_target=target,
+    )
+    guessed = self._run_therapist_structured(state, traces, "cognitive_gap_best_guess", instruction)
+    payload = self._require_dict(guessed, "cognitive_gap_best_guess")
+    return payload.get("identified_items", {})
+
+  def _planning_and_asking(self, state: SessionState, traces: list[dict]) -> Optional[str]:
     active_target = state["active_cognitive_target"]; active_question = state["active_cognitive_question"]
     target_completed = active_target and self._is_cognitive_target_filled(state, active_target)
 
@@ -182,22 +187,18 @@ class CognitiveStageMixin:
       active_target = ""
       active_question = ""
 
-    #if last_patient and active_target and active_question:
     target_in_progress = active_target and active_question
     if target_in_progress:
       follow_ups = state["active_cognitive_follow_up_attempts"]
-      summary = state["working_cognitive_summary"]
       instruction = self._load_stage_prompt(
         "id_distortions",
         "gap_response_review",
         active_target=active_target,
         current_question=active_question,
         follow_up_attempts=follow_ups,
-        uncertain_summary=summary,
       )
       reviewed = self._run_therapist_structured(state, traces, "cognitive_gap_response_review", instruction)
       payload = self._require_dict(reviewed, "cognitive_gap_response_review")
-      self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
       correct_answer = self._require_bool(payload, "answered_satisfactorily", "cognitive_gap_response_review")
 
       if correct_answer:
@@ -207,13 +208,18 @@ class CognitiveStageMixin:
           self._reset_cognitive_gap_tracking(state)
           active_target = ""
           active_question = ""
-      elif follow_ups >= 5:
-        self._apply_cognitive_target_payload(state, active_target, payload.get("best_guess"))
+      elif follow_ups > 5:
+        best_guess = self._generate_cognitive_gap_best_guess(state, traces, active_target)
+        self._apply_cognitive_target_payload(state, active_target, best_guess)
         self._reset_cognitive_gap_tracking(state)
         active_target = ""
         active_question = ""
       else:
-        follow_up_question = ensure_str(payload.get("follow_up_question"))
+        follow_up_question = self._generate_cognitive_gap_utterance(
+          state,
+          ensure_str(state.get("last_reasoning")),
+          active_target,
+        )
         state["active_cognitive_question"] = follow_up_question
         active_question = follow_up_question
 
@@ -244,7 +250,7 @@ class CognitiveStageMixin:
     if not isinstance(filled_items, dict):
       raise ConversationProcessingError("initial_cognitive_model_bootstrap.items must be a JSON object.")
     self._merge_extracted_items(state, filled_items)
-    self._merge_working_summary(state, ensure_str(payload.get("uncertain_summary")))
+    state["last_reasoning"] = ensure_str(payload.get("reasoning"))
 
   def _assign_core_belief(self, state: SessionState, traces: list[dict]) -> None:
     belief_instruction = self._load_stage_prompt("id_distortions", "core_belief_probability")
@@ -329,7 +335,6 @@ class CognitiveStageMixin:
       next_gap_question = self._planning_and_asking(
         state,
         traces,
-        last_patient if id_exchanges > 0 else "",
       )
       if next_gap_question:
         return next_gap_question
@@ -362,7 +367,6 @@ class CognitiveStageMixin:
         completed_set = deepcopy(state["working_cognitive_set"])
         state["cognitive_model_sets"].append(completed_set)
         state["working_cognitive_set"] = self._new_cognitive_set(len(state["cognitive_model_sets"]) + 1)
-        state["working_cognitive_summary"] = ""
         self._reset_cognitive_gap_tracking(state)
       self._set_substage(state, "cognitive_check_completion")
       current_substage = state["current_substage"]

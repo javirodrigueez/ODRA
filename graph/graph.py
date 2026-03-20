@@ -125,7 +125,6 @@ class TherapyGraphBuilder(
         full_conversation=self._format_conversation(s["messages"]),
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
-        current_stage=s["current_stage"],
         instruction=self._patient_utterance_instruction(s),
       )
 

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional
 
-from langchain_core.prompts import PromptTemplate
+from pathlib import Path
 
 from .interfaces import Agent, LLM, StructuredOutputError, load_prompt, parse_json_response
 
@@ -12,8 +11,8 @@ class TherapistAgent(Agent):
   def __init__(self, llm: LLM, profile: dict):
     super().__init__(llm)
     self.profile = profile
-    prompt_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
-    self.system_prompt = self.load_prompt(prompt_path)
+    system_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
+    self.system_prompt = load_prompt(system_path)
 
   def _build_user_prompt(
     self,
@@ -43,7 +42,7 @@ class TherapistAgent(Agent):
     max_tokens: int = 5000,
     temperature: float = 0.7,
   ) -> str:
-    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "utterance_suffix.txt"
+    suffix = load_prompt("shared/utterance_suffix.txt")
     messages = [
       {"role": "system", "content": self.system_prompt},
       {
@@ -54,7 +53,7 @@ class TherapistAgent(Agent):
           last_utterances=last_utterances,
           last_reasoning=last_reasoning,
           session_context=session_context,
-          suffix=self.load_prompt(suffix_path),
+          suffix=suffix,
         ),
       },
     ]
@@ -70,7 +69,8 @@ class TherapistAgent(Agent):
     max_retries: int = 2,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> tuple[Any, dict]:
-    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "structured_suffix.txt"
+    suffix = load_prompt("shared/structured_suffix.txt")
+    retry_suffix = load_prompt("shared/structured_suffix.txt")
     messages = [
       {"role": "system", "content": self.system_prompt},
       {
@@ -81,7 +81,7 @@ class TherapistAgent(Agent):
           last_utterances=last_utterances,
           last_reasoning=last_reasoning,
           session_context=session_context,
-          suffix=self.load_prompt(suffix_path),
+          suffix=suffix,
         ),
       },
     ]
@@ -109,9 +109,16 @@ class TherapistAgent(Agent):
       messages.append(
         {
           "role": "user",
-          "content": (
-            "Your previous response was not valid JSON with the requested schema. "
-            "Reply again with JSON only."
+          "content": self._build_user_prompt(
+            instruction=(
+              f"{instruction}\n\n"
+              "Your previous response was not valid JSON with the requested schema. Reply again."
+            ),
+            full_conversation=full_conversation,
+            last_utterances=last_utterances,
+            last_reasoning=last_reasoning,
+            session_context=session_context,
+            suffix=retry_suffix,
           ),
         }
       )

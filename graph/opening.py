@@ -10,10 +10,7 @@ class OpeningStageMixin:
   def _check_readiness(self, state: SessionState, traces: list[dict]) -> bool:
     instruction = self._load_stage_prompt(
       "opening",
-      "info_update",
-      last_patient_response=state["messages"][-1]["content"],
-      opening_patient_mood=state["opening_patient_mood"],
-      opening_patient_problem=state["opening_patient_problem"],
+      "info_update"
     )
     update = self._run_therapist_structured(state, traces, "opening_info_update", instruction)
     update_payload = self._require_dict(update, "opening_info_update")
@@ -26,9 +23,7 @@ class OpeningStageMixin:
 
     instruction = self._load_stage_prompt(
       "opening",
-      "readiness_check",
-      opening_patient_mood=state["opening_patient_mood"],
-      opening_patient_problem=state["opening_patient_problem"],
+      "readiness_check"
     )
     readiness = self._run_therapist_structured(state, traces, "opening_readiness_check", instruction)
     payload = self._require_dict(readiness, "opening_readiness_check")
@@ -76,6 +71,7 @@ class OpeningStageMixin:
 
     # Ready to move on to id_distortions
     if ready:
+      raise ConversationProcessingError("Just trying...")
       band = self._current_band(state["predicted_resistance"])
       if band == "action":
         self._set_stage(state, "id_distortions")

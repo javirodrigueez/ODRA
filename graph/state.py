@@ -99,7 +99,6 @@ class SessionState(TypedDict, total=False):
 
   cognitive_model_sets: list[dict]
   working_cognitive_set: dict
-  working_cognitive_summary: str
   cognitive_gap_plan: str
   active_cognitive_target: str
   active_cognitive_question: str

@@ -1,1 +1,12 @@
-Review the full conversation so far and initialize the first Beck cognitive model using only already established session content. Only fill situation, auto_thoughts, emotions, or behaviors if you are 100% certain the item is explicitly supported by the conversation. If information is relevant but not certain enough to commit to a cognitive-model item, leave the item empty and place that information in uncertain_summary so it can guide clarification questions. Respond JSON: {"items":{"situation":"", "auto_thoughts":[], "emotions":[], "behaviors":[]}, "uncertain_summary":"...", "reasoning":"..."}
+Generate a Beck cognitive model based on the ongoing conversation in <full_conversation>. A cognitive model consists of the following items: situation, auto_thoughts, emotions, and behaviors. Only include items for which you are 100% certain that is explicitly supported by the conversation. Include a reasoning field to explain your decisions. If there is relevant information that is not certain enough to commit to a cognitive-model item, place that information in the 'reasoning' field so it can guide clarification questions. 
+
+Respond in JSON format with the following structure:
+{
+  "situation": string or null,
+  "auto_thoughts": list of strings,
+  "emotions": list of strings,
+  "behaviors": list of strings,
+  "reasoning": string
+}
+
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from typing import Any, Optional
 
 from langchain_core.prompts import PromptTemplate
@@ -11,8 +12,8 @@ class PatientAgent(Agent):
   def __init__(self, llm: LLM, profile: dict):
     super().__init__(llm)
     self.profile = profile
-    prompt_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
-    self.system_prompt = self._build_template(prompt_path)
+    system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
+    self.system_prompt = self._build_template(system_path).format()
 
   def _build_template(self, filename: str) -> PromptTemplate:
     template = load_prompt(filename)
@@ -67,11 +68,10 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
-    current_stage: str = "opening",
     max_tokens: int = 5000,
     temperature: float = 0.8,
   ) -> str:
-    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "patient_utterance_suffix.txt"
+    suffix = load_prompt("shared/patient_utterance_suffix.txt")
     messages = [
       {"role": "system", "content": self.system_prompt},
       {
@@ -81,7 +81,7 @@ class PatientAgent(Agent):
           full_conversation=full_conversation,
           last_utterances=last_utterances,
           resistance_level=resistance_level,
-          suffix=self.load_prompt(suffix_path),
+          suffix=suffix,
         ),
       },
     ]
@@ -96,7 +96,8 @@ class PatientAgent(Agent):
     max_retries: int = 2,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> tuple[Any, dict]:
-    suffix_path = Path(__file__).parent.parent / "prompts" / "shared" / "patient_structured_suffix.txt"
+    suffix = load_prompt("shared/patient_structured_suffix.txt")
+    retry_suffix = load_prompt("shared/patient_structured_suffix.txt")
     messages = [
       {"role": "system", "content": self.system_prompt},
       {
@@ -106,7 +107,7 @@ class PatientAgent(Agent):
           full_conversation=full_conversation,
           last_utterances=last_utterances,
           resistance_level=resistance_level,
-          suffix=self.load_prompt(suffix_path),
+          suffix=suffix,
         ),
       },
     ]
@@ -134,9 +135,15 @@ class PatientAgent(Agent):
       messages.append(
         {
           "role": "user",
-          "content": (
-            "Your previous response was not valid JSON with the requested schema. "
-            "Reply again with JSON only."
+          "content": self._build_user_prompt(
+            instruction=(
+              f"{instruction}\n\n"
+              "Your previous response was not valid JSON with the requested schema. Reply again."
+            ),
+            full_conversation=full_conversation,
+            last_utterances=last_utterances,
+            resistance_level=resistance_level,
+            suffix=retry_suffix,
           ),
         }
       )

@@ -1,1 +1,1 @@
-Based on the conversation so far, ask the patient a question to understand their current mood. This is the mood check of a standard CBT session.
+Generate a question utterance to deepen the understanding of the patient's mood. Their current reported mood is stored in 'opening_patient_mood' within <session_context>.

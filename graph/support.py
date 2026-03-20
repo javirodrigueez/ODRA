@@ -147,7 +147,6 @@ class GraphSupportMixin:
 
     s.setdefault("cognitive_model_sets", [])
     s.setdefault("working_cognitive_set", self._new_cognitive_set(len(s["cognitive_model_sets"]) + 1))
-    s.setdefault("working_cognitive_summary", "")
     s.setdefault("cognitive_gap_plan", "")
     s.setdefault("active_cognitive_target", "")
     s.setdefault("active_cognitive_question", "")
@@ -222,7 +221,7 @@ class GraphSupportMixin:
       return "(not utterances yet)"
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in messages)
 
-  def _format_last_utterances(self, messages: list[dict], limit: int = 6) -> str:
+  def _format_last_utterances(self, messages: list[dict], limit: int = 10) -> str:
     if not messages:
       return "(no utterances yet)"
     recent = messages[-limit:]
@@ -234,6 +233,7 @@ class GraphSupportMixin:
       "current_stage": stage,
       "predicted_resistance": state["predicted_resistance"],
       "stage_exchange_count": int(state["exchange_counts"].get(stage, 0)),
+      "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
     if stage == "opening":
@@ -251,10 +251,9 @@ class GraphSupportMixin:
           "opening_patient_problem": state["opening_patient_problem"],
           "cognitive_model_sets": state["cognitive_model_sets"],
           "working_cognitive_set": state["working_cognitive_set"],
-          "working_cognitive_summary": state["working_cognitive_summary"],
           "active_cognitive_target": state["active_cognitive_target"],
           "active_cognitive_question": state["active_cognitive_question"],
-          "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
+          "cognitive_gap_plan": state["cognitive_gap_plan"],
         }
       )
     elif stage == "cbt_technique":
@@ -562,7 +561,7 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
-    print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog TODO: add R graph implementation
+    #print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog TODO: add R graph implementation
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

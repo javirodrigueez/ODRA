@@ -131,7 +131,12 @@ class HomeworkStageMixin:
     if current_substage == "homework_end_fallback":
       instruction = self._load_stage_prompt("homework", "end_fallback_utterance")
       utterance = self._generate_therapist_utterance(state, instruction)
+      state["current_substage"] = "homework_transition_to_closing"
 
       return utterance
+
+    if current_substage == "homework_transition_to_closing":
+      self._set_stage(state, "closing")
+      return self._handle_stage_dispatch(state, traces)
 
     raise ConversationProcessingError(f"Unexpected homework substage: {current_substage}")

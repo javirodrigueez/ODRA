@@ -1,0 +1,3 @@
+Generate a question utterance to explore the active target item from the working congnitive model. The active target ('active_cognitive_target'), therapist's latest reasoning ('last_reasoning'), and current cognitive model being explored ('working_cognitive_set') are available in the <session_context>. 
+
+If the therapist has generated a plan for the current working cognitive model, align the utterance with the plan, which is available as 'cognitive_gap_plan' in the <session_context>. If not, generate a question that is focused on the active target and informed by the therapist's latest reasoning.
