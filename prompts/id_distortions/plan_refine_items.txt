@@ -1,0 +1,9 @@
+Create an internal therapist plan to deepen the current working cognitive set without changing to a different situation.
+The current working cognitive set, the completed cognitive sets, the current `id_distortions` exchange count, and the number of exchanges already spent on the current working set are available as 'working_cognitive_set', 'cognitive_model_sets', 'stage_exchange_count', and 'working_cognitive_set_exchange_count' within <session_context>.
+Choose exactly one refinement target from `auto_thoughts`, `emotions`, or `behaviors`. Prioritize the part of the current set that still feels underspecified, overly generic, or most useful to understand more precisely.
+The refinement question must stay anchored to the same situation already in `working_cognitive_set.situation`. Do not ask for a new situation and do not repeat a question that would just restate information already established unless you are asking for more specificity, examples, intensity, timing, or sequence.
+Respond in JSON format with the following structure:
+{
+  "target": "auto_thoughts" or "emotions" or "behaviors",
+  "plan": string
+}

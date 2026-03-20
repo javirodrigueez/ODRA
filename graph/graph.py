@@ -133,6 +133,8 @@ class TherapyGraphBuilder(
       idx = self._append_message(s, "patient", utterance)
       active_stage = s.get("active_exchange_stage") or s["current_stage"]
       s["exchange_counts"][active_stage] = int(s["exchange_counts"].get(active_stage, 0)) + 1
+      if active_stage == "id_distortions":
+        s["working_cognitive_set_exchange_count"] = int(s.get("working_cognitive_set_exchange_count", 0)) + 1
       if active_stage == "cbt_technique" and s["current_technique_plan"]:
         s["technique_turn_count"] += 1
 
