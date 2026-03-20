@@ -1,5 +1,6 @@
-Generate the best supported guess for the current active target Beck cognitive model item based on <last_utterances> and latest therapist reasoning. The active target ('active_cognitive_target'), therapist's latest reasoning ('last_reasoning'), and current cognitive model being explored ('working_cognitive_set') are available in the <session_context>. Make a conservative guess for the active target item, while leaving the other fields as null. Include a reasoning field to explain your decision.
-
+Generate the most conservative best-supported guess for the current active target Beck cognitive model item.
+The active target, active question, current working cognitive set, and last patient response are available as 'active_cognitive_target', 'active_cognitive_question', 'working_cognitive_set', and 'last_patient_response' within <session_context>. The recent dialogue and prior analysis are available in <last_utterances> and <last_reasoning>.
+Make a conservative guess for the active target only. Leave every non-target field as null, and use `reasoning` to explain the evidence and uncertainty behind the guess.
 Respond in JSON format with the following structure:
 {
   "identified_items": {

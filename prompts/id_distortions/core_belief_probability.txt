@@ -1,1 +1,4 @@
-Given the current cognitive set (situation, thoughts, emotions, behaviors), assign probabilities to core belief categories. Each probability must be a float between [0.0, 1.0] and the sum of all probabilities needs to equal 1.0. Respond JSON: {"helplessness": <float>, "unlovability": <float>, "worthlessness": <float>}.
+Assign probabilities to the Beck core belief categories for the current working cognitive set.
+The current working cognitive set is available as 'working_cognitive_set' within <session_context>.
+Use the situation, automatic thoughts, emotions, and behaviors in that set to estimate the categories `helplessness`, `unlovability`, and `worthlessness`. Each probability must be a float between 0.0 and 1.0, and the sum of all probabilities must equal 1.0.
+Respond in JSON format with the following structure: {"helplessness": float, "unlovability": float, "worthlessness": float}

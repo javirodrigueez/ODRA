@@ -1,1 +1,4 @@
-Based on collected cognitive model sets, does the therapist need more information before technique application? Respond JSON: {"needs_more": true/false, "reasoning":"..."}
+Decide whether the therapist needs to identify additional cognitive model sets before moving to technique application.
+The completed cognitive sets, the opening-stage problem summary, and the current `id_distortions` exchange count are available as 'cognitive_model_sets', 'opening_patient_problem', and 'stage_exchange_count' within <session_context>.
+Base the decision on whether the existing sets provide enough variety and coverage to understand the patient's problem well enough for technique selection. Use `reasoning` to justify the decision.
+Respond in JSON format with the following structure: {"needs_more": boolean, "reasoning": string}

@@ -141,8 +141,15 @@ class CognitiveStageMixin(GraphSupportMixin):
       )
 
     # Plan generation
-    plan = self._generate_therapist_utterance(state, instruction)
-    traces.append({"step": "cognitive_gap_planning", "input": instruction, "output": ensure_str(plan)})
+    parsed = self._run_therapist_structured(
+      state,
+      traces,
+      "cognitive_gap_planning",
+      instruction,
+      temperature=0.5,
+    )
+    payload = self._require_dict(parsed, "cognitive_gap_planning")
+    plan = self._require_non_empty_string(payload, "plan", "cognitive_gap_planning")
     return plan, ordered_targets[0]
 
   def _generate_cognitive_follow_up_utterance(self, state: SessionState, plan: str, target: str) -> str:
@@ -155,23 +162,18 @@ class CognitiveStageMixin(GraphSupportMixin):
     utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
 
-  def _generate_cognitive_gap_utterance(self, state: SessionState, plan: str, target: str) -> str:
-    if not plan:
-      return ""
+  def _generate_cognitive_gap_utterance(self, state: SessionState) -> str:
     instruction = self._load_stage_prompt(
       "id_distortions",
       "gap_utterance",
-      current_target=target,
-      therapist_plan=plan,
     )
     utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
 
-  def _generate_cognitive_gap_best_guess(self, state: SessionState, traces: list[dict[str, Any]], target: str) -> Any:
+  def _generate_cognitive_gap_best_guess(self, state: SessionState, traces: list[dict[str, Any]]) -> Any:
     instruction = self._load_stage_prompt(
       "id_distortions",
       "gap_best_guess",
-      active_target=target,
     )
     guessed = self._run_therapist_structured(state, traces, "cognitive_gap_best_guess", instruction)
     payload = self._require_dict(guessed, "cognitive_gap_best_guess")
@@ -194,9 +196,6 @@ class CognitiveStageMixin(GraphSupportMixin):
       instruction = self._load_stage_prompt(
         "id_distortions",
         "gap_response_review",
-        active_target=active_target,
-        current_question=active_question,
-        follow_up_attempts=follow_ups,
       )
       reviewed = self._run_therapist_structured(state, traces, "cognitive_gap_response_review", instruction)
       payload = self._require_dict(reviewed, "cognitive_gap_response_review")
@@ -210,17 +209,13 @@ class CognitiveStageMixin(GraphSupportMixin):
           active_target = ""
           active_question = ""
       elif follow_ups > 5:
-        best_guess = self._generate_cognitive_gap_best_guess(state, traces, active_target)
+        best_guess = self._generate_cognitive_gap_best_guess(state, traces)
         self._apply_cognitive_target_payload(state, active_target, best_guess)
         self._reset_cognitive_gap_tracking(state)
         active_target = ""
         active_question = ""
       else:
-        follow_up_question = self._generate_cognitive_gap_utterance(
-          state,
-          ensure_str(state.get("last_reasoning")),
-          active_target,
-        )
+        follow_up_question = self._generate_cognitive_gap_utterance(state)
         state["active_cognitive_question"] = follow_up_question
         active_question = follow_up_question
 
@@ -234,10 +229,10 @@ class CognitiveStageMixin(GraphSupportMixin):
     if target_or_set_completed:
       plan, next_target = self._plan_cognitive_gaps(state, traces)
       state["cognitive_gap_plan"] = plan
-      next_question = self._generate_cognitive_gap_utterance(state, plan, next_target)
       if next_target != state["active_cognitive_target"]:
         state["active_cognitive_target"] = next_target
         state["active_cognitive_follow_up_attempts"] = 0
+      next_question = self._generate_cognitive_gap_utterance(state)
       state["active_cognitive_question"] = next_question
 
     state["active_cognitive_follow_up_attempts"] = int(state["active_cognitive_follow_up_attempts"]) + 1
@@ -374,6 +369,7 @@ class CognitiveStageMixin(GraphSupportMixin):
     # Decide whether distortion identification is complete for this session.
     if current_substage == "cognitive_check_completion":
       if self._check_distortion_completion(state, traces, id_exchanges):
+        raise ConversationProcessingError("Distortion identification completed, should transition to CBT technique selection.")
         self._set_stage(state, "cbt_technique")
         return self._handle_stage_dispatch(state, traces)
       self._set_substage(state, "cognitive_review_active_question")

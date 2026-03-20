@@ -263,6 +263,7 @@ class GraphSupportMixin:
           "working_cognitive_set": state["working_cognitive_set"],
           "active_cognitive_target": state["active_cognitive_target"],
           "active_cognitive_question": state["active_cognitive_question"],
+          "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
           "cognitive_gap_plan": state["cognitive_gap_plan"],
         }
       )
@@ -513,6 +514,7 @@ class GraphSupportMixin:
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
+    temperature: float = 0.2,
   ) -> Any:
     try:
       parsed, _meta = self.therapist.generate_structured(
@@ -522,6 +524,7 @@ class GraphSupportMixin:
         session_context=self._build_stage_user_context(state),
         instruction=instruction,
         expected_type=expected_type,
+        temperature=temperature,
       )
       print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
     except StructuredOutputError as exc:

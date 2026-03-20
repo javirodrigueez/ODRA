@@ -67,6 +67,7 @@ class TherapistAgent(Agent):
     instruction: str,
     max_retries: int = 2,
     expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
+    temperature: float = 0.2,
   ) -> tuple[Any, dict[str, Any]]:
     suffix = load_prompt("shared/structured_suffix.txt")
     retry_suffix = load_prompt("shared/structured_suffix.txt")
@@ -90,7 +91,7 @@ class TherapistAgent(Agent):
     last_error = "invalid response"
     for _ in range(max_retries + 1):
       attempts += 1
-      raw = self.llm.generate(messages, temperature=0.2, max_tokens=5000)
+      raw = self.llm.generate(messages, temperature=temperature, max_tokens=5000)
       last_raw = raw or ""
       try:
         parsed, parse_meta = parse_json_response(last_raw)

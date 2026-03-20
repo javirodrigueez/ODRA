@@ -1,1 +1,7 @@
-The situation is the central event or context that triggers the patient's automatic thoughts, emotions, and behaviors. Create a plan to discover a new problematic situation of the patient's life that is not yet in already identified cognitive sets. Already identified situations from previous sets: {identified_situations}. Try to find a situation that is distinct from previously identified ones to expand the understanding of the patient's problems.
+Create an internal therapist plan to discover a new problematic situation that is not already covered by the identified cognitive sets. Already identified situations from previous sets: {identified_situations}.
+Previously completed cognitive sets, the current working cognitive set, and the opening-stage mood/problem summary are available as 'cognitive_model_sets', 'working_cognitive_set', 'opening_patient_mood', and 'opening_patient_problem' within <session_context>.
+The situation should be a concrete event or context that triggers the patient's automatic thoughts, emotions, and behaviors. Prefer a distinct situation that expands the understanding of the patient's problems instead of repeating an existing one.
+Respond in JSON format with the following structure:
+{{
+  "plan": string
+}}
