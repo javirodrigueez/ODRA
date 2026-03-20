@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from agents.interfaces import ensure_str, ensure_str_list
 
-from .state import CORE_BELIEF_KEYS, DISTORTION_KEYS, SessionState
+from .state import CORE_BELIEF_KEYS, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, SessionState
 from .support import ConversationProcessingError, GraphSupportMixin
 
 
@@ -39,6 +39,9 @@ class CognitiveStageMixin(GraphSupportMixin):
   def _working_set_full_complete(self, state: SessionState) -> bool:
     working = state["working_cognitive_set"]
     return self._working_set_base_complete(state) and bool(working.get("core_belief")) and bool(working.get("distortion"))
+
+  def _working_set_min_exchanges_met(self, state: SessionState) -> bool:
+    return int(state.get("working_cognitive_set_exchange_count", 0)) >= MIN_COGNITIVE_SET_EXCHANGES
 
   def _working_set_has_content(self, state: SessionState) -> bool:
     working = state["working_cognitive_set"]
@@ -152,6 +155,24 @@ class CognitiveStageMixin(GraphSupportMixin):
     plan = self._require_non_empty_string(payload, "plan", "cognitive_gap_planning")
     return plan, ordered_targets[0]
 
+  def _plan_cognitive_refinement(self, state: SessionState, traces: list[dict[str, Any]]) -> tuple[str, str]:
+    instruction = self._load_stage_prompt("id_distortions", "plan_refine_items")
+    parsed = self._run_therapist_structured(
+      state,
+      traces,
+      "cognitive_refinement_planning",
+      instruction,
+      temperature=0.4,
+    )
+    payload = self._require_dict(parsed, "cognitive_refinement_planning")
+    target = ensure_str(payload.get("target"))
+    if target not in {"auto_thoughts", "emotions", "behaviors"}:
+      raise ConversationProcessingError(
+        f"cognitive_refinement_planning.target must be one of auto_thoughts, emotions, or behaviors, got {target!r}."
+      )
+    plan = self._require_non_empty_string(payload, "plan", "cognitive_refinement_planning")
+    return plan, target
+
   def _generate_cognitive_follow_up_utterance(self, state: SessionState, plan: str, target: str) -> str:
     instruction = self._load_stage_prompt(
       "id_distortions",
@@ -237,6 +258,56 @@ class CognitiveStageMixin(GraphSupportMixin):
 
     state["active_cognitive_follow_up_attempts"] = int(state["active_cognitive_follow_up_attempts"]) + 1
     return next_question
+
+  def _refine_and_ask(self, state: SessionState, traces: list[dict[str, Any]]) -> Optional[str]:
+    if self._working_set_min_exchanges_met(state):
+      self._reset_cognitive_gap_tracking(state)
+      return None
+
+    active_target = state["active_cognitive_target"]
+    active_question = state["active_cognitive_question"]
+
+    if active_target and active_question:
+      follow_ups = int(state["active_cognitive_follow_up_attempts"])
+      instruction = self._load_stage_prompt(
+        "id_distortions",
+        "gap_response_review",
+      )
+      reviewed = self._run_therapist_structured(state, traces, "cognitive_refinement_response_review", instruction)
+      payload = self._require_dict(reviewed, "cognitive_refinement_response_review")
+      answered = self._require_bool(payload, "answered_satisfactorily", "cognitive_refinement_response_review")
+
+      if answered:
+        identified = payload.get("identified_items", {})
+        self._merge_extracted_items(state, identified)
+        state["last_reasoning"] = ensure_str(payload.get("reasoning"))
+        self._reset_cognitive_gap_tracking(state)
+      elif follow_ups > 5:
+        best_guess = self._generate_cognitive_gap_best_guess(state, traces)
+        self._apply_cognitive_target_payload(state, active_target, best_guess)
+        if isinstance(best_guess, dict):
+          state["last_reasoning"] = ensure_str(best_guess.get("reasoning"))
+        self._reset_cognitive_gap_tracking(state)
+      else:
+        follow_up_question = self._generate_cognitive_gap_utterance(state)
+        state["active_cognitive_question"] = follow_up_question
+        state["active_cognitive_follow_up_attempts"] = follow_ups + 1
+        return follow_up_question
+
+    if self._working_set_min_exchanges_met(state):
+      self._reset_cognitive_gap_tracking(state)
+      return None
+
+    if not state["active_cognitive_question"]:
+      plan, target = self._plan_cognitive_refinement(state, traces)
+      state["cognitive_gap_plan"] = plan
+      state["active_cognitive_target"] = target
+      state["active_cognitive_follow_up_attempts"] = 0
+      next_question = self._generate_cognitive_gap_utterance(state)
+      state["active_cognitive_question"] = next_question
+
+    state["active_cognitive_follow_up_attempts"] = int(state["active_cognitive_follow_up_attempts"]) + 1
+    return state["active_cognitive_question"]
 
   def _bootstrap_first_cognitive_model(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     instruction = self._load_stage_prompt("id_distortions", "bootstrap_first_cognitive_model")
@@ -333,6 +404,17 @@ class CognitiveStageMixin(GraphSupportMixin):
       )
       if next_gap_question:
         return next_gap_question
+      self._set_substage(state, "cognitive_refinement")
+      current_substage = state["current_substage"]
+
+    # Keep the therapist on the same cognitive set until the minimum exchange threshold is met.
+    if current_substage == "cognitive_refinement":
+      if not self._working_set_base_complete(state):
+        self._set_substage(state, "cognitive_review_active_question")
+        return self._handle_id_distortions(state, traces)
+      next_refinement_question = self._refine_and_ask(state, traces)
+      if next_refinement_question:
+        return next_refinement_question
       self._set_substage(state, "cognitive_assign_core_belief")
       current_substage = state["current_substage"]
 
@@ -362,6 +444,7 @@ class CognitiveStageMixin(GraphSupportMixin):
         completed_set = deepcopy(state["working_cognitive_set"])
         state["cognitive_model_sets"].append(completed_set)
         state["working_cognitive_set"] = self._new_cognitive_set(len(state["cognitive_model_sets"]) + 1)
+        state["working_cognitive_set_exchange_count"] = 0
         self._reset_cognitive_gap_tracking(state)
       self._set_substage(state, "cognitive_check_completion")
       current_substage = state["current_substage"]

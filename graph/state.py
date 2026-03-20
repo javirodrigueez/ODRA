@@ -32,6 +32,7 @@ SubStage = Literal[
   "mi_end_session",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
+  "cognitive_refinement",
   "cognitive_assign_core_belief",
   "cognitive_assign_distortion",
   "cognitive_commit_set",
@@ -80,6 +81,7 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "mi_end_session",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
+  "cognitive_refinement",
   "cognitive_assign_core_belief",
   "cognitive_assign_distortion",
   "cognitive_commit_set",
@@ -120,6 +122,7 @@ DISTORTION_KEYS = [
   "labeling_and_mislabeling",
   "discounting_the_positive",
 ]
+MIN_COGNITIVE_SET_EXCHANGES = 3
 MI_TOPICS = ["Health", "Economy", "Interpersonal Relationships", "Law", "Education"]
 
 DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
@@ -191,6 +194,7 @@ class SessionState(TypedDict):
   active_cognitive_target: str
   active_cognitive_question: str
   active_cognitive_follow_up_attempts: int
+  working_cognitive_set_exchange_count: int
 
   selected_techniques: list[SelectedTechnique]
   current_technique_index: int

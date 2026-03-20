@@ -1,4 +1,4 @@
-Check whether the last patient response answers the current cognitive-model question well enough to fill the active target item.
+Check whether the last patient response answers the current cognitive-model question well enough to fill or refine the active target item.
 The active target, active question, current working cognitive set, last patient response, and follow-up count are available as 'active_cognitive_target', 'active_cognitive_question', 'working_cognitive_set', 'last_patient_response', and 'active_cognitive_follow_up_attempts' within <session_context>.
 If the response clearly identifies the active target, set `answered_satisfactorily=true`, extract the identified information, and explain why. If the response is still insufficient, set `answered_satisfactorily=false`, leave the unresolved target field as null, and use `reasoning` to state the specific missing information. If the patient also clearly provides other cognitive items, you may extract those too.
 Respond in JSON format with the following structure:

@@ -9,7 +9,7 @@ from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_f
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
-from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
+from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
 
 
 class ConversationProcessingError(RuntimeError):
@@ -154,6 +154,7 @@ class GraphSupportMixin:
     s.setdefault("active_cognitive_target", "")
     s.setdefault("active_cognitive_question", "")
     s.setdefault("active_cognitive_follow_up_attempts", 0)
+    s.setdefault("working_cognitive_set_exchange_count", 0)
 
     s.setdefault("selected_techniques", [])
     s.setdefault("current_technique_index", 0)
@@ -265,6 +266,8 @@ class GraphSupportMixin:
           "active_cognitive_question": state["active_cognitive_question"],
           "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
           "cognitive_gap_plan": state["cognitive_gap_plan"],
+          "working_cognitive_set_exchange_count": state["working_cognitive_set_exchange_count"],
+          "working_cognitive_set_min_exchanges": MIN_COGNITIVE_SET_EXCHANGES,
         }
       )
     elif stage == "cbt_technique":
