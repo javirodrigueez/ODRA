@@ -1,1 +1,8 @@
-The technique currently in progress is "{technique_name}". Evaluate only this in-progress technique. Do not evaluate any previously completed technique or any other technique mentioned in the conversation. Technique rationale: {technique_rationale}. Target distortion: {target_distortion}. Current technique plan: {current_technique_plan}. Expected outcome for this technique: {expected_outcome}. Technique turn count so far: {technique_turn_count}. Based on this in-progress technique and the conversation, can this current technique now be marked as complete? Respond JSON: {{"completed": true/false, "reasoning":"..."}}
+Decide whether the currently active CBT technique can now be marked as complete.
+The active technique object, the current detailed plan for that technique, the expected outcome, and the technique turn count are available as 'current_selected_technique', 'current_technique_plan', 'current_technique_expected_outcome', and 'technique_turn_count' within <session_context>.
+Use the recent dialogue in <last_utterances> and the prior therapist analysis in <last_reasoning> to assess only the active in-progress technique. Do not evaluate any previously completed technique or any other technique mentioned in the conversation. Mark the technique as complete only if the current exchange shows that the planned technique work has reached a natural stopping point or has sufficiently achieved its expected outcome.
+Respond in JSON format with the following structure:
+{{
+  "completed": boolean,
+  "reasoning": string
+}}

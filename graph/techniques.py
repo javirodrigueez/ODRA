@@ -107,12 +107,6 @@ class TechniqueStageMixin(GraphSupportMixin):
     instruction = self._load_stage_prompt( #TODO: Check if now evaluating current technique dont mix info with previous technique
       "cbt_technique",
       "completion_check",
-      technique_name=current["name"],
-      technique_rationale=ensure_str(current.get("rationale")),
-      target_distortion=ensure_str(current.get("target_distortion")) or "not explicitly specified",
-      current_technique_plan=state["current_technique_plan"],
-      expected_outcome=state["current_technique_expected_outcome"],
-      technique_turn_count=state["technique_turn_count"],
     )
     parsed = self._run_therapist_structured(state, traces, "technique_completion_check", instruction)
     parsed_payload = self._require_dict(parsed, "technique_completion_check")
@@ -231,7 +225,6 @@ class TechniqueStageMixin(GraphSupportMixin):
         fit_instruction = self._load_stage_prompt(
           "cbt_technique",
           "fit_check",
-          technique_name=current["name"],
         )
         fit_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_fit_check", fit_instruction),
@@ -244,7 +237,7 @@ class TechniqueStageMixin(GraphSupportMixin):
           replacement: SelectedTechnique = {
             "name": alt_name,
             "target_distortion": current.get("target_distortion"),
-            "rationale": ensure_str(fit_parsed.get("alternative_reasoning")),
+            "rationale": ensure_str(fit_parsed.get("reasoning")),
           }
           current = replacement
           state["selected_techniques"][slot_idx] = replacement
@@ -262,7 +255,6 @@ class TechniqueStageMixin(GraphSupportMixin):
         plan_instruction = self._load_stage_prompt(
           "cbt_technique",
           "plan_initial",
-          technique_name=current["name"],
         )
         plan_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_plan", plan_instruction),
@@ -287,9 +279,6 @@ class TechniqueStageMixin(GraphSupportMixin):
         plan_instruction = self._load_stage_prompt(
           "cbt_technique",
           "plan_update",
-          technique_name=current["name"],
-          previous_plan_details=state["current_technique_plan"],
-          last_reasoning=state["last_reasoning"],
         )
         plan_parsed = self._require_dict(
           self._run_therapist_structured(state, traces, "technique_plan", plan_instruction),
@@ -298,6 +287,11 @@ class TechniqueStageMixin(GraphSupportMixin):
         state["current_technique_plan"] = self._require_non_empty_string(
           plan_parsed,
           "detailed_plan_description",
+          "technique_plan",
+        )
+        state["current_technique_current_progress"] = self._require_non_empty_string(
+          plan_parsed,
+          "current_progress",
           "technique_plan",
         )
       self._set_substage(state, "cbt_deliver_current")
@@ -311,12 +305,6 @@ class TechniqueStageMixin(GraphSupportMixin):
       instruction = self._load_stage_prompt(
         "cbt_technique",
         "deliver_current",
-        technique_name=current["name"],
-        technique_rationale=ensure_str(current.get("rationale")),
-        target_distortion=ensure_str(current.get("target_distortion")) or "not explicitly specified",
-        current_technique_plan=state["current_technique_plan"],
-        expected_outcome=state["current_technique_expected_outcome"],
-        current_progress=state["current_technique_current_progress"],
       )
       utterance = self._generate_therapist_utterance(state, instruction)
       state["current_substage"] = "cbt_review_current"

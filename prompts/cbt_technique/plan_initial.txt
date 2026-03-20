@@ -1,1 +1,9 @@
-Create a technique plan for "{technique_name}" for this patient. Respond JSON: {{"detailed_plan_description":"...", "expected_outcome":"...", "current_progress":"..."}}
+Create the initial in-session plan for the currently selected CBT technique.
+The active technique object, the identified Beck cognitive model sets, recent evaluations of completed techniques, and the technique turn count are available as 'current_selected_technique', 'cognitive_model_sets', 'technique_evaluations', and 'technique_turn_count' within <session_context>.
+Produce a concrete plan for how to apply this technique with this patient right now. The plan should reflect the patient's identified cognitive patterns, stay feasible within the current session, and define both the intended outcome and the current starting point for the intervention.
+Respond in JSON format with the following structure:
+{{
+  "detailed_plan_description": string,
+  "expected_outcome": string,
+  "current_progress": string
+}}

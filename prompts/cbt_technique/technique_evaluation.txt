@@ -1,1 +1,9 @@
-Evaluate the completed technique. You have to evaluate the resistance towards the technique presented by the patient and the fulfillment of expected outcomes. If expected outcomes were not fulfilled, identify problems that arose during execution, and learnings for addressing better subsequent techniques. If expected outcomes were fulfilled, you can also identify problems and learnings, but focus more on what went well and should be repeated in future techniques. Respond JSON with fields: {"patient_resistance":"...", "results":"...", "expected_outcomes_fulfilled":true/false, "problems":"...", "learnings":"..."}
+Evaluate the CBT technique that was just completed.
+The completed technique object, the detailed plan that guided it, the expected outcome, the latest recorded progress state, and the technique turn count are available as 'current_selected_technique', 'current_technique_plan', 'current_technique_expected_outcome', 'current_technique_current_progress', and 'technique_turn_count' within <session_context>.
+Use the conversation context to evaluate the results obtained, including the patient's engagement with the therapy and the outcomes achieved for the patient, the problems encountered, and the learnings acquired for subsequent techniques.
+Respond in JSON format with the following structure:
+{{
+  "results": string,
+  "problems": string,
+  "learnings": string
+}}

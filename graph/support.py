@@ -268,11 +268,16 @@ class GraphSupportMixin:
         }
       )
     elif stage == "cbt_technique":
+      current_selected_technique = None
+      current_technique_index = int(state["current_technique_index"])
+      if 0 <= current_technique_index < len(state["selected_techniques"]):
+        current_selected_technique = state["selected_techniques"][current_technique_index]
       context.update(
         {
           "cognitive_model_sets": state["cognitive_model_sets"],
           "selected_techniques": state["selected_techniques"],
-          "current_technique_index": state["current_technique_index"],
+          "current_technique_index": current_technique_index,
+          "current_selected_technique": current_selected_technique,
           "current_technique_plan": state["current_technique_plan"],
           "current_technique_expected_outcome": state["current_technique_expected_outcome"],
           "current_technique_current_progress": state["current_technique_current_progress"],
