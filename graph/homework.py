@@ -1,15 +1,29 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents.interfaces import ensure_str
 
-from .state import SessionState
-from .support import ConversationProcessingError
+from .state import HomeworkTask, SessionState
+from .support import ConversationProcessingError, GraphSupportMixin
 
 
-class HomeworkStageMixin:
-  def _propose_homework_tasks(self, state: SessionState, traces: list[dict]) -> None:
+class HomeworkStageMixin(GraphSupportMixin):
+  def _propose_homework_tasks(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     # Format cognitive sets
-    format_csets_str = "\n".join([f'Situation: {cset["situation"]}\n  Automatic Thought: {cset["automatic_thoughts"]}\n  Emotion: {cset["emotions"]}\n  Behavior: {cset["behaviors"]}\n  Core Belief: {cset["core_belief"]}\n  Distortions: {", ".join(cset["distortion"])}' for cset in state["cognitive_model_sets"]])
+    format_csets_str = "\n".join(
+      [
+        (
+          f'Situation: {cset["situation"]}\n'
+          f'  Automatic Thoughts: {", ".join(cset["automatic_thoughts"])}\n'
+          f'  Emotions: {", ".join(cset["emotions"])}\n'
+          f'  Behaviors: {", ".join(cset["behaviors"])}\n'
+          f'  Core Belief: {cset["core_belief"]}\n'
+          f'  Distortion: {cset["distortion"]}'
+        )
+        for cset in state["cognitive_model_sets"]
+      ]
+    )
     # Format technique evaluations
     format_evals_str = "\n".join([f'Technique: {e["technique"]}\n  Evaluation: {e["evaluation"]}' for e in state["technique_evaluations"]])
     instruction = self._load_stage_prompt(
@@ -21,28 +35,27 @@ class HomeworkStageMixin:
     )
     parsed = self._run_therapist_structured(state, traces, "homework_task_proposal", instruction)
     payload = self._require_dict(parsed, "homework_task_proposal")
-    tasks = payload.get("tasks")
-    if not isinstance(tasks, list):
+    tasks_raw = payload.get("tasks")
+    if not isinstance(tasks_raw, list):
       raise ConversationProcessingError("homework_task_proposal.tasks must be a list.")
-    # tasks = []
-    # for item in tasks_raw:
-    #   if not isinstance(item, dict):
-    #     raise ConversationProcessingError("homework_task_proposal.tasks items must be JSON objects.")
-    #   tasks.append(
-    #     {
-    #       "task_title": self._require_non_empty_string(item, "task_title", "homework_task_proposal.tasks"),
-    #       "task_description": self._require_non_empty_string(item, "task_description", "homework_task_proposal.tasks"),
-    #       "rationale": item.get("rationale", ""),
-    #       "expected_outcomes": item.get("expected_outcomes", ""),
-    #     }
-    #   )
-    # if not tasks:
-    #   raise ConversationProcessingError("homework_task_proposal.tasks must contain at least one task.")
+    tasks: list[HomeworkTask] = []
+    for item in tasks_raw:
+      item_payload = self._require_dict(item, "homework_task_proposal.tasks")
+      tasks.append(
+        {
+          "task_title": self._require_non_empty_string(item_payload, "task_title", "homework_task_proposal.tasks"),
+          "task_description": self._require_non_empty_string(item_payload, "task_description", "homework_task_proposal.tasks"),
+          "rationale": ensure_str(item_payload.get("rationale")),
+          "expected_outcomes": ensure_str(item_payload.get("expected_outcomes")),
+        }
+      )
+    if not tasks:
+      raise ConversationProcessingError("homework_task_proposal.tasks must contain at least one task.")
     state["proposed_tasks"] = tasks[:2]
     state["homework_proposal_attempts"] += 1
     state["homework_waiting_for_patient"] = True
 
-  def _check_homework_agreement(self, state: SessionState, traces: list[dict]):
+  def _check_homework_agreement(self, state: SessionState, traces: list[dict[str, Any]]) -> tuple[bool, list[HomeworkTask]]:
     instruction = self._load_stage_prompt("homework", "agreement_check")
     parsed = self._run_therapist_structured(state, traces, "homework_agreement_check", instruction)
     payload = self._require_dict(parsed, "homework_agreement_check")
@@ -50,12 +63,23 @@ class HomeworkStageMixin:
     agreed = self._require_bool(payload, "agreement_reached", "homework_agreement_check")
     agreed_tasks_raw = payload.get("agreed_tasks")
     state["last_reasoning"] = ensure_str(payload.get("reasoning", ""), "homework_agreement_check")
+    agreed_tasks: list[HomeworkTask] = []
 
     if agreed and isinstance(agreed_tasks_raw, list):
-      state["agreed_tasks"] = agreed_tasks_raw
-    return agreed, agreed_tasks_raw
+      for item in agreed_tasks_raw:
+        item_payload = self._require_dict(item, "homework_agreement_check.agreed_tasks")
+        agreed_tasks.append(
+          {
+            "task_title": self._require_non_empty_string(item_payload, "task_title", "homework_agreement_check.agreed_tasks"),
+            "task_description": self._require_non_empty_string(item_payload, "task_description", "homework_agreement_check.agreed_tasks"),
+            "rationale": ensure_str(item_payload.get("rationale")),
+            "expected_outcomes": ensure_str(item_payload.get("expected_outcomes")),
+          }
+        )
+      state["agreed_tasks"] = agreed_tasks
+    return agreed, agreed_tasks
 
-  def _minimal_homework_task(self) -> list[dict]:
+  def _minimal_homework_task(self) -> list[HomeworkTask]:
     return [
       {
         "task_title": "Brief Observation Note",
@@ -65,7 +89,7 @@ class HomeworkStageMixin:
       }
     ]
 
-  def _handle_homework(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_homework(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
 
     # Determine branch
     if state["homework_waiting_for_patient"]:

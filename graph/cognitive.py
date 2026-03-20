@@ -6,11 +6,11 @@ from typing import Any, Optional
 from agents.interfaces import ensure_str, ensure_str_list
 
 from .state import CORE_BELIEF_KEYS, DISTORTION_KEYS, SessionState
-from .support import ConversationProcessingError
+from .support import ConversationProcessingError, GraphSupportMixin
 
 
-class CognitiveStageMixin:
-  def _merge_extracted_items(self, state: SessionState, extracted: dict) -> None:
+class CognitiveStageMixin(GraphSupportMixin):
+  def _merge_extracted_items(self, state: SessionState, extracted: dict[str, Any]) -> None:
     working = state["working_cognitive_set"]
     situation = ensure_str(extracted.get("situation"))
     thoughts = ensure_str_list(extracted.get("auto_thoughts"))
@@ -112,7 +112,7 @@ class CognitiveStageMixin:
       self._merge_extracted_items(state, extracted)
     return self._is_cognitive_target_filled(state, target)
 
-  def _plan_cognitive_gaps(self, state: SessionState, traces: list[dict]) -> tuple[str, str]:
+  def _plan_cognitive_gaps(self, state: SessionState, traces: list[dict[str, Any]]) -> tuple[str, str]:
     # Id. unfilled targets in order
     ordered_targets, filled = self._ordered_cognitive_gap_targets(state)
     if not ordered_targets:
@@ -167,7 +167,7 @@ class CognitiveStageMixin:
     utterance = self._generate_therapist_utterance(state, instruction)
     return ensure_str(utterance)
 
-  def _generate_cognitive_gap_best_guess(self, state: SessionState, traces: list[dict], target: str) -> Any:
+  def _generate_cognitive_gap_best_guess(self, state: SessionState, traces: list[dict[str, Any]], target: str) -> Any:
     instruction = self._load_stage_prompt(
       "id_distortions",
       "gap_best_guess",
@@ -177,9 +177,10 @@ class CognitiveStageMixin:
     payload = self._require_dict(guessed, "cognitive_gap_best_guess")
     return payload.get("identified_items", {})
 
-  def _planning_and_asking(self, state: SessionState, traces: list[dict]) -> Optional[str]:
-    active_target = state["active_cognitive_target"]; active_question = state["active_cognitive_question"]
-    target_completed = active_target and self._is_cognitive_target_filled(state, active_target)
+  def _planning_and_asking(self, state: SessionState, traces: list[dict[str, Any]]) -> Optional[str]:
+    active_target = state["active_cognitive_target"]
+    active_question = state["active_cognitive_question"]
+    target_completed = bool(active_target) and self._is_cognitive_target_filled(state, active_target)
 
 
     if target_completed:
@@ -187,7 +188,7 @@ class CognitiveStageMixin:
       active_target = ""
       active_question = ""
 
-    target_in_progress = active_target and active_question
+    target_in_progress = bool(active_target) and bool(active_question)
     if target_in_progress:
       follow_ups = state["active_cognitive_follow_up_attempts"]
       instruction = self._load_stage_prompt(
@@ -242,7 +243,7 @@ class CognitiveStageMixin:
     state["active_cognitive_follow_up_attempts"] = int(state["active_cognitive_follow_up_attempts"]) + 1
     return next_question
 
-  def _bootstrap_first_cognitive_model(self, state: SessionState, traces: list[dict]) -> None:
+  def _bootstrap_first_cognitive_model(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     instruction = self._load_stage_prompt("id_distortions", "bootstrap_first_cognitive_model")
     parsed = self._run_therapist_structured(state, traces, "initial_cognitive_model_bootstrap", instruction)
     payload = self._require_dict(parsed, "initial_cognitive_model_bootstrap")
@@ -252,7 +253,7 @@ class CognitiveStageMixin:
     self._merge_extracted_items(state, filled_items)
     state["last_reasoning"] = ensure_str(payload.get("reasoning"))
 
-  def _assign_core_belief(self, state: SessionState, traces: list[dict]) -> None:
+  def _assign_core_belief(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     belief_instruction = self._load_stage_prompt("id_distortions", "core_belief_probability")
     belief_probs = self._run_therapist_structured(state, traces, "core_belief_probability", belief_instruction)
     normalized = self._normalize_probabilities(
@@ -262,7 +263,7 @@ class CognitiveStageMixin:
     state["working_cognitive_set"]["core_belief_probabilities"] = normalized
     state["working_cognitive_set"]["core_belief"] = self._best_key(normalized)
 
-  def _assign_distortion(self, state: SessionState, traces: list[dict]) -> None:
+  def _assign_distortion(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     working = state["working_cognitive_set"]
     format_working_cognitive_set = (
       f"situation: {working.get('situation', '')}, "
@@ -288,7 +289,7 @@ class CognitiveStageMixin:
     state["working_cognitive_set"]["distortion_probabilities"] = normalized
     state["working_cognitive_set"]["distortion"] = self._best_key(normalized)
 
-  def _check_distortion_completion(self, state: SessionState, traces: list[dict], id_exchanges: int) -> bool:
+  def _check_distortion_completion(self, state: SessionState, traces: list[dict[str, Any]], id_exchanges: int) -> bool:
     completed_count = len(state["cognitive_model_sets"])
     max_sets = completed_count >= 5
     enough_sets = completed_count >= 3 or (id_exchanges >= 30 and completed_count >= 2)
@@ -314,10 +315,9 @@ class CognitiveStageMixin:
     )
     return not needs_more
 
-  def _handle_id_distortions(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_id_distortions(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     id_exchanges = int(state["exchange_counts"].get("id_distortions", 0))
     first_utterance = id_exchanges == 0 and not state["cognitive_model_sets"] and not self._working_set_has_content(state)
-    last_patient = self._extract_last_patient_message(state)
 
     # Bootstrap only the very first cognitive set from opening material.
     if first_utterance:

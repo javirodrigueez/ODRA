@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Optional
-
 from pathlib import Path
+from typing import Any
 
-from .interfaces import Agent, LLM, StructuredOutputError, load_prompt, parse_json_response
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
 
 
 class TherapistAgent(Agent):
-  def __init__(self, llm: LLM, profile: dict):
+  def __init__(self, llm: LLM, profile: dict[str, Any]):
     super().__init__(llm)
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
@@ -43,7 +42,7 @@ class TherapistAgent(Agent):
     temperature: float = 0.7,
   ) -> str:
     suffix = load_prompt("shared/utterance_suffix.txt")
-    messages = [
+    messages: list[ChatMessage] = [
       {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
@@ -67,11 +66,11 @@ class TherapistAgent(Agent):
     session_context: str,
     instruction: str,
     max_retries: int = 2,
-    expected_type: Optional[type | tuple[type, ...]] = dict,
-  ) -> tuple[Any, dict]:
+    expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
+  ) -> tuple[Any, dict[str, Any]]:
     suffix = load_prompt("shared/structured_suffix.txt")
     retry_suffix = load_prompt("shared/structured_suffix.txt")
-    messages = [
+    messages: list[ChatMessage] = [
       {"role": "system", "content": self.system_prompt},
       {
         "role": "user",

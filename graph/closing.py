@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents.interfaces import ensure_str
 
 from .state import SessionState
-from .support import ConversationProcessingError
+from .support import ConversationProcessingError, GraphSupportMixin
 
 
-class ClosingStageMixin:
-  def _generate_closing_summary(self, state: SessionState, traces: list[dict]) -> str:
+class ClosingStageMixin(GraphSupportMixin):
+  def _generate_closing_summary(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     instruction = self._load_stage_prompt("closing", "summary_generation")
     parsed = self._run_therapist_structured(state, traces, "closing_summary_generation", instruction)
     payload = self._require_dict(parsed, "closing_summary_generation")
     return self._require_non_empty_string(payload, "session_summary", "closing_summary_generation")
 
-  def _generate_next_session_plan(self, state: SessionState, traces: list[dict]) -> str:
+  def _generate_next_session_plan(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     instruction = self._load_stage_prompt("closing", "next_session_plan_generation")
     parsed = self._run_therapist_structured(state, traces, "next_session_plan_generation", instruction)
     payload = self._require_dict(parsed, "next_session_plan_generation")
@@ -22,7 +24,7 @@ class ClosingStageMixin:
   def _generate_closing_utterance(self, state: SessionState, instruction: str) -> str:
     return self._generate_therapist_utterance(state, instruction)
 
-  def _handle_closing(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     current_substage = state["current_substage"]
 
     # Share the session summary and invite the patient's confirmation.

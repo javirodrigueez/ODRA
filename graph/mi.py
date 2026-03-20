@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents.interfaces import ensure_str
 
-from .support import ConversationProcessingError
-from .state import CBT_STAGES, MI_TOPICS, SessionState
+from .support import ConversationProcessingError, GraphSupportMixin
+from .state import CBT_STAGES, MI_TOPICS, SessionState, Stage, SubStage
 
 
-class MIStageMixin:
-  def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict], reason: str) -> None:
+class MIStageMixin(GraphSupportMixin):
+  def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]], reason: str) -> None:
     if not state["mi_techniques_paused_until_precontemplation"]:
       return
     state["mi_techniques_paused_until_precontemplation"] = False
@@ -19,7 +21,7 @@ class MIStageMixin:
       }
     )
 
-  def _enter_mi(self, state: SessionState, target_stage: str, resume_stage: str | None, reason: str) -> None:
+  def _enter_mi(self, state: SessionState, target_stage: Stage, resume_stage: Stage | None, reason: str) -> None:
     if resume_stage:
       state["cbt_resume_stage"] = resume_stage
     state["mi_active"] = True
@@ -34,7 +36,7 @@ class MIStageMixin:
     if target_stage in {"mi_techniques", "meta_conversation"}:
       state["exchange_counts"][target_stage] = 0
 
-  def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict], note: str = "") -> None:
+  def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict[str, Any]], note: str = "") -> None:
     instruction = self._load_stage_prompt("mi_techniques", "evaluation")
     mi_eval = self._require_dict(
       self._run_therapist_structured(state, traces, "mi_evaluation", instruction),
@@ -55,7 +57,7 @@ class MIStageMixin:
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
     self._set_stage(state, state["cbt_resume_stage"] or "id_distortions")
 
-  def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict]) -> None:
+  def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     stage = state["current_stage"]
     band = self._current_band(state["predicted_resistance"])
 
@@ -101,7 +103,7 @@ class MIStageMixin:
     if stage == "meta_conversation" and band in {"contemplation", "action"}:
       self._set_stage(state, "mi_techniques")
 
-  def _handle_mi_topic_exploration(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_mi_topic_exploration(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     previous_pred = state["last_mi_predicted_resistance"]
     current_pred = state["predicted_resistance"]
     need_new_topic = not state["current_mi_topic"] or current_pred > previous_pred + 0.02 # 0.02 is a small tolerance to avoid overreacting to minor prediction fluctuations.
@@ -148,7 +150,7 @@ class MIStageMixin:
 
     raise ConversationProcessingError(f"Unexpected MI topic substage: {current_substage}")
 
-  def _handle_mi_techniques(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     band = self._current_band(state["predicted_resistance"])
     if band == "precontemplation":
       self._set_stage(state, "mi_topic_exploration")
@@ -191,7 +193,7 @@ class MIStageMixin:
 
     raise ConversationProcessingError(f"Unexpected MI technique substage: {current_substage}")
 
-  def _meta_substage_for_turns(self, turns: int) -> str:
+  def _meta_substage_for_turns(self, turns: int) -> SubStage:
     if turns == 0:
       return "mi_meta_open"
     if turns == 1:
@@ -200,7 +202,7 @@ class MIStageMixin:
       return "mi_meta_adjust"
     return "mi_meta_close"
 
-  def _handle_meta_conversation(self, state: SessionState, traces: list[dict]) -> str:  #TODO: LLM dynamism
+  def _handle_meta_conversation(self, state: SessionState, traces: list[dict[str, Any]]) -> str:  #TODO: LLM dynamism
     turns = int(state["exchange_counts"].get("meta_conversation", 0))
     if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "anticipated_closing")
@@ -229,7 +231,7 @@ class MIStageMixin:
 
     raise ConversationProcessingError(f"Unexpected meta-conversation substage: {current_substage}")
 
-  def _handle_anticipated_closing(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_anticipated_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     state["final_patient_pending_end"] = True
     if not state["session_ended_reason"]:
       state["session_ended_reason"] = "anticipated_closing"
@@ -242,7 +244,7 @@ class MIStageMixin:
     )
     return self._load_stage_prompt("anticipated_closing", "final_utterance")
 
-  def _handle_forced_closing(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_forced_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     state["final_patient_pending_end"] = True
     state["session_ended_reason"] = "max_turns_forced_closing"
     traces.append(

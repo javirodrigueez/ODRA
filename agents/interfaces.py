@@ -2,21 +2,30 @@ import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, TypedDict
 
-from dotenv import load_dotenv
-from langchain.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_aws import ChatBedrock
-from langchain_core.prompts import PromptTemplate
-from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
-from openai import OpenAI
+from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
+from langchain.messages import AIMessage, HumanMessage, SystemMessage  # pyright: ignore[reportMissingImports]
+from langchain_aws import ChatBedrock  # pyright: ignore[reportMissingImports]
+from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
+from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline  # pyright: ignore[reportMissingImports]
+from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
 load_dotenv()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
-def load_prompt(filename: str) -> str:
-  return (PROMPTS_DIR / filename).read_text(encoding="utf-8").strip()
+MessageRole = Literal["system", "user", "assistant"]
+
+
+class ChatMessage(TypedDict):
+  role: MessageRole
+  content: str
+
+
+def load_prompt(filename: str | Path) -> str:
+  path = filename if isinstance(filename, Path) else PROMPTS_DIR / filename
+  return path.read_text(encoding="utf-8").strip()
 
 def render_prompt(filename: str, **values: Any) -> str:
   template = PromptTemplate.from_template(load_prompt(filename))
@@ -24,9 +33,10 @@ def render_prompt(filename: str, **values: Any) -> str:
     **{key: "" if value is None else str(value) for key, value in values.items()}
   )
 
-def _to_langchain_messages(messages: list[dict]) -> list:
+
+def _to_langchain_messages(messages: list[ChatMessage]) -> list[Any]:
   """Convert dict messages to LangChain message objects."""
-  lc_messages = []
+  lc_messages: list[Any] = []
   for m in messages:
     if m["role"] == "system":
       lc_messages.append(SystemMessage(content=m["content"]))
@@ -45,7 +55,7 @@ def clamp(value: float, low: float, high: float) -> float:
   return max(low, min(high, value))
 
 
-def coerce_float(value: Any, default: float, low: Optional[float] = None, high: Optional[float] = None) -> float:
+def coerce_float(value: Any, default: float, low: float | None = None, high: float | None = None) -> float:
   try:
     parsed = float(value)
   except (TypeError, ValueError):
@@ -85,7 +95,7 @@ def ensure_str_list(value: Any) -> list[str]:
   return []
 
 
-def parse_json_response(raw_text: str) -> tuple[Any, dict]:
+def parse_json_response(raw_text: str) -> tuple[Any, dict[str, Any]]:
   text = (raw_text or "").strip()
   if not text:
     raise StructuredOutputError("empty response")
@@ -98,7 +108,7 @@ def parse_json_response(raw_text: str) -> tuple[Any, dict]:
 # LLM interfaces
 class LLM(ABC):
   @abstractmethod
-  def generate(self, messages: list[dict], **kwargs) -> str:
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     pass
 
 class HuggingFaceLLM(LLM):
@@ -119,7 +129,7 @@ class HuggingFaceLLM(LLM):
     )
     self.chat_model = ChatHuggingFace(llm=self.llm)
 
-  def generate(self, messages: list[dict], **kwargs) -> str:
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     response = self.chat_model.invoke(_to_langchain_messages(messages))
     return str(response.content)
 
@@ -128,15 +138,14 @@ class BedrockLLM(LLM):
     self.model_id = model_id
     self.region_name = region_name
     self.chat_model = ChatBedrock(
-      model_id=model_id,
-      region_name=region_name,
+      model=model_id,
       model_kwargs={
         "temperature": 0.7,
         "max_tokens": 1024,
       },
     )
 
-  def generate(self, messages: list[dict], **kwargs) -> str:
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     lc_messages = _to_langchain_messages(messages)
     if kwargs:
       model_kwargs = {"max_tokens": kwargs.get("max_tokens", 1024)}
@@ -145,8 +154,7 @@ class BedrockLLM(LLM):
       if "top_p" in kwargs:
         model_kwargs["top_p"] = kwargs["top_p"]
       chat = ChatBedrock(
-        model_id=self.model_id,
-        region_name=self.region_name,
+        model=self.model_id,
         model_kwargs=model_kwargs,
       )
       response = chat.invoke(lc_messages)
@@ -158,8 +166,8 @@ class LocalLLM(LLM):
   def __init__(self, host: str):
     self.chat_model = OpenAI(api_key="test", base_url=host)
 
-  def generate(self, messages: list[dict], **kwargs) -> str:
-    create_kwargs = {
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
+    create_kwargs: dict[str, Any] = {
       "model": "local",
       "messages": messages,
       "temperature": kwargs.get("temperature", 0.7),
@@ -175,10 +183,10 @@ class LocalLLM(LLM):
 class DeepseekLLM(LLM):
   def __init__(self, model_id: str = "deepseek-chat"):
     self.model_id = model_id
-    self.chat_model = OpenAI(api_key=os.getenv("DS_API_KEY"), base_url="https://api.deepseek.com/v1")
+    self.chat_model = OpenAI(api_key=os.getenv("DS_API_KEY") or "", base_url="https://api.deepseek.com/v1")
 
-  def generate(self, messages: list[dict], **kwargs) -> str:
-    create_kwargs = {
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
+    create_kwargs: dict[str, Any] = {
       "model": self.model_id,
       "messages": messages,
       "temperature": kwargs.get("temperature", 0.7),
@@ -189,12 +197,18 @@ class DeepseekLLM(LLM):
 
 class LLMFactory:
     @staticmethod
-    def create(llm_type: str, model_id: str = None, **kwargs):
+    def create(llm_type: str, model_id: str | None = None, **kwargs: Any) -> LLM:
         if llm_type == "huggingface":
+          if model_id is None:
+            raise ValueError("huggingface LLM requires a model_id")
           return HuggingFaceLLM(model_id)
         elif llm_type == "bedrock":
+          if model_id is None:
+            raise ValueError("bedrock LLM requires a model_id")
           return BedrockLLM(model_id, **{k: v for k, v in kwargs.items() if k == "region_name"})
         elif llm_type == "local":
+          if model_id is None:
+            raise ValueError("local LLM requires a host model_id/base URL")
           return LocalLLM(model_id)
         elif llm_type == "deepseek":
           return DeepseekLLM(model_id or "deepseek-chat")
@@ -214,8 +228,8 @@ class Agent(ABC):
   # def generateOpening(self, context: str) -> str:
   #   pass
 
-  def generate_utterance(self, *args, **kwargs) -> str:
+  def generate_utterance(self, *args: Any, **kwargs: Any) -> str:
     raise NotImplementedError
 
-  def generate_structured(self, *args, **kwargs):
+  def generate_structured(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
     raise NotImplementedError

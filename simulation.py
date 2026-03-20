@@ -5,6 +5,9 @@ import json
 import os
 from omegaconf import OmegaConf
 from dotenv import load_dotenv
+from typing import cast
+
+from graph.state import ConversationMessage
 
 
 def _load_profiles(profiles_path: str) -> list[dict]:
@@ -43,7 +46,7 @@ def run_simulation(
   profile: dict,
   max_turns: int,
   min_turns: int,
-  output_dir: str = None,
+  output_dir: str = '',
   verbose: bool = False,
   resume_state: dict | None = None,
 ):
@@ -96,7 +99,8 @@ def run_simulation(
     transcript_file = os.path.join(output_dir, f"simulation_{sim_idx}.txt")
     json_file = os.path.join(output_dir, f"simulation_{sim_idx}.json")
     with open(transcript_file, "w", encoding="utf-8") as f:
-      for message in result["messages"]:
+      messages = cast(list[ConversationMessage], result.get("messages", []))
+      for message in messages:
         f.write(f'--> {message["role"].capitalize()}: {message["content"]}\n\n')
     with open(json_file, "w", encoding="utf-8") as f:
       json.dump(result, f, indent=2, ensure_ascii=True)
@@ -134,7 +138,8 @@ def main(cfg_path: str):
       verbose,
       resume_state=resume_state,
     )
-    exchanges = sum(result.get("exchange_counts", {}).values())
+    exchange_counts = cast(dict[str, int], result.get("exchange_counts", {}))
+    exchanges = sum(exchange_counts.values())
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
     print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
@@ -153,7 +158,8 @@ def main(cfg_path: str):
     print(f'{"="*60}')
 
     result = run_simulation(cfg_path, profile, max_turns, min_turns, output_dir, verbose)
-    exchanges = sum(result.get("exchange_counts", {}).values())
+    exchange_counts = cast(dict[str, int], result.get("exchange_counts", {}))
+    exchanges = sum(exchange_counts.values())
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
     print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')

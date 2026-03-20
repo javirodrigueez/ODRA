@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 Stage = Literal[
   "opening",
@@ -14,6 +14,8 @@ Stage = Literal[
   "anticipated_closing",
   "forced_closing",
 ]
+
+ConversationRole = Literal["system", "system_note", "user", "assistant", "therapist", "patient"]
 
 SubStage = Literal[
   "open_initial",
@@ -43,7 +45,9 @@ SubStage = Literal[
   "homework_check_existing",
   "homework_review_response",
   "homework_apply_fallback",
+  "homework_end_fallback",
   "homework_propose_tasks",
+  "homework_transition_to_closing",
   "closing_share_summary",
   "closing_share_plan",
   "closing_review_plan",
@@ -52,6 +56,54 @@ SubStage = Literal[
   "closing_end_session",
   "forced_closing_end",
 ]
+
+ClosingPhase = Literal[
+  "",
+  "summary",
+  "plan_discussion",
+  "await_feedback_response",
+  "final_close_pending",
+]
+
+ALL_SUBSTAGES: tuple[SubStage, ...] = (
+  "open_initial",
+  "open_mood",
+  "open_problem",
+  "mi_choose_topic",
+  "mi_raise_topic",
+  "mi_choose_technique",
+  "mi_raise_technique",
+  "mi_meta_open",
+  "mi_meta_probe",
+  "mi_meta_adjust",
+  "mi_meta_close",
+  "mi_end_session",
+  "cognitive_bootstrap",
+  "cognitive_review_active_question",
+  "cognitive_assign_core_belief",
+  "cognitive_assign_distortion",
+  "cognitive_commit_set",
+  "cognitive_check_completion",
+  "cbt_select_techniques",
+  "cbt_review_current",
+  "cbt_decide_next",
+  "cbt_validate_fit",
+  "cbt_plan_current",
+  "cbt_deliver_current",
+  "homework_check_existing",
+  "homework_review_response",
+  "homework_apply_fallback",
+  "homework_end_fallback",
+  "homework_propose_tasks",
+  "homework_transition_to_closing",
+  "closing_share_summary",
+  "closing_share_plan",
+  "closing_review_plan",
+  "closing_review_feedback",
+  "closing_finalize_feedback",
+  "closing_end_session",
+  "forced_closing_end",
+)
 
 CBT_STAGES = {"id_distortions", "cbt_technique", "homework"}
 MI_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
@@ -84,12 +136,48 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
 }
 
 
-class SessionState(TypedDict, total=False):
+class ConversationMessage(TypedDict):
+  role: ConversationRole
+  content: str
+
+
+class CognitiveModelSet(TypedDict):
+  cognitive_model_set_id: int
+  situation: str
+  automatic_thoughts: list[str]
+  emotions: list[str]
+  behaviors: list[str]
+  core_belief: str
+  core_belief_probabilities: dict[str, float]
+  distortion: str
+  distortion_probabilities: dict[str, float]
+
+
+class SelectedTechnique(TypedDict):
+  name: str
+  target_distortion: str
+  rationale: str
+
+
+class HomeworkTask(TypedDict):
+  task_title: str
+  task_description: str
+  rationale: str
+  expected_outcomes: str
+
+
+class ReasoningTrace(TypedDict):
+  utterance_index: int
+  speaker: str
+  traces: list[dict[str, Any]]
+
+
+class SessionState(TypedDict):
   current_stage: Stage
   current_substage: SubStage
-  messages: list[dict]
+  messages: list[ConversationMessage]
 
-  patient_profile: dict
+  patient_profile: dict[str, Any]
   resistance: float
   predicted_resistance: float
 
@@ -97,38 +185,38 @@ class SessionState(TypedDict, total=False):
   opening_patient_problem: str
   last_reasoning: str
 
-  cognitive_model_sets: list[dict]
-  working_cognitive_set: dict
+  cognitive_model_sets: list[CognitiveModelSet]
+  working_cognitive_set: CognitiveModelSet
   cognitive_gap_plan: str
   active_cognitive_target: str
   active_cognitive_question: str
   active_cognitive_follow_up_attempts: int
 
-  selected_techniques: list[dict]
+  selected_techniques: list[SelectedTechnique]
   current_technique_index: int
   current_technique_plan: str
   current_technique_expected_outcome: str
   current_technique_current_progress: str
-  technique_evaluations: list[dict]
+  technique_evaluations: list[dict[str, Any]]
   techniques_completed: int
   technique_turn_count: int
-  technique_slot_replaced: dict
+  technique_slot_replaced: dict[str, bool]
 
   mi_active: bool
-  mi_context: list[dict]
+  mi_context: list[ConversationMessage]
   cbt_flow_saved_state: str
-  cbt_resume_stage: str
+  cbt_resume_stage: Stage
   mi_topics_tried: list[str]
   mi_techniques_used: list[str]
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float
 
-  proposed_tasks: list[dict]
+  proposed_tasks: list[HomeworkTask]
   homework_proposal_attempts: int
   homework_waiting_for_patient: bool
   homework_fallback_done: bool
-  agreed_tasks: list[dict]
+  agreed_tasks: list[HomeworkTask]
   hw_reasoning: str
   homework_fallback_to_apply: bool
 
@@ -136,11 +224,12 @@ class SessionState(TypedDict, total=False):
   next_session_plan: str
   patient_feedback: str
   closing_plan_refinements: int
+  closing_phase: ClosingPhase
 
-  reasoning_traces: list[dict]
+  reasoning_traces: list[ReasoningTrace]
   utterance_index: int
-  exchange_counts: dict
-  active_exchange_stage: str
+  exchange_counts: dict[str, int]
+  active_exchange_stage: Stage | Literal[""]
 
   final_patient_pending_end: bool
   session_ended: bool

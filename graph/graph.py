@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from langgraph.graph import END, START, StateGraph
-from omegaconf import OmegaConf
+from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
+from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
 from agents.interfaces import clamp
 
@@ -13,12 +13,11 @@ from .homework import HomeworkStageMixin
 from .mi import MIStageMixin
 from .opening import OpeningStageMixin
 from .state import MI_STAGES, SessionState
-from .support import ConversationProcessingError, GraphSupportMixin
+from .support import ConversationProcessingError
 from .techniques import TechniqueStageMixin
 
 
 class TherapyGraphBuilder(
-  GraphSupportMixin,
   OpeningStageMixin,
   MIStageMixin,
   CognitiveStageMixin,
@@ -26,14 +25,14 @@ class TherapyGraphBuilder(
   HomeworkStageMixin,
   ClosingStageMixin,
 ):
-  def __init__(self, config_path: str, profile: dict):
+  def __init__(self, config_path: str, profile: dict[str, Any]):
     self.cfg = OmegaConf.load(config_path)
     self.profile = profile
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
     self.mi_techniques = self._load_mi_techniques()
 
-  def _handle_stage_dispatch(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_stage_dispatch(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     stage = state["current_stage"]
     if stage == "opening":
       return self._handle_opening(state, traces)
@@ -64,7 +63,7 @@ class TherapyGraphBuilder(
     if s["session_ended"]:
       return s
 
-    traces: list[dict] = []
+    traces: list[dict[str, Any]] = []
     try:
       if not first_exchange:
         self._maybe_force_closing(s)
@@ -104,7 +103,7 @@ class TherapyGraphBuilder(
     if s["session_ended"]:
       return s
 
-    traces: list[dict] = []
+    traces: list[dict[str, Any]] = []
     try:
       update_instruction = self._load_stage_prompt(
         "shared",
@@ -150,7 +149,7 @@ class TherapyGraphBuilder(
       self._end_session_with_error(s, traces, exc)
     return s
 
-  def route_after_patient(self, state: SessionState) -> str:
+  def route_after_patient(self, state: SessionState) -> Literal["continue", "end"]:
     s = self._ensure_state_defaults(state)
     if s["session_ended"]:
       return "end"

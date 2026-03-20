@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents.interfaces import ensure_str
 
-from .support import ConversationProcessingError
+from .support import ConversationProcessingError, GraphSupportMixin
 from .state import SessionState
 
 
-class OpeningStageMixin:
-  def _check_readiness(self, state: SessionState, traces: list[dict]) -> bool:
+class OpeningStageMixin(GraphSupportMixin):
+  def _check_readiness(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:
     instruction = self._load_stage_prompt(
       "opening",
       "info_update"
@@ -36,17 +38,17 @@ class OpeningStageMixin:
       state["current_substage"] = "open_mood"
     return ready
 
-  def _handle_opening(self, state: SessionState, traces: list[dict]) -> str:
+  def _handle_opening(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     opening_exchanges = int(state["exchange_counts"].get("opening", 0))
     if opening_exchanges == 0:
-      state["current_substage"] = "open_initial"
+      self._set_substage(state, "open_initial")
 
     current_substage = state["current_substage"]
 
     # Initial greeting
     if current_substage == "open_initial":
       instruction = self._load_stage_prompt("opening", "initial_greeting")
-      state["current_substage"] = ""
+      self._set_substage(state, "open_mood")
       return self._generate_therapist_utterance(state, instruction)
 
     ready = self._check_readiness(state, traces)
@@ -64,14 +66,13 @@ class OpeningStageMixin:
     if not ready:
       if current_substage == "open_mood":
         instruction = self._load_stage_prompt("opening", "mood_question")
-      elif current_substage == "open_problem":
+      else:
         instruction = self._load_stage_prompt("opening", "problem_question")
 
       return self._generate_therapist_utterance(state, instruction)
 
     # Ready to move on to id_distortions
     if ready:
-      raise ConversationProcessingError("Just trying...")
       band = self._current_band(state["predicted_resistance"])
       if band == "action":
         self._set_stage(state, "id_distortions")

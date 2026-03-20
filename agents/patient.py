@@ -2,29 +2,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typing import Any, Optional
+from typing import Any
 
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
 
-from .interfaces import Agent, LLM, StructuredOutputError, load_prompt, parse_json_response
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
 
 class PatientAgent(Agent):
-  def __init__(self, llm: LLM, profile: dict):
+  def __init__(self, llm: LLM, profile: dict[str, Any]):
     super().__init__(llm)
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
-    self.system_prompt = self._build_template(system_path).format()
+    self.system_prompt = self._build_system_prompt(system_path)
 
-  def _build_template(self, filename: str) -> PromptTemplate:
+  def _build_system_prompt(self, filename: str | Path) -> str:
     template = load_prompt(filename)
     prompt_template = PromptTemplate.from_template(template)
-    return prompt_template.partial(
-      persona=self._format_persona(),
-      more_info=self._format_more_info(),
-      patterns=self._format_patterns(),
-      presenting_problem=self.profile["presenting_problem"],
-      reason_seeking_counseling=self.profile["reason_seeking_counseling"],
-    )
+    return prompt_template.format(
+        persona=self._format_persona(),
+        more_info=self._format_more_info(),
+        patterns=self._format_patterns(),
+        presenting_problem=self.profile["presenting_problem"],
+        reason_seeking_counseling=self.profile["reason_seeking_counseling"],
+      )
 
   def _format_persona(self) -> str:
     info = self.profile["personal_info"]
@@ -72,7 +72,7 @@ class PatientAgent(Agent):
     temperature: float = 0.8,
   ) -> str:
     suffix = load_prompt("shared/patient_utterance_suffix.txt")
-    messages = [
+    messages: list[ChatMessage] = [
       {"role": "system", "content": self.system_prompt},
       {
         "role": "user",
@@ -94,11 +94,11 @@ class PatientAgent(Agent):
     resistance_level: float,
     instruction: str,
     max_retries: int = 2,
-    expected_type: Optional[type | tuple[type, ...]] = dict,
-  ) -> tuple[Any, dict]:
+    expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
+  ) -> tuple[Any, dict[str, Any]]:
     suffix = load_prompt("shared/patient_structured_suffix.txt")
     retry_suffix = load_prompt("shared/patient_structured_suffix.txt")
-    messages = [
+    messages: list[ChatMessage] = [
       {"role": "system", "content": self.system_prompt},
       {
         "role": "user",

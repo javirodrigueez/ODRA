@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_float, ensure_str, ensure_str_list, load_prompt, render_prompt
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
-from .state import CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, SessionState, Stage, SubStage
+from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
 
 
 class ConversationProcessingError(RuntimeError):
@@ -17,11 +17,12 @@ class ConversationProcessingError(RuntimeError):
 
 
 class GraphSupportMixin:
-  cfg: Any
-  profile: dict
-  therapist: TherapistAgent
-  patient: PatientAgent
-  cbt_techniques: dict[str, str]
+  cfg: Any = None
+  profile: dict[str, Any] = {}
+  therapist: Any = None
+  patient: Any = None
+  cbt_techniques: dict[str, str] = {}
+  mi_techniques: dict[str, str] = {}
 
   def _project_root(self) -> Path:
     return Path(__file__).resolve().parent.parent
@@ -72,7 +73,7 @@ class GraphSupportMixin:
       if ensure_str(name)
     }
 
-  def _load_distortions(self) -> dict:
+  def _load_distortions(self) -> dict[str, Any]:
     distortions_path = self._project_root() / "data" / "knowledge" / "cognitive_distortions.json"
     if not distortions_path.exists():
       raise ConversationProcessingError(f"Missing cognitive distortions file: {distortions_path}")
@@ -91,8 +92,8 @@ class GraphSupportMixin:
       }
     )
 
-  def resume_state(self, saved_state: SessionState, max_turns: int, min_turns: int = 0) -> SessionState:
-    resumed: SessionState = deepcopy(saved_state)
+  def resume_state(self, saved_state: dict[str, Any] | SessionState, max_turns: int, min_turns: int = 0) -> SessionState:
+    resumed = cast(SessionState, cast(object, deepcopy(saved_state)))
     resumed["session_ended"] = False
     resumed["session_ended_reason"] = ""
     resumed["conversation_error"] = ""
@@ -120,16 +121,18 @@ class GraphSupportMixin:
       return False
     return any(isinstance(step, dict) and step.get("step") == "conversation_error" for step in steps)
 
-  def _ensure_state_defaults(self, state: SessionState) -> SessionState:
-    s: SessionState = dict(state)
-    stage = ensure_str(s.get("current_stage"), "opening")
-    if stage not in DEFAULT_SUBSTAGE_BY_STAGE:
-      stage = "opening"
+  def _ensure_state_defaults(self, state: dict[str, Any] | SessionState) -> SessionState:
+    s = cast(SessionState, cast(object, dict(state)))
+    raw_stage = ensure_str(s.get("current_stage"), "opening")
+    stage: Stage = cast(Stage, raw_stage) if raw_stage in DEFAULT_SUBSTAGE_BY_STAGE else "opening"
     s["current_stage"] = stage
-    s["current_substage"] = ensure_str(
+    raw_substage = ensure_str(
       s.get("current_substage"),
       DEFAULT_SUBSTAGE_BY_STAGE[stage],
     )
+    if raw_substage not in ALL_SUBSTAGES:
+      raw_substage = DEFAULT_SUBSTAGE_BY_STAGE[stage]
+    s["current_substage"] = cast(SubStage, raw_substage)
 
     s.setdefault("messages", [])
 
@@ -184,6 +187,7 @@ class GraphSupportMixin:
     s.setdefault("next_session_plan", "")
     s.setdefault("patient_feedback", "")
     s.setdefault("closing_plan_refinements", 0)
+    s.setdefault("closing_phase", "")
 
     s.setdefault("reasoning_traces", [])
     s["utterance_index"] = int(s.get("utterance_index", 0))
@@ -216,12 +220,18 @@ class GraphSupportMixin:
   def _set_substage(self, state: SessionState, substage: SubStage) -> None:
     state["current_substage"] = substage
 
-  def _format_conversation(self, messages: list[dict]) -> str:
+  def _handle_stage_dispatch(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    raise NotImplementedError
+
+  def _enter_mi(self, state: SessionState, target_stage: Stage, resume_stage: Stage | None, reason: str) -> None:
+    raise NotImplementedError
+
+  def _format_conversation(self, messages: list[ConversationMessage]) -> str:
     if not messages:
       return "(not utterances yet)"
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in messages)
 
-  def _format_last_utterances(self, messages: list[dict], limit: int = 10) -> str:
+  def _format_last_utterances(self, messages: list[ConversationMessage], limit: int = 10) -> str:
     if not messages:
       return "(no utterances yet)"
     recent = messages[-limit:]
@@ -351,7 +361,7 @@ class GraphSupportMixin:
       instruction=instruction,
     )
 
-  def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict]) -> None:
+  def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:
     state["reasoning_traces"].append(
       {
         "utterance_index": utterance_index,
@@ -360,19 +370,19 @@ class GraphSupportMixin:
       }
     )
 
-  def _append_message(self, state: SessionState, role: str, content: str) -> int:
+  def _append_message(self, state: SessionState, role: ConversationRole, content: str) -> int:
     state["utterance_index"] += 1
     state["messages"].append({"role": role, "content": ensure_str(content)})
     return state["utterance_index"]
 
-  def _current_band(self, value: float) -> str:
+  def _current_band(self, value: float) -> Literal["precontemplation", "contemplation", "action"]:
     if value >= 0.75:
       return "precontemplation"
     if value >= 0.50:
       return "contemplation"
     return "action"
 
-  def _new_cognitive_set(self, set_id: int) -> dict:
+  def _new_cognitive_set(self, set_id: int) -> CognitiveModelSet:
     return {
       "cognitive_model_set_id": set_id,
       "situation": "",
@@ -385,7 +395,7 @@ class GraphSupportMixin:
       "distortion_probabilities": {k: 0.0 for k in DISTORTION_KEYS},
     }
 
-  def _normalize_probabilities(self, payload: dict, keys: list[str]) -> dict:
+  def _normalize_probabilities(self, payload: dict[str, Any], keys: list[str]) -> dict[str, float]:
     if not isinstance(payload, dict):
       raise ConversationProcessingError("Probability payload must be a JSON object.")
     probs = {}
@@ -405,22 +415,22 @@ class GraphSupportMixin:
       raise ConversationProcessingError("Probability payload sums to 0 and cannot be normalized.")
     return {k: v / total for k, v in probs.items()}
 
-  def _best_key(self, probs: dict) -> str:
+  def _best_key(self, probs: dict[str, float]) -> str:
     if not isinstance(probs, dict) or not probs:
       raise ConversationProcessingError("Cannot choose a best key from an empty probability map.")
     return max(probs.items(), key=lambda item: item[1])[0]
 
-  def _require_dict(self, payload: Any, step_name: str) -> dict:
+  def _require_dict(self, payload: Any, step_name: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
       raise ConversationProcessingError(f"{step_name} returned {type(payload).__name__}, expected a JSON object.")
     return payload
 
-  def _require_list(self, payload: Any, step_name: str) -> list:
+  def _require_list(self, payload: Any, step_name: str) -> list[Any]:
     if not isinstance(payload, list):
       raise ConversationProcessingError(f"{step_name} returned {type(payload).__name__}, expected a JSON array.")
     return payload
 
-  def _require_bool(self, payload: dict, key: str, step_name: str) -> bool:
+  def _require_bool(self, payload: dict[str, Any], key: str, step_name: str) -> bool:
     if key not in payload:
       raise ConversationProcessingError(f"{step_name} is missing required boolean field '{key}'.")
     value = payload[key]
@@ -432,7 +442,7 @@ class GraphSupportMixin:
         return lowered == "true"
     raise ConversationProcessingError(f"{step_name}.{key} must be a boolean, got {value!r}.")
 
-  def _require_bounded_float(self, payload: dict, key: str, step_name: str, low: float, high: float) -> float:
+  def _require_bounded_float(self, payload: dict[str, Any], key: str, step_name: str, low: float, high: float) -> float:
     if key not in payload:
       raise ConversationProcessingError(f"{step_name} is missing required numeric field '{key}'.")
     value = payload[key]
@@ -444,7 +454,7 @@ class GraphSupportMixin:
       raise ConversationProcessingError(f"{step_name}.{key} must be in [{low}, {high}], got {parsed}.")
     return parsed
 
-  def _require_non_empty_string(self, payload: dict, key: str, step_name: str) -> str:
+  def _require_non_empty_string(self, payload: dict[str, Any], key: str, step_name: str) -> str:
     if key not in payload:
       raise ConversationProcessingError(f"{step_name} is missing required field '{key}'.")
     value = ensure_str(payload.get(key))
@@ -452,7 +462,7 @@ class GraphSupportMixin:
       raise ConversationProcessingError(f"{step_name}.{key} must be a non-empty string.")
     return value
 
-  def _require_string_list(self, payload: dict, key: str, step_name: str, min_items: int = 1) -> list[str]:
+  def _require_string_list(self, payload: dict[str, Any], key: str, step_name: str, min_items: int = 1) -> list[str]:
     if key not in payload:
       raise ConversationProcessingError(f"{step_name} is missing required list field '{key}'.")
     values = ensure_str_list(payload.get(key))
@@ -460,7 +470,7 @@ class GraphSupportMixin:
       raise ConversationProcessingError(f"{step_name}.{key} must contain at least {min_items} item(s).")
     return values
 
-  def _end_session_with_error(self, state: SessionState, traces: list[dict], error: Exception) -> None:
+  def _end_session_with_error(self, state: SessionState, traces: list[dict[str, Any]], error: Exception) -> None:
     message = ensure_str(str(error), "Unknown conversation processing error")
     state["conversation_error"] = message
     state["session_ended"] = True
@@ -483,7 +493,7 @@ class GraphSupportMixin:
 
   def _trace_structured_step(
     self,
-    traces: list[dict],
+    traces: list[dict[str, Any]],
     step_name: str,
     instruction: str,
     parsed: Any,
@@ -499,7 +509,7 @@ class GraphSupportMixin:
   def _run_therapist_structured(
     self,
     state: SessionState,
-    traces: list[dict],
+    traces: list[dict[str, Any]],
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
@@ -526,7 +536,7 @@ class GraphSupportMixin:
   def _run_patient_structured(
     self,
     state: SessionState,
-    traces: list[dict],
+    traces: list[dict[str, Any]],
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
@@ -550,7 +560,7 @@ class GraphSupportMixin:
         return msg["content"]
     return ""
 
-  def _run_resistance_prediction(self, state: SessionState, traces: list[dict]) -> None:
+  def _run_resistance_prediction(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     old_r = state["predicted_resistance"]
     instruction = self._load_stage_prompt(
       "shared",
