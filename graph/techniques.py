@@ -194,11 +194,9 @@ class TechniqueStageMixin(GraphSupportMixin):
 
       # End conditions
       if max_techniques:
-        raise ConversationProcessingError("Maximum number of techniques completed. Ending session to comply with ethical guidelines.")
         self._set_stage(state, "homework")
         return self._handle_stage_dispatch(state, traces)
       if enough_techniques:
-        raise ConversationProcessingError("At least 3 techniques have been completed and no current technique is in progress. Ending session to comply with ethical guidelines.")
         apply_more = self._should_apply_more_techniques(state, traces)
         if not apply_more:
           self._set_stage(state, "homework")

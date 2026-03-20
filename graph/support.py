@@ -292,13 +292,16 @@ class GraphSupportMixin:
     elif stage == "homework":
       context.update(
         {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
           "cognitive_model_sets": state["cognitive_model_sets"],
           "technique_evaluations": state["technique_evaluations"][-3:],
           "proposed_tasks": state["proposed_tasks"],
           "agreed_tasks": state["agreed_tasks"],
-          "hw_reasoning": state["hw_reasoning"],
           "homework_proposal_attempts": state["homework_proposal_attempts"],
           "homework_waiting_for_patient": state["homework_waiting_for_patient"],
+          "homework_fallback_done": state["homework_fallback_done"],
+          "homework_fallback_to_apply": state["homework_fallback_to_apply"],
         }
       )
     elif stage == "closing":

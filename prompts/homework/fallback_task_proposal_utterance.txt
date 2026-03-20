@@ -1,1 +1,4 @@
-Generate a therapist utterance proposing the simplified homework task to the patient, based on the task and conversation context.Proposed task: {proposed_task}
+Generate the therapist's next utterance to propose the simplified fallback homework task.
+The fallback homework task, the opening-stage problem summary, and the number of homework proposal attempts are available as 'proposed_tasks', 'opening_patient_problem', and 'homework_proposal_attempts' within <session_context>.
+Present the task as a minimal-effort option that still keeps therapeutic momentum. Keep the tone collaborative, avoid sounding punitive, and make clear that the goal is to lower the barrier to engagement.
+Respond with plain text.

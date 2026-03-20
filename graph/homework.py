@@ -10,29 +10,7 @@ from .support import ConversationProcessingError, GraphSupportMixin
 
 class HomeworkStageMixin(GraphSupportMixin):
   def _propose_homework_tasks(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
-    # Format cognitive sets
-    format_csets_str = "\n".join(
-      [
-        (
-          f'Situation: {cset["situation"]}\n'
-          f'  Automatic Thoughts: {", ".join(cset["automatic_thoughts"])}\n'
-          f'  Emotions: {", ".join(cset["emotions"])}\n'
-          f'  Behaviors: {", ".join(cset["behaviors"])}\n'
-          f'  Core Belief: {cset["core_belief"]}\n'
-          f'  Distortion: {cset["distortion"]}'
-        )
-        for cset in state["cognitive_model_sets"]
-      ]
-    )
-    # Format technique evaluations
-    format_evals_str = "\n".join([f'Technique: {e["technique"]}\n  Evaluation: {e["evaluation"]}' for e in state["technique_evaluations"]])
-    instruction = self._load_stage_prompt(
-      "homework",
-      "task_proposal",
-      cognitive_sets=format_csets_str,
-      technique_evaluations=format_evals_str,
-      last_reasoning=state["hw_reasoning"],
-    )
+    instruction = self._load_stage_prompt("homework", "task_proposal")
     parsed = self._run_therapist_structured(state, traces, "homework_task_proposal", instruction)
     payload = self._require_dict(parsed, "homework_task_proposal")
     tasks_raw = payload.get("tasks")
@@ -107,6 +85,7 @@ class HomeworkStageMixin(GraphSupportMixin):
       agreed, _ = self._check_homework_agreement(state, traces)
       state["homework_waiting_for_patient"] = False
       if agreed:
+        raise ConversationProcessingError("Homework agreement reached, but homework stage was not exited as expected.")
         self._set_stage(state, "closing")
         return self._handle_stage_dispatch(state, traces)
       if state["homework_proposal_attempts"] >= 5:
@@ -125,11 +104,9 @@ class HomeworkStageMixin(GraphSupportMixin):
         }
       )
 
-      format_task_str = f'Title: {state["proposed_tasks"][0]["task_title"]}\nDescription: {state["proposed_tasks"][0]["task_description"]}'
       instruction = self._load_stage_prompt(
         "homework",
         "fallback_task_proposal_utterance",
-        proposed_task=format_task_str,
       )
 
       utterance = self._generate_therapist_utterance(state, instruction)
@@ -139,13 +116,7 @@ class HomeworkStageMixin(GraphSupportMixin):
     # Propose a fresh homework set.
     if current_substage == "homework_propose_tasks":
       self._propose_homework_tasks(state, traces)
-      format_tasks_str = "\n".join([f'Title: {task["task_title"]}\nDescription: {task["task_description"]}' for task in state["proposed_tasks"]])
-      instruction = self._load_stage_prompt(
-        "homework",
-        "propose_tasks_utterance",
-        proposed_tasks=format_tasks_str,
-        last_reasoning=state["hw_reasoning"],
-      )
+      instruction = self._load_stage_prompt("homework", "propose_tasks_utterance")
       utterance = self._generate_therapist_utterance(state, instruction)
 
       state["homework_waiting_for_patient"] = True
@@ -160,6 +131,7 @@ class HomeworkStageMixin(GraphSupportMixin):
       return utterance
 
     if current_substage == "homework_transition_to_closing":
+      raise ConversationProcessingError("Homework fallback process completed, but stage was not exited as expected.")
       self._set_stage(state, "closing")
       return self._handle_stage_dispatch(state, traces)
 
