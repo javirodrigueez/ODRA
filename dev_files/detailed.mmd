@@ -85,17 +85,34 @@ graph LR
         CBT_Gateway{Prior to Utt: R <= 0.5?}:::logic
         CBT_Gateway -- No --> SaveState[Save CBT State Summary]
         SaveState --> MITechStart
-        CBT_Gateway -- Yes --> ID_DistStart
+        CBT_Gateway -- Yes --> ID_DistEntry
         
-        %% 2. ID DISTORTIONS
+        %% 2. ID DISTORTIONS (UPDATED)
         subgraph Stage2 [2. Id. Distortions]
-            ID_DistStart[Identify Situation] --> ExtractLoop[Extract Thoughts/Emotions/Behaviors]
-            ExtractLoop --> InferCore[Infer Core Belief]
-            InferCore --> AssignDist[Assign Highest Prob Distortion]
-            AssignDist --> CheckDist{3 Sets & Enough Info?}:::logic
-            CheckDist -- No --> ID_DistStart
+            ID_DistEntry[Enter / Resume ID Distortions] --> CheckBootstrap{Is Bootstrap Substage?}:::logic
+            
+            CheckBootstrap -- Yes --> Bootstrap[Bootstrap First Cognitive Model]
+            Bootstrap --> ReviewGap
+            CheckBootstrap -- No --> ReviewGap[Plan & Ask: Cognitive Gaps]
+            
+            ReviewGap --> HasGapQ{Gap Question Generated?}:::logic
+            HasGapQ -- Yes --> DeliverID[Deliver Utterance]
+            HasGapQ -- No --> Refinement[Refine & Ask: Min Exchanges]
+            
+            Refinement --> HasRefQ{Refinement Question Gen?}:::logic
+            HasRefQ -- Yes --> DeliverID
+            HasRefQ -- No --> AssignCore[Assign Core Belief]
+            
+            AssignCore --> AssignDist[Assign Highest Prob. Distortion]
+            AssignDist --> CommitSet[Commit Set & Reset Working Area]
+            CommitSet --> CheckCompletion{Distortion ID Completed?}:::logic
+            
+            CheckCompletion -- No --> ReviewGap
+            
+            DeliverID --> PatRespID[Patient Responds]
+            PatRespID --> ID_DistEntry
         end
-        CheckDist -- Yes --> CBT_TechStart
+        CheckCompletion -- Yes --> CBT_TechStart
 
         %% 3. CBT TECHNIQUE
         subgraph Stage3 [3. CBT Technique]
@@ -147,7 +164,7 @@ graph LR
     CheckHW -- Yes --> ShareSummary
     EndFallback --> ShareSummary
 
-    %% 5. CLOSING (Updated matching Python logic)
+    %% 5. CLOSING
     subgraph Stage5 [5. Closing]
         %% Phase 1: Summary
         ShareSummary[Session Summary] --> SharePlan[Next Session Plan]

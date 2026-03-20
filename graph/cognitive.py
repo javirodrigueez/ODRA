@@ -452,7 +452,6 @@ class CognitiveStageMixin(GraphSupportMixin):
     # Decide whether distortion identification is complete for this session.
     if current_substage == "cognitive_check_completion":
       if self._check_distortion_completion(state, traces, id_exchanges):
-        raise ConversationProcessingError("Distortion identification completed, should transition to CBT technique selection.")
         self._set_stage(state, "cbt_technique")
         return self._handle_stage_dispatch(state, traces)
       self._set_substage(state, "cognitive_review_active_question")
