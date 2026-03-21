@@ -1,1 +1,4 @@
-Close the session naturally after acknowledging the patient's feedback, with a warm ending that fits the conversation and references continuing the work next time.
+Generate the therapist's next utterance to acknowledge the patient's feedback and close the session naturally.
+The patient's feedback, the current next-session plan, and the opening-stage problem summary are available as 'patient_feedback', 'next_session_plan', and 'opening_patient_problem' within <session_context>.
+If 'patient_feedback' contains a concrete request, acknowledge it briefly and signal that you will keep it in mind next time. If it is empty, move directly to a warm closing. Keep the ending natural, concise, and aligned with the conversation.
+Respond with plain text.

@@ -1,1 +1,8 @@
-Has the patient agreed with the next session plan? Respond JSON: {"agreed": true/false, "reasoning":"..."}
+Decide whether the patient has agreed with the proposed next-session plan.
+The current next-session plan, the latest patient response, and the number of plan refinements are available as 'next_session_plan', 'last_patient_response', and 'closing_plan_refinements' within <session_context>.
+Mark 'agreed' as true when the patient broadly accepts the plan, even if their wording is tentative. Mark it as false when the patient clearly rejects it, asks for a meaningful change, or signals that it still does not fit.
+Respond in JSON format with the following structure:
+{{
+  "agreed": boolean,
+  "reasoning": string
+}}

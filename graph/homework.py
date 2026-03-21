@@ -85,7 +85,6 @@ class HomeworkStageMixin(GraphSupportMixin):
       agreed, _ = self._check_homework_agreement(state, traces)
       state["homework_waiting_for_patient"] = False
       if agreed:
-        raise ConversationProcessingError("Homework agreement reached, but homework stage was not exited as expected.")
         self._set_stage(state, "closing")
         return self._handle_stage_dispatch(state, traces)
       if state["homework_proposal_attempts"] >= 5:
@@ -131,7 +130,6 @@ class HomeworkStageMixin(GraphSupportMixin):
       return utterance
 
     if current_substage == "homework_transition_to_closing":
-      raise ConversationProcessingError("Homework fallback process completed, but stage was not exited as expected.")
       self._set_stage(state, "closing")
       return self._handle_stage_dispatch(state, traces)
 

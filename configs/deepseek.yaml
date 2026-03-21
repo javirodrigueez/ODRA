@@ -12,4 +12,4 @@ env:
   min_turns: 60
   output_dir: out/deepseek
   verbose: true
-  resume_file: out/deepseek/techniques.json
+  resume_file: out/deepseek/hw.json

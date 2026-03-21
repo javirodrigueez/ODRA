@@ -82,6 +82,7 @@ class TherapyGraphBuilder(
 
   def _patient_utterance_instruction(self, state: SessionState) -> str:
     stage = state["current_stage"]
+    substage = state["current_substage"]
     if state["final_patient_pending_end"]:
       return "Provide a brief closing response."
     if stage == "opening":
@@ -94,8 +95,10 @@ class TherapyGraphBuilder(
       return "Respond honestly about whether the proposed homework feels feasible."
     if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current openness."
-    if stage in {"closing", "anticipated_closing", "forced_closing"}:
+    if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
       return "Respond briefly to close the session."
+    if stage == "closing":
+      return "Respond naturally to the therapist's closing prompts without closing the conversation."
     return "Respond naturally."
 
   def patient_turn(self, state: SessionState) -> SessionState:

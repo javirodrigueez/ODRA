@@ -1,1 +1,4 @@
-Share the session summary with the patient and invite them to say whether it fits their experience today. Session summary to convey: {session_summary}. Generate only the therapist's next utterance.
+Generate the therapist's next utterance to share the session summary with the patient and invite confirmation or correction.
+The current closing summary is available as 'session_summary' within <session_context>.
+Share the summary naturally, keep it concise, and make it easy for the patient to say whether it fits their experience today. Do not sound overly formal or repetitive.
+Respond with plain text.

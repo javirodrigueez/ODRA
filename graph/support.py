@@ -188,7 +188,6 @@ class GraphSupportMixin:
     s.setdefault("next_session_plan", "")
     s.setdefault("patient_feedback", "")
     s.setdefault("closing_plan_refinements", 0)
-    s.setdefault("closing_phase", "")
 
     s.setdefault("reasoning_traces", [])
     s["utterance_index"] = int(s.get("utterance_index", 0))
@@ -307,7 +306,11 @@ class GraphSupportMixin:
     elif stage == "closing":
       context.update(
         {
+          "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "technique_evaluations": state["technique_evaluations"],
+          "selected_techniques": state["selected_techniques"],
           "session_summary": state["session_summary"],
           "next_session_plan": state["next_session_plan"],
           "agreed_tasks": state["agreed_tasks"],

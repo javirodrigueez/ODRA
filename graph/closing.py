@@ -31,26 +31,16 @@ class ClosingStageMixin(GraphSupportMixin):
     if current_substage == "closing_share_summary":
       if not state["session_summary"]:
         state["session_summary"] = self._generate_closing_summary(state, traces)
-      state["closing_phase"] = "summary"
       self._set_substage(state, "closing_share_plan")
-      instruction = self._load_stage_prompt(
-        "closing",
-        "share_summary_utterance",
-        session_summary=state["session_summary"],
-      )
+      instruction = self._load_stage_prompt("closing", "share_summary_utterance")
       return self._generate_closing_utterance(state, instruction)
 
     # Share the proposed next-session plan.
     if current_substage == "closing_share_plan":
       if not state["next_session_plan"]:
         state["next_session_plan"] = self._generate_next_session_plan(state, traces)
-      state["closing_phase"] = "plan_discussion"
       self._set_substage(state, "closing_review_plan")
-      instruction = self._load_stage_prompt(
-        "closing",
-        "share_plan_utterance",
-        next_session_plan=state["next_session_plan"],
-      )
+      instruction = self._load_stage_prompt("closing", "share_plan_utterance")
       return self._generate_closing_utterance(state, instruction)
 
     # Review the patient's response to the proposed plan.
@@ -67,18 +57,14 @@ class ClosingStageMixin(GraphSupportMixin):
         "agreed",
         "closing_plan_agreement_check",
       )
+      state["last_reasoning"] = ensure_str(agreement.get("reasoning", ""), "closing_plan_agreement_check")
       if agreed or state["closing_plan_refinements"] >= 10:
-        state["closing_phase"] = "await_feedback_response"
         self._set_substage(state, "closing_review_feedback")
         instruction = self._load_stage_prompt("closing", "request_feedback_utterance")
         return self._generate_closing_utterance(state, instruction)
       state["closing_plan_refinements"] += 1
       state["next_session_plan"] = self._generate_next_session_plan(state, traces)
-      instruction = self._load_stage_prompt(
-        "closing",
-        "revised_plan_utterance",
-        next_session_plan=state["next_session_plan"],
-      )
+      instruction = self._load_stage_prompt("closing", "revised_plan_utterance")
       return self._generate_closing_utterance(state, instruction)
 
     # Acknowledge the patient's feedback and show commitment for next session.
@@ -95,7 +81,6 @@ class ClosingStageMixin(GraphSupportMixin):
       description = ensure_str(feedback_payload.get("improvement_description"))
       plan = ensure_str(feedback_payload.get("improvement_plan"))
       state["patient_feedback"] = description
-      state["closing_phase"] = "final_close_pending"
       self._set_substage(state, "closing_finalize_feedback")
       current_substage = state["current_substage"]
 

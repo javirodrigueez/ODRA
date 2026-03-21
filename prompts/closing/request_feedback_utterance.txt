@@ -1,1 +1,4 @@
-Proactively ask the patient for feedback about today's session.
+Generate the therapist's next utterance to proactively ask the patient for feedback about today's session.
+The current session summary and next-session plan are available as 'session_summary' and 'next_session_plan' within <session_context>.
+Ask for feedback in a brief, open, and non-defensive way. Make it easy for the patient to mention either something that was helpful or something they would want done differently next time.
+Respond with plain text.

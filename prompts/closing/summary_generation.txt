@@ -1,1 +1,7 @@
-Create a brief session summary using opening mood/problem, cognitive sets, techniques, and homework. Respond JSON: {"session_summary":"..."}
+Create a brief closing summary of today's session.
+The opening-stage mood/problem summary, completed cognitive sets, technique evaluations, selected_techniques, and agreed homework tasks are available as 'opening_patient_mood', 'opening_patient_problem', 'cognitive_model_sets', 'technique_evaluations', 'selected_techniques', and 'agreed_tasks' within <session_context>.
+Keep the summary concise, grounded in what actually happened in the session, and understandable to the patient. Mention the main problem focus, the key CBT work or progress, and any homework or next-step commitment if relevant. Do not invent details that are not supported by the session.
+Respond in JSON format with the following structure:
+{{
+  "session_summary": string
+}}

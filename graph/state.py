@@ -58,14 +58,6 @@ SubStage = Literal[
   "forced_closing_end",
 ]
 
-ClosingPhase = Literal[
-  "",
-  "summary",
-  "plan_discussion",
-  "await_feedback_response",
-  "final_close_pending",
-]
-
 ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "open_initial",
   "open_mood",
@@ -228,7 +220,6 @@ class SessionState(TypedDict):
   next_session_plan: str
   patient_feedback: str
   closing_plan_refinements: int
-  closing_phase: ClosingPhase
 
   reasoning_traces: list[ReasoningTrace]
   utterance_index: int

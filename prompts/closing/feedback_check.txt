@@ -1,1 +1,9 @@
-Did the patient request something the therapist should improve next session? Respond JSON: {"improvement_requested": true/false, "improvement_description":"...", "improvement_plan":"..."}
+Decide whether the patient requested something the therapist should improve in the next session.
+The latest patient response and the current next-session plan are available as 'last_patient_response' and 'next_session_plan' within <session_context>.
+Set 'improvement_requested' to true only when the patient clearly asks for a change, preference, correction, or adjustment for future sessions. If the patient only gives thanks, praise, or generic comments without a request, set it to false. When no improvement was requested, return empty strings for both text fields.
+Respond in JSON format with the following structure:
+{{
+  "improvement_requested": boolean,
+  "improvement_description": string,
+  "improvement_plan": string
+}}
