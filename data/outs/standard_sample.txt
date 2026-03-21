@@ -1,0 +1,128 @@
+--> Therapist: Hi, welcome. I'm glad you're here. How are you feeling today?
+
+--> Patient: Uh, okay. I guess I'm fine. Just... here.
+
+--> Therapist: It sounds like you're not quite sure how you're feeling. Could you tell me a little more about what "just... here" is like for you right now?
+
+--> Patient: I don't know, it's just... I'm sitting here, but my mind is kind of blank. Like I'm going through the motions. I guess I feel a little out of place.
+
+--> Therapist: That sense of being out of place and going through the motions—can you tell me what’s been happening in your life that might be connected to feeling that way?
+
+--> Patient: Well, I mean... it's nothing big. Just work, mostly. The assembly line, you know? It's the same thing every day. And then I go home and... I don't know. I see my roommate going out with friends, trying new restaurants, and I just... I make my mac and cheese. It's stupid, but it makes me feel like I'm stuck. Like I'm just this boring guy in a loop.
+
+--> Therapist: When you have that thought, "I'm just this boring guy in a loop," what specific emotions come up for you in that moment? Like, do you feel sadness, frustration, loneliness, something else?
+
+--> Patient: Mostly just... kind of empty, I guess? And frustrated with myself. Like, why can't I just be more interesting? It's not even sadness, it's more like... I'm annoyed that this is who I am. A guy who's too lame to even pick a different dinner.
+
+--> Therapist: When you have that thought and feel empty and annoyed, what do you actually do right then? For example, after making the mac and cheese, do you eat it in a certain place, watch something, or maybe avoid doing something else?
+
+--> Patient: I just eat it at the counter, usually with the TV on for noise. Sometimes I scroll on my phone, seeing pictures of people traveling or eating at these cool places. Honestly, I just try to get through it so I can go to bed and start over the next day. I don't really do anything else. It's like the whole evening is just... waiting for it to be over.
+
+--> Therapist: You've mentioned several thoughts like "I'm just this boring guy in a loop" and "why can't I be more interesting?" When you're actually standing there making the mac and cheese, what's the very first thought that pops into your head in that exact moment?
+
+--> Patient: Honestly? The first thing is just... "Here we go again." Like, I'm already disappointed in myself before I even take the first bite. It's like my brain says, "Another night, same boring choice. This is all you are."
+
+--> Therapist: You've given a really clear picture of what happens at home. I'd like to shift gears for a moment and explore that feeling of monotony at work you mentioned earlier. Can you tell me about a specific moment on the assembly line this week—maybe during a break or right at the end of a shift—where you noticed that feeling of being stuck or bored?
+
+--> Patient: Yeah, actually... yesterday. I was on my break, sitting in the cafeteria. A couple guys from the paint line were talking about this new barbecue place that opened up, going on about the ribs and the craft beer. And I was just sitting there with my sandwich, listening. I thought, "They're planning something, they're excited about it. I just... go home." It felt like I was watching life happen through a window. Like my whole routine—work, home, mac and cheese—it's just this script I can't seem to change.
+
+--> Therapist: You described that moment on your break very vividly. When you had that thought, "They're planning something... I just go home," and felt like you were watching life through a window, what did that feeling of being stuck or detached actually feel like in your body? Was it a heaviness, a numbness, something else?
+
+--> Patient: It was... heavy. Like my shoulders just kind of slumped, and my chest felt tight. But also kind of numb? Like I was there, but I wasn't really in my body. Just this dull weight, and my mind was already back at my apartment, picturing the box of mac and cheese in the cupboard. It's like my body knew the script, too.
+
+--> Therapist: When you had that thought and felt that heavy, tight sensation in the cafeteria, what did you actually do right after? For example, did you finish your sandwich, leave the table, or maybe say something to your coworkers?
+
+--> Patient: I just... finished my sandwich real quick and got up. I didn't say anything to them. I just went back to my station early, even though I still had a few minutes left on my break. It felt easier to just get back to the line than to sit there any longer. Like, why would I even try to join the conversation? They're talking about ribs and beer, and I'm the mac and cheese guy. I'd just bring the mood down.
+
+--> Therapist: You mentioned the moment you left the cafeteria early and went back to your station. Let's focus on what happens right after your shift ends. Can you walk me through the very first few minutes after you clock out—maybe as you're walking to your car or waiting for the bus—and tell me what's going through your mind then?
+
+--> Patient: I clock out, and it's like a switch flips. I'm walking to my car, and my mind just... goes quiet. Not in a peaceful way, more like it's already resigned. I think, "Okay, that's done. Now for the next part." I can almost see the box of mac and cheese on the shelf in my head. Sometimes I'll try to think of something else, like maybe I should stop for groceries or something, but it never sticks. It's just this automatic pilot feeling. I get in the car, and the drive home is just... empty. I don't even really notice the traffic. It's like I'm already there, already in my kitchen, before I even pull into the parking lot.
+
+--> Therapist: You've described feeling "resigned" and "empty" during that drive home. Can you tell me a bit more about what "resigned" feels like in your body and mind in that moment? Is it more like a quiet giving up, a lack of hope, or perhaps a kind of dull anger?
+
+--> Patient: It's definitely a quiet giving up. Like all the energy just drains out, and there's this... flatness. No hope, but not really anger either. Anger would mean I still cared enough to be mad. This is more like... accepting that this is just how it is. My hands on the steering wheel feel heavy, and my thoughts are just... blank. Like I've already accepted the script for the night before I've even lived it.
+
+--> Therapist: You mentioned driving home on autopilot, not really noticing the traffic. Can you describe what you actually do with your hands, your eyes, your posture during that drive? For example, are you gripping the wheel tightly, staring straight ahead, slouching in the seat?
+
+--> Patient: I just... hold the wheel normally, I guess. Not tight, just... there. My eyes are on the road, but I'm not really seeing it. I'm slouched a little, kind of sinking into the seat. It's like my body is just along for the ride. I don't change the radio station or anything. Sometimes I'll catch my reflection in the rearview mirror and just look away. It's all just part of the routine.
+
+--> Therapist: Thank you for sharing all of that—it really paints a clear picture of how this routine feels, both in your mind and in your body. I’d like to try something with you now that builds on what we’ve been talking about. We’ve noticed a pattern in your thoughts, like “I’m the mac and cheese guy” or “I’d just bring the mood down”—thoughts that feel very absolute, as if there’s no other possibility. Would you be willing to take one of those thoughts and look at it a little closer together?
+
+--> Patient: Yeah, okay. I guess we can try. Which one?
+
+--> Therapist: Let's take the thought from the cafeteria: "I'm the mac and cheese guy. I'd just bring the mood down." That one felt very real in the moment. Can we start by looking at the first part: "I'm the mac and cheese guy"? What makes that thought feel true to you?
+
+--> Patient: Well... because it is true. I mean, look at the evidence. I eat it almost every night. When people at work talk about food, I have nothing to add. My roommate jokes about it sometimes, not in a mean way, but it just... reinforces it. It's not just a food I like, it's become this symbol of my whole... stuckness. Like if you were to describe me, "mac and cheese guy" would be right there at the top of the list. It feels like the most defining thing about me sometimes.
+
+--> Therapist: You've laid out the evidence that makes the thought feel true, and that's important. Now, let's put on a detective's hat for a moment. What might be some evidence *against* the idea that "mac and cheese guy" is the most defining thing about you? Are there any times, even small ones, where you've done or been something else?
+
+--> Patient: I don't know... I mean, I guess I show up to work every day. I haven't been late in years. That's something, right? And I did help my roommate fix his bike tire last month. He said he'd have been stuck without me. But that's just... normal stuff. It doesn't really change who I am at my core. I'm still the guy who defaults to mac and cheese. Those other things feel like just going through the motions, too.
+
+--> Therapist: I hear you saying those things feel like just going through the motions, too. Let's pause on that for a second. You called showing up reliably for years and helping your friend in a pinch "normal stuff." If your roommate described you to someone, do you think he'd lead with "mac and cheese guy," or might he mention the friend who helped him when he was stuck?
+
+--> Patient: Hmm... I guess he'd probably mention the bike thing first. He did seem really grateful. But that's just one moment. It doesn't erase all the other nights he's seen me making dinner. He knows the routine. So even if he said something nice, it feels like he's just being polite. The mac and cheese thing is still the bigger truth.
+
+--> Therapist: So you're saying that even though your roommate might describe you as helpful, the fact that he's seen the routine makes that feel like a polite gesture, and the "mac and cheese guy" label feels like the bigger, more defining truth. Let's sit with that for a moment. What does it mean about a person if they are consistently reliable at work for years, or if they help a friend in a pinch? How do those qualities fit with the idea of being just a "mac and cheese guy"?
+
+--> Patient: I mean... I guess being reliable and helpful are good qualities. They're not bad things. But it's like... they're just baseline, you know? Like, that's the minimum. Showing up and not being a jerk. The mac and cheese thing... it's an active choice I keep making. It's a pattern I can't seem to break. So it feels louder. Those other things are just... background noise. They don't define me; they're just what's expected. The mac and cheese feels like a choice that defines me, and it's a lame one.
+
+--> Therapist: You're making an important distinction between what you see as "baseline" qualities and a "loud" choice. Let's explore that. If being reliable and helpful are just the minimum, what would it take for those qualities to feel like they define you more? And if the mac and cheese choice feels so defining, what would a small, different choice look like—even something tiny?
+
+--> Patient: I don't know... I guess for the reliable and helpful stuff to feel defining, they'd have to be... exceptional? Like, going above and beyond what anyone expects. But I'm not that guy. I just do what's in front of me.
+
+A small different choice... I mean, I've tried picking up a different box at the grocery store, like that frozen stir-fry or something. But it doesn't feel like a real choice. It feels forced, and then I just go back to mac and cheese the next night because it's easier. So even when I try, it doesn't stick. It's like the pattern is stronger than any little change I attempt.
+
+--> Therapist: It sounds like you're holding yourself to a really high standard—that only exceptional acts count, and that a small change doesn't count if it doesn't stick right away. Let's try to put both sides of the evidence together. On one hand, you eat mac and cheese often and feel stuck in that routine. On the other, you're consistently reliable and have been a helpful friend. If we were to write a more balanced thought that includes both, what might it sound like? Something like, "Even though I often fall into familiar routines, I also have qualities like reliability and helpfulness—and a small change is still a change, even if it's hard to maintain"?
+
+--> Patient: I guess that sounds... reasonable on paper. But saying it doesn't make it feel true. It's like you're just putting the good stuff and the bad stuff in the same sentence, but the bad stuff still weighs more to me. "Even though" feels like a polite way of saying "but really, you're still the mac and cheese guy." The reliability and helpfulness... they don't cancel out the pattern. They just exist alongside it. And a small change that doesn't stick... that just feels like another failure, not a real change. It's like the balanced thought is what I *should* think, but it doesn't match what I actually feel in my kitchen every night.
+
+--> Therapist: You're right—if a thought feels like a "should" and doesn't match your actual experience, it's just words. Let's step back from trying to balance it logically for a moment. In that kitchen moment, when you think, "I'm the mac and cheese guy," what would a thought need to acknowledge or say to feel honest and real to you—even if it's not positive?
+
+--> Patient: Maybe... "Right now, I'm choosing the easy thing, and it makes me feel small." That feels honest. It's not about being a 'mac and cheese guy' forever, it's about... in that moment, I'm picking what's familiar because everything else feels like too much effort, and I hate myself a little for it.
+
+--> Therapist: That's a powerful and honest insight—it's about the moment of choice and the feeling that follows. I'd like to try something with you now that builds on that. Would you be willing to revisit that kitchen moment in your mind, but this time, we'll slow it down and just observe it without trying to change it?
+
+--> Patient: Okay, yeah. I can try that. So... I'm in the kitchen, standing in front of the cupboard. I see the blue box. My hand reaches for it. There's this heavy feeling in my chest, like a sigh before I even start. I'm thinking, "This again." I can feel the texture of the box, hear the sound of the pot clanging on the stove. The water boiling feels... loud. And I'm just standing there, watching it, feeling completely separate from the whole process. It's like I'm watching a movie of my own life, and I already know the ending.
+
+--> Therapist: That's a very clear description. Now, let's try something different with that same moment. As you're standing there, watching the water boil and feeling separate, can you gently name each part of the experience as if you're a curious observer? For example, you might say to yourself, "There's the thought, 'This again.' There's the heavy feeling in my chest. There's the choice of reaching for the box." Just notice and label them, without trying to change them or judge whether they're good or bad. What do you notice when you do that?
+
+--> Patient: Okay... So, I'm noticing the thought, "This again." I'm noticing the tightness in my chest, like a weight. I'm noticing my hand on the box, the sound of the water. I'm noticing the feeling of being separate, like I'm just watching.
+
+It's... strange. When I just name them, they don't feel as solid. The thought "This again" is just a thought floating by, not a fact. The heaviness is just a sensation, not a verdict. It doesn't make the choice feel good, but it feels less... permanent. Like I'm describing a scene instead of being trapped in it.
+
+--> Therapist: That's a really important shift—from feeling trapped to describing the scene. It sounds like you created a little space between you and the routine. I'd like to build on that space. You mentioned earlier that when you try a small change, like picking a different box at the store, it feels forced and doesn't stick, so it just feels like another failure. What if we took that idea of 'describing the scene' and used it to run a small experiment? Not to change everything at once, but to test what actually happens when you make one tiny, different choice in that routine, and just observe it with that same curious, descriptive mindset. Would you be open to trying that?
+
+--> Patient: Yeah, okay. I'm open to trying that. The describing thing did feel... different. Less heavy. So what kind of experiment are you thinking?
+
+--> Therapist: Great. Let's build on that 'describing the scene' feeling. The experiment is this: before you even open the cupboard, you pause for just ten seconds. In that pause, you notice and name what's happening—the thought, the feeling, the urge to reach for the box—just like we practiced. Then, you make one tiny, deliberate choice. It could be as simple as adding a different spice to the mac and cheese, or putting it in a bowl instead of eating from the pot, or even just deciding to eat it in a different room. The key is to choose something small enough that it doesn't feel like a huge effort, but different enough that it breaks the automatic script. What's one tiny variation you could imagine trying?
+
+--> Patient: Hmm... I could maybe eat it at the little table by the window instead of at the counter. That's not a huge change, but it's a different spot. I usually just stand at the counter, so sitting down somewhere else... that might feel weird, but I guess that's the point.
+
+--> Therapist: Perfect. That's a great, concrete variation. Now, to make this a true experiment, let's form a prediction. Based on that old feeling of being stuck in a script, what do you honestly expect will happen if you eat at the table by the window? What thoughts, feelings, or outcomes do you anticipate?
+
+--> Patient: I honestly expect I'll feel awkward and out of place. Like I'm just pretending to be someone who sits at a table for dinner. The mac and cheese will probably taste the same, and I'll just be sitting there thinking, "This is pointless, I'm still eating the same thing, just in a different chair." I'll probably feel even more aware of the routine, like I'm highlighting how pathetic it is by trying to dress it up. And then I'll go back to the counter the next night because it won't have changed anything.
+
+--> Therapist: That's a very clear and honest prediction—it captures exactly the old script. Now, here's the key to the experiment: we're not trying to prove that prediction wrong or make it feel good. The goal is to gather data, like a scientist. So when you try eating at the table, I want you to use that same "describing the scene" skill we just practiced. Before you sit down, pause and notice: "There's the thought, 'This is pointless.' There's the feeling of awkwardness in my body." Then, as you eat, just observe: "I'm noticing the taste, the chair, the view out the window." The experiment is to see what actually happens when you break the script with curiosity, not to change the outcome. Are you willing to try it that way, just to collect the data?
+
+--> Patient: Yeah, I can try it that way. Just... observe it like I'm taking notes, not trying to fix it. I guess that takes some of the pressure off. I'll give it a shot before my next dinner and see what actually happens.
+
+--> Therapist: Excellent. So, for this week, your homework is exactly that experiment: the Dinner Table Experiment. Before you make dinner, take that ten-second pause to notice and name what's happening in your mind and body. Then, eat at the table by the window, and just observe the experience like you're collecting data. Afterward, maybe jot down a couple of quick notes on what you noticed—especially anything that was different from what you predicted. How does that sound to you?
+
+--> Patient: It sounds... doable. I mean, it's just moving to a different spot and paying attention. I can do that. The whole "collecting data" thing makes it feel less like a test I'm going to fail. I'll try it.
+
+--> Therapist: Before we wrap up, I want to make sure we're on the same page about what we did today. From my notes, it sounds like we focused on that feeling of being stuck in your routine and the self-critical thoughts that come with it, like seeing yourself as "the mac and cheese guy." We explored how those thoughts lead to feelings of emptiness and resignation. You practiced observing those thoughts and feelings without getting completely caught up in them, which seemed to create a little space. Then we planned that small experiment for the week: to pause before dinner, notice what's happening, and try eating at the table by the window, just to observe the experience without judgment. Does that feel like an accurate summary of our time together today?
+
+--> Patient: Yeah, that's pretty much it. You got it. The experiment thing... I'll see how it goes.
+
+--> Therapist: Great. So, for next time, my plan is to start by checking in on how that experiment went—what you noticed, what felt different, and what the data told you. We’ll use that to see if it shifts that feeling of being stuck in a script. If it felt awkward or didn’t go as hoped, we can explore that without judgment, maybe using that same observing skill. And if you’re open to it, we could build on whatever we learn to try another small step. How does that plan sound to you? Does it fit with what you’d like to focus on?
+
+--> Patient: Yeah, that sounds okay. I guess it makes sense to start with the experiment and see what happens. I'm not expecting some big revelation, but... I'll do it. That's the plan.
+
+--> Therapist: Before we finish, I'd like to ask for a quick bit of feedback. Looking back on today's session, was there anything that felt particularly helpful, or anything you'd want us to do differently next time?
+
+--> Patient: The part where we just described what was happening, without judging it... that felt a little easier. Less like I was fighting myself. I wouldn't mind doing more of that. As for doing something different... I don't know. I guess just keep going with this experiment idea. It feels less like you're telling me to just "be different," which is what I usually get. So yeah, that was okay.
+
+--> Therapist: Thank you for that feedback—it's really helpful to know what felt easier. I'll definitely keep the 'describing without judging' approach in mind for next time, and we'll continue with the experiment idea. I appreciate your openness today. I'll see you next week, and we'll start by checking in on how the Dinner Table Experiment went. Take care.
+
+--> Patient: Alright. I'll see you next week. [/END]
+

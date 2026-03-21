@@ -1,0 +1,12 @@
+--> Therapist: Hi, welcome. I'm glad you're here. How are you feeling today?
+
+--> Patient: Uh, okay. I guess I'm fine. Just... here.
+
+--> Therapist: It sounds like you're not quite sure how you're feeling. Could you tell me a little more about what "just... here" is like for you right now?
+
+--> Patient: I don't know, it's just... I'm sitting here, but my mind is kind of blank. Like I'm going through the motions. I guess I feel a little out of place.
+
+--> Therapist: That sense of being out of place and going through the motions—can you tell me what’s been happening in your life that might be connected to feeling that way?
+
+--> Patient: Well, I mean... it's nothing big. Just work, mostly. The assembly line, you know? It's the same thing every day. And then I go home and... I don't know. I see my roommate going out with friends, trying new restaurants, and I just... I make my mac and cheese. It's stupid, but it makes me feel like I'm stuck. Like I'm just this boring guy in a loop.
+
