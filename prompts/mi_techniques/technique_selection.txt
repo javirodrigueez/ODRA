@@ -1,1 +1,9 @@
-Choose one MI communication technique from the following ones. {formatted_catalog} Select the technique that best fits the patient's current resistance, mood, and conversation. Respond JSON: {{"technique":"...", "reasoning":"..."}}
+Choose the next motivational interviewing communication technique from this catalog:
+{formatted_catalog}
+The patient's opening mood, opening problem summary, current MI topic, recently used MI techniques, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_techniques_used', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Select the technique that best fits the patient's current resistance, mood, and recent conversation. Avoid repeating a recently used technique unless it is clearly still the best fit for the current turn.
+Respond in JSON format with the following structure:
+{{
+  "technique": string,
+  "reasoning": string
+}}

@@ -1,1 +1,4 @@
-I hear you. What would feel like a manageable next step that still respects your boundaries?
+Generate the therapist's closing utterance for the meta-conversation stage.
+The patient's opening mood, opening problem summary, current MI topic, previously tried MI topics, recently used MI techniques, MI-only conversation segment, latest predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_topics_tried', 'mi_techniques_used', 'mi_context', 'predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Use this final meta-conversation turn to begin a smooth, low-pressure close because the patient is not ready to take therapy further right now. Invite the patient to reflect on their home about the session and to think the importance of engaging with therapy when they feel ready.
+Respond with plain text.

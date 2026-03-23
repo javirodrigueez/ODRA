@@ -315,8 +315,11 @@ class GraphSupportMixin:
     elif stage == "mi_topic_exploration":
       context.update(
         {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
           "current_mi_topic": state["current_mi_topic"],
           "mi_topics_tried": state["mi_topics_tried"],
+          "mi_context": state["mi_context"],
           "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
           "cbt_resume_stage": state["cbt_resume_stage"],
         }
@@ -324,7 +327,11 @@ class GraphSupportMixin:
     elif stage == "mi_techniques":
       context.update(
         {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "current_mi_topic": state["current_mi_topic"],
           "mi_techniques_used": state["mi_techniques_used"][-5:],
+          "mi_context": state["mi_context"],
           "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
           "cbt_resume_stage": state["cbt_resume_stage"],
         }
@@ -332,8 +339,12 @@ class GraphSupportMixin:
     elif stage == "meta_conversation":
       context.update(
         {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "current_mi_topic": state["current_mi_topic"],
           "mi_topics_tried": state["mi_topics_tried"],
           "mi_techniques_used": state["mi_techniques_used"][-5:],
+          "mi_context": state["mi_context"],
           "cbt_resume_stage": state["cbt_resume_stage"],
         }
       )
@@ -582,7 +593,6 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
-    #print(f"    <R_UPDATE>Predicted resistance updated: {state['predicted_resistance']:.2f}</R_UPDATE>") #devlog TODO: add R graph implementation
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

@@ -55,13 +55,17 @@ class MIStageMixin(GraphSupportMixin):
     state["exchange_counts"]["mi_techniques"] = 0
     state["exchange_counts"]["meta_conversation"] = 0
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
-    self._set_stage(state, state["cbt_resume_stage"] or "id_distortions")
+    self._set_stage(state, "mi_techniques", "mi_transition_to_cbt")
 
   def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     stage = state["current_stage"]
     band = self._current_band(state["predicted_resistance"])
 
     if stage == "opening":
+      return
+
+    if stage == "mi_techniques" and state["current_substage"] == "mi_transition_to_cbt":
+      self._set_stage(state, state["cbt_resume_stage"] or "id_distortions")
       return
 
     if stage in CBT_STAGES:
@@ -133,7 +137,7 @@ class MIStageMixin(GraphSupportMixin):
       current_substage = state["current_substage"]
 
     # Escalate to meta-conversation after repeated topic attempts without movement.
-    if len(state["mi_topics_tried"]) >= 3 and self._current_band(state["predicted_resistance"]) == "precontemplation":
+    if len(state["mi_topics_tried"]) >= len(MI_TOPICS) and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "meta_conversation")
       return self._handle_stage_dispatch(state, traces)
 
@@ -151,6 +155,15 @@ class MIStageMixin(GraphSupportMixin):
     raise ConversationProcessingError(f"Unexpected MI topic substage: {current_substage}")
 
   def _handle_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    if state["current_substage"] == "mi_transition_to_cbt":
+      resume_stage = state["cbt_resume_stage"] or "id_distortions"
+      instruction = self._load_stage_prompt(
+        "mi_techniques",
+        "transition_to_cbt",
+        resume_stage=resume_stage,
+      )
+      return self._generate_therapist_utterance(state, instruction)
+
     band = self._current_band(state["predicted_resistance"])
     if band == "precontemplation":
       self._set_stage(state, "mi_topic_exploration")
@@ -202,7 +215,7 @@ class MIStageMixin(GraphSupportMixin):
       return "mi_meta_adjust"
     return "mi_meta_close"
 
-  def _handle_meta_conversation(self, state: SessionState, traces: list[dict[str, Any]]) -> str:  #TODO: LLM dynamism
+  def _handle_meta_conversation(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     turns = int(state["exchange_counts"].get("meta_conversation", 0))
     if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "anticipated_closing")
@@ -215,19 +228,23 @@ class MIStageMixin(GraphSupportMixin):
 
     # Open the meta-conversation by acknowledging the difficulty.
     if current_substage == "mi_meta_open":
-      return self._load_stage_prompt("meta_conversation", "open_utterance")
+      instruction = self._load_stage_prompt("meta_conversation", "open_utterance")
+      return self._generate_therapist_utterance(state, instruction)
 
     # Probe the process for specific points of friction.
     if current_substage == "mi_meta_probe":
-      return self._load_stage_prompt("meta_conversation", "probe_utterance")
+      instruction = self._load_stage_prompt("meta_conversation", "probe_utterance")
+      return self._generate_therapist_utterance(state, instruction)
 
     # Offer a concrete adjustment after the patient has named a barrier.
     if current_substage == "mi_meta_adjust":
-      return self._load_stage_prompt("meta_conversation", "adjust_utterance")
+      instruction = self._load_stage_prompt("meta_conversation", "adjust_utterance")
+      return self._generate_therapist_utterance(state, instruction)
 
-    # Keep the meta-conversation focused on a manageable next step.
+    # Close meta-conversation and session
     if current_substage == "mi_meta_close":
-      return self._load_stage_prompt("meta_conversation", "close_utterance")
+      instruction = self._load_stage_prompt("meta_conversation", "close_utterance")
+      return self._generate_therapist_utterance(state, instruction)
 
     raise ConversationProcessingError(f"Unexpected meta-conversation substage: {current_substage}")
 
