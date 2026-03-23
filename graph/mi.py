@@ -61,9 +61,14 @@ class MIStageMixin(GraphSupportMixin):
         f"working_set_id={state['working_cognitive_set'].get('cognitive_model_set_id')}"
       )
     self._set_stage(state, target_stage)
-    state["mi_context"].append({"role": "system_note", "content": reason})
-    if target_stage in {"mi_techniques", "meta_conversation"}:
-      state["exchange_counts"][target_stage] = 0
+    self._append_mi_context_message(
+      state,
+      "system_note",
+      reason,
+      state["utterance_index"],
+      state["current_stage"],
+      state["current_substage"],
+    )
 
   def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict[str, Any]], note: str = "") -> None:
     instruction = self._load_stage_prompt("mi_techniques", "evaluation")
@@ -81,8 +86,6 @@ class MIStageMixin(GraphSupportMixin):
       }
     )
     state["mi_active"] = False
-    state["exchange_counts"]["mi_techniques"] = 0
-    state["exchange_counts"]["meta_conversation"] = 0
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
     self._set_stage(state, "mi_techniques", "mi_transition_to_cbt")
 
@@ -117,7 +120,7 @@ class MIStageMixin(GraphSupportMixin):
       if band == "action":
         self._evaluate_mi_and_resume(state, traces, note="MI reached action band")
         return
-      if int(state["exchange_counts"].get("mi_techniques", 0)) >= 10:
+      if self._current_stage_exchange_count(state, "mi_techniques") >= 10:
         traces.append(
           {
             "step": "mi_techniques_escape",
@@ -245,7 +248,7 @@ class MIStageMixin(GraphSupportMixin):
     return "mi_meta_close"
 
   def _handle_meta_conversation(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    turns = int(state["exchange_counts"].get("meta_conversation", 0))
+    turns = self._current_stage_exchange_count(state, "meta_conversation")
     if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
       self._set_stage(state, "anticipated_closing")
       if not state["session_ended_reason"]:

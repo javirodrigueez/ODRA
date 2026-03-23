@@ -39,7 +39,7 @@ class OpeningStageMixin(GraphSupportMixin):
     return ready
 
   def _handle_opening(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    opening_exchanges = int(state["exchange_counts"].get("opening", 0))
+    opening_exchanges = self._current_stage_exchange_count(state, "opening")
     if opening_exchanges == 0:
       self._set_substage(state, "open_initial")
 

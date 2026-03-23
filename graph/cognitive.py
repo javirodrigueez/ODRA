@@ -382,7 +382,7 @@ class CognitiveStageMixin(GraphSupportMixin):
     return not needs_more
 
   def _handle_id_distortions(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    id_exchanges = int(state["exchange_counts"].get("id_distortions", 0))
+    id_exchanges = self._current_stage_exchange_count(state, "id_distortions")
     first_utterance = id_exchanges == 0 and not state["cognitive_model_sets"] and not self._working_set_has_content(state)
 
     # Bootstrap only the very first cognitive set from opening material.

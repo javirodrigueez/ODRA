@@ -76,9 +76,23 @@ class TherapyGraphBuilder(
         utterance = self._handle_stage_dispatch(s, traces)
 
       s["active_exchange_stage"] = s["current_stage"]
-      idx = self._append_message(s, "therapist", utterance)
+      s["active_exchange_substage"] = s["current_substage"]
+      idx = self._append_message_with_metadata(
+        s,
+        "therapist",
+        utterance,
+        s["active_exchange_stage"],
+        s["active_exchange_substage"],
+      )
       if s["current_stage"] in MI_STAGES or s["current_stage"] in {"anticipated_closing"}:
-        s["mi_context"].append({"role": "therapist", "content": utterance})
+        self._append_mi_context_message(
+          s,
+          "therapist",
+          utterance,
+          idx,
+          s["active_exchange_stage"],
+          s["active_exchange_substage"],
+        )
       self._append_trace(s, idx, "therapist", traces)
     except ConversationProcessingError as exc:
       self._end_session_with_error(s, traces, exc)
@@ -137,16 +151,30 @@ class TherapyGraphBuilder(
       if s["final_patient_pending_end"]:
         utterance = f"{utterance} [/END]".strip()
 
-      idx = self._append_message(s, "patient", utterance)
       active_stage = s.get("active_exchange_stage") or s["current_stage"]
-      s["exchange_counts"][active_stage] = int(s["exchange_counts"].get(active_stage, 0)) + 1
+      active_substage = s.get("active_exchange_substage") or s["current_substage"]
+      idx = self._append_message_with_metadata(
+        s,
+        "patient",
+        utterance,
+        active_stage,
+        active_substage,
+      )
+      self._increment_stage_exchange_count(s, active_stage)
       if active_stage == "id_distortions":
         s["working_cognitive_set_exchange_count"] = int(s.get("working_cognitive_set_exchange_count", 0)) + 1
       if active_stage == "cbt_technique" and s["current_technique_plan"]:
         s["technique_turn_count"] += 1
 
       if s["current_stage"] in MI_STAGES or s["current_stage"] in {"anticipated_closing"}:
-        s["mi_context"].append({"role": "patient", "content": utterance})
+        self._append_mi_context_message(
+          s,
+          "patient",
+          utterance,
+          idx,
+          active_stage,
+          active_substage,
+        )
 
       if s["final_patient_pending_end"] and "[/END]" in utterance:
         s["session_ended"] = True

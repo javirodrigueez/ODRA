@@ -108,7 +108,7 @@ class GraphSupportMixin:
 
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 1, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
+    mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
     return mapping.get(attitude, 0.55)
 
   def _is_error_trace(self, trace: Any) -> bool:
@@ -134,11 +134,12 @@ class GraphSupportMixin:
       raw_substage = DEFAULT_SUBSTAGE_BY_STAGE[stage]
     s["current_substage"] = cast(SubStage, raw_substage)
 
-    s.setdefault("messages", [])
+    raw_messages = s.get("messages")
+    s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
     base_resistance = self._initial_resistance()
     s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 1, 0.0, 1.0) #devlog 0.95 should be 0.55
+    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog 0.95 should be 0.55
     s.setdefault("patient_profile", deepcopy(self.profile))
 
     s.setdefault("opening_patient_mood", "")
@@ -167,7 +168,8 @@ class GraphSupportMixin:
     s.setdefault("technique_slot_replaced", {})
 
     s.setdefault("mi_active", False)
-    s.setdefault("mi_context", [])
+    raw_mi_context = s.get("mi_context")
+    s["mi_context"] = self._normalize_messages(raw_mi_context, stage, cast(SubStage, raw_substage))
     s.setdefault("cbt_flow_saved_state", "")
     s.setdefault("cbt_resume_stage", "id_distortions")
     s.setdefault("mi_topics_tried", [])
@@ -190,17 +192,35 @@ class GraphSupportMixin:
     s.setdefault("closing_plan_refinements", 0)
 
     s.setdefault("reasoning_traces", [])
-    s["utterance_index"] = int(s.get("utterance_index", 0))
-    s.setdefault("exchange_counts", {})
+    max_message_index = 0
+    if s["messages"]:
+      max_message_index = max(int(msg.get("utterance_index", 0)) for msg in s["messages"])
+    max_trace_index = 0
+    if s["reasoning_traces"]:
+      max_trace_index = max(int(cast(dict[str, Any], trace).get("utterance_index", 0)) for trace in s["reasoning_traces"])
+    s["utterance_index"] = max(int(s.get("utterance_index", 0)), max_message_index, max_trace_index)
+    raw_exchange_counts = s.get("exchange_counts")
+    normalized_exchange_counts: dict[str, list[int]] = {}
+    if isinstance(raw_exchange_counts, dict):
+      for key, value in raw_exchange_counts.items():
+        stage_name = ensure_str(key)
+        if not stage_name:
+          continue
+        if isinstance(value, list):
+          normalized_exchange_counts[stage_name] = [int(item) for item in value]
+        elif value is not None:
+          normalized_exchange_counts[stage_name] = [int(value)]
+    s["exchange_counts"] = normalized_exchange_counts
     
     # devlog. remove when create new conversations
     legacy_metaconv_turns = s.get("meta_conversation_turns")
     if legacy_metaconv_turns is not None and "meta_conversation" not in s["exchange_counts"]:
-      s["exchange_counts"]["meta_conversation"] = int(legacy_metaconv_turns)
+      s["exchange_counts"]["meta_conversation"] = [int(legacy_metaconv_turns)]
     legacy_mi_technique_turns = s.get("mi_technique_turns")
-    if legacy_mi_technique_turns is not None and "mi_technique" not in s["exchange_counts"]:
-      s["exchange_counts"]["mi_technique"] = int(legacy_mi_technique_turns)
+    if legacy_mi_technique_turns is not None and "mi_techniques" not in s["exchange_counts"]:
+      s["exchange_counts"]["mi_techniques"] = [int(legacy_mi_technique_turns)]
     s.setdefault("active_exchange_stage", "")
+    s.setdefault("active_exchange_substage", "")
     # devlog end
     
     s.setdefault("final_patient_pending_end", False)
@@ -211,9 +231,15 @@ class GraphSupportMixin:
 
     s["max_turns"] = int(s.get("max_turns", getattr(self.cfg.env, "max_turns", 80)))
     s["min_turns"] = int(s.get("min_turns", getattr(self.cfg.env, "min_turns", 0)))
+    self._ensure_stage_exchange_counter(s, stage)
     return s
 
   def _set_stage(self, state: SessionState, stage: Stage, substage: Optional[SubStage] = None) -> None:
+    previous_stage = ensure_str(state.get("current_stage"))
+    if previous_stage != stage:
+      self._start_stage_exchange_counter(state, stage)
+    else:
+      self._ensure_stage_exchange_counter(state, stage)
     state["current_stage"] = stage
     state["current_substage"] = substage or DEFAULT_SUBSTAGE_BY_STAGE[stage]
 
@@ -242,7 +268,8 @@ class GraphSupportMixin:
     context: dict[str, Any] = {
       "current_stage": stage,
       "predicted_resistance": state["predicted_resistance"],
-      "stage_exchange_count": int(state["exchange_counts"].get(stage, 0)),
+      "stage_exchange_count": self._current_stage_exchange_count(state, stage),
+      "stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -397,9 +424,105 @@ class GraphSupportMixin:
     )
 
   def _append_message(self, state: SessionState, role: ConversationRole, content: str) -> int:
+    return self._append_message_with_metadata(state, role, content, state["current_stage"], state["current_substage"])
+
+  def _append_message_with_metadata(
+    self,
+    state: SessionState,
+    role: ConversationRole,
+    content: str,
+    stage: Stage,
+    substage: SubStage,
+  ) -> int:
     state["utterance_index"] += 1
-    state["messages"].append({"role": role, "content": ensure_str(content)})
+    state["messages"].append(
+      {
+        "utterance_index": state["utterance_index"],
+        "role": role,
+        "content": ensure_str(content),
+        "stage": stage,
+        "substage": substage,
+      }
+    )
     return state["utterance_index"]
+
+  def _append_mi_context_message(
+    self,
+    state: SessionState,
+    role: ConversationRole,
+    content: str,
+    utterance_index: int,
+    stage: Stage,
+    substage: SubStage,
+  ) -> None:
+    state["mi_context"].append(
+      {
+        "utterance_index": utterance_index,
+        "role": role,
+        "content": ensure_str(content),
+        "stage": stage,
+        "substage": substage,
+      }
+    )
+
+  def _normalize_messages(self, raw_messages: Any, default_stage: Stage, default_substage: SubStage) -> list[ConversationMessage]:
+    if not isinstance(raw_messages, list):
+      return []
+    normalized: list[ConversationMessage] = []
+    next_index = 1
+    for item in raw_messages:
+      if not isinstance(item, dict):
+        continue
+      role = ensure_str(item.get("role"))
+      content = ensure_str(item.get("content"))
+      if not role or not content:
+        continue
+      raw_index = item.get("utterance_index")
+      try:
+        utterance_index = int(raw_index) if raw_index is not None else next_index
+      except (TypeError, ValueError):
+        utterance_index = next_index
+      if utterance_index <= 0:
+        utterance_index = next_index
+
+      raw_stage = ensure_str(item.get("stage"), default_stage)
+      message_stage: Stage = cast(Stage, raw_stage) if raw_stage in DEFAULT_SUBSTAGE_BY_STAGE else default_stage
+      raw_substage = ensure_str(item.get("substage"), default_substage)
+      if raw_substage not in ALL_SUBSTAGES:
+        raw_substage = default_substage
+
+      normalized.append(
+        {
+          "utterance_index": utterance_index,
+          "role": cast(ConversationRole, role),
+          "content": content,
+          "stage": message_stage,
+          "substage": cast(SubStage, raw_substage),
+        }
+      )
+      next_index = max(next_index + 1, utterance_index + 1)
+    return normalized
+
+  def _ensure_stage_exchange_counter(self, state: SessionState, stage: Stage) -> None:
+    history = state["exchange_counts"].setdefault(stage, [])
+    if not history:
+      history.append(0)
+
+  def _start_stage_exchange_counter(self, state: SessionState, stage: Stage) -> None:
+    history = state["exchange_counts"].setdefault(stage, [])
+    history.append(0)
+
+  def _current_stage_exchange_count(self, state: SessionState, stage: Stage) -> int:
+    history = state["exchange_counts"].get(stage, [])
+    if not history:
+      return 0
+    return int(history[-1])
+
+  def _increment_stage_exchange_count(self, state: SessionState, stage: Stage) -> int:
+    self._ensure_stage_exchange_counter(state, stage)
+    history = state["exchange_counts"][stage]
+    history[-1] = int(history[-1]) + 1
+    return history[-1]
 
   def _current_band(self, value: float) -> Literal["precontemplation", "contemplation", "action"]:
     if value >= 0.75:

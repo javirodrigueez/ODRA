@@ -134,8 +134,11 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
 
 
 class ConversationMessage(TypedDict):
+  utterance_index: int
   role: ConversationRole
   content: str
+  stage: Stage
+  substage: SubStage
 
 
 class CognitiveModelSet(TypedDict):
@@ -225,8 +228,9 @@ class SessionState(TypedDict):
 
   reasoning_traces: list[ReasoningTrace]
   utterance_index: int
-  exchange_counts: dict[str, int]
+  exchange_counts: dict[str, list[int]]
   active_exchange_stage: Stage | Literal[""]
+  active_exchange_substage: SubStage | Literal[""]
 
   final_patient_pending_end: bool
   session_ended: bool
