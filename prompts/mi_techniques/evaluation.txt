@@ -1,1 +1,9 @@
-Using mi_context, create an MI intervention evaluation. Respond with JSON: {"reason_for_mi":"...", "conclusions":"...", "patient_state_change":"..."}
+Evaluate the completed motivational interviewing intervention before resuming CBT.
+The MI-only conversation segment, patient's opening problem summary, current MI topic, recently used MI techniques, latest predicted resistance, and CBT resume stage are available as 'mi_context', 'opening_patient_problem', 'current_mi_topic', 'mi_techniques_used', 'predicted_resistance', and 'cbt_resume_stage' within <session_context>.
+Base the evaluation on the MI-only exchange history in 'mi_context'. Summarize why MI was needed, what happened during the intervention, and how the patient's state changed in a way that is useful for the resumed CBT flow.
+Respond in JSON format with the following structure:
+{{
+  "reason_for_mi": string,
+  "conclusions": string,
+  "patient_state_change": string
+}}

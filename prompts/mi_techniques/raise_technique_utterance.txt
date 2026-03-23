@@ -1,1 +1,4 @@
-You are doing motivational interviewing using the technique "{technique}". Generate a therapist utterance that applies this technique to the patient's current resistance and problems, using the conversation and session context.
+Generate the therapist's next motivational interviewing utterance using the technique "{technique}".
+The patient's opening mood, opening problem summary, current MI topic, recently used MI techniques, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_techniques_used', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Apply the named technique to the patient's current resistance and problems in a natural therapist voice. Keep the utterance aligned with motivational interviewing, avoid sounding scripted, and do not explain the technique by name unless that would be natural in-session.
+Respond with plain text.
