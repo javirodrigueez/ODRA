@@ -1,0 +1,4 @@
+Evaluate whether the patient's last utterance shows a clear, strong desire to end the conversation now.
+The current stage and last patient response are available as 'current_stage' and 'last_patient_response' within <session_context>, and you also have the recent dialogue in <last_utterances>.
+Mark ending_needed as true only when the patient is clearly asking to stop, leave, end for now, or not continue this session. If the patient is only frustrated, resistant, avoidant, unsure, or ambivalent, mark ending_needed as false and continue the conversation.
+Respond JSON: {{"ending_needed": false, "reasoning":"..."}}

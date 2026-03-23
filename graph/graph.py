@@ -67,9 +67,13 @@ class TherapyGraphBuilder(
     try:
       if not first_exchange:
         self._maybe_force_closing(s)
-        self._run_resistance_prediction(s, traces)
-        self._handle_pre_stage_routing(s, traces)
-      utterance = self._handle_stage_dispatch(s, traces)
+        utterance = self._maybe_handle_ending_needed(s, traces)
+        if utterance is None:
+          self._run_resistance_prediction(s, traces)
+          self._handle_pre_stage_routing(s, traces)
+          utterance = self._handle_stage_dispatch(s, traces)
+      else:
+        utterance = self._handle_stage_dispatch(s, traces)
 
       s["active_exchange_stage"] = s["current_stage"]
       idx = self._append_message(s, "therapist", utterance)
