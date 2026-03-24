@@ -108,7 +108,7 @@ class GraphSupportMixin:
 
   def _initial_resistance(self) -> float:
     attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
+    mapping = {"negative": 0.80, "neutral": 0.55, "positive": 0.35} #devlog
     return mapping.get(attitude, 0.55)
 
   def _is_error_trace(self, trace: Any) -> bool:
@@ -141,7 +141,7 @@ class GraphSupportMixin:
     s["initial_resistance"] = base_resistance
     s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
     s["initial_predicted_resistance"] = 0.55
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog 0.95 should be 0.55
+    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog
     s.setdefault("patient_profile", deepcopy(self.profile))
 
     s.setdefault("opening_patient_mood", "")
