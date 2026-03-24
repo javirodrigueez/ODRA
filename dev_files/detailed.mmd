@@ -6,7 +6,7 @@ graph LR
     classDef logic fill:#fffacd,stroke:#ffd700,stroke-width:2px;
     classDef terminal fill:#f0f0f0,stroke:#333,stroke-width:2px;
 
-    Start((Start Session)):::terminal --> Init[Init R based on Attitude: Neg=0.75, Neu=0.5, Pos=0.25]:::init
+    Start((Start Session)):::terminal --> Init[Init R based on Attitude]:::init
     Init --> FirstUttCheck
 
     %% 1. OPENING STAGE
@@ -51,43 +51,89 @@ graph LR
     end
 
     %% END of Stage 1
-    CheckEnoughInfo -- Yes --> PostOpenR{Evaluate Post-Opening R}:::logic
+    CheckEnoughInfo -- Yes --> PostOpenR{Evaluate Post-Opening R Band}:::logic
 
     %% POST-OPENING RESISTANCE ROUTING
-    PostOpenR -- "R > 0.75 (Precont)" --> MITopicStart
-    PostOpenR -- "0.5 < R <= 0.75 (Contemplation)" --> MITechStart
-    PostOpenR -- "R <= 0.5 (Action)" --> CBT_Gateway
+    PostOpenR -- "Precontemplation" --> MI_Topic_Entry
+    PostOpenR -- "Contemplation" --> MI_Tech_Entry
+    PostOpenR -- "Action" --> ID_DistEntry
 
     %% MI TOPIC EXPLORATION
     subgraph MI_Topic [MI Topic Exploration]
-        MITopicStart[Select MI Topic] --> MITopicMiddle[MI Topic Utterance]
-        MITopicMiddle --> MITopicResp[Patient Responds]
-        MITopicResp --> UpdateR1[Update R]
-        UpdateR1 --> CheckR1Trend{Check R Trend}:::logic
-        CheckR1Trend -- "Higher R" --> MITopicStart
-        CheckR1Trend -- "Lower R (>0.75)" --> MITopicMiddle
+        MI_Topic_Entry{Need New Topic / R Increased?}:::logic
+        MI_Topic_Entry -- Yes --> MI_Choose_Topic[Select Topic from Catalog]
+        MI_Topic_Entry -- No --> MI_Raise_Topic
+        
+        MI_Choose_Topic --> TopicExhaustCheck{All Topics Tried & Precontemplation?}:::logic
+        TopicExhaustCheck -- Yes --> Meta_Entry
+        TopicExhaustCheck -- No --> MI_Raise_Topic[Raise Topic Utterance]
+        
+        MI_Raise_Topic --> MI_Topic_Resp[Patient Responds]
+        MI_Topic_Resp --> Update_R_Topic[Update Predicted R]
+        
+        Update_R_Topic --> Topic_R_Check{Check Current R Band}:::logic
+        Topic_R_Check -- "Precontemplation" --> MI_Topic_Entry
     end
-    CheckR1Trend -- "R <= 0.75" --> MITechStart
+    Topic_R_Check -- "Contemplation / Action" --> MI_Tech_Entry
 
     %% MI TECHNIQUES
     subgraph MI_Tech [MI Techniques]
-        MITechStart[Select MI Technique] --> MITechResp[Patient Responds]
-        MITechResp --> UpdateR2[Update R]
-        UpdateR2 --> CheckR2Trend{Check R Trend}:::logic
-        CheckR2Trend -- "Higher R" --> MITechStart
-        CheckR2Trend -- "Lower R (>0.5)" --> MITechStart
+        MI_Tech_Entry{Check MI Tech Pre-Conditions}:::logic
+        MI_Tech_Entry -- "R == Precontemplation" --> MI_Topic_Entry
+        MI_Tech_Entry -- "R == Action" --> MI_Eval[Evaluate MI & Record Reason]
+        MI_Tech_Entry -- "Exchanges >= 10" --> MI_Pause[Pause Techs until Precont. & Evaluate]
+        
+        MI_Tech_Entry -- "Continue" --> MI_Choose_Tech[Select Technique]
+        MI_Choose_Tech --> MI_Raise_Tech[Raise Technique Utterance]
+        MI_Raise_Tech --> MI_Tech_Resp[Patient Responds]
+        MI_Tech_Resp --> Update_R_Tech[Update Predicted R]
+        
+        Update_R_Tech --> MI_Tech_Entry
+        
+        MI_Pause --> TransitionToCBT[Transition back to CBT Stage]
+        MI_Eval --> TransitionToCBT
     end
-    CheckR2Trend -- "R <= 0.5" --> RestoreCBT[Restore CBT State]
-    RestoreCBT --> CBT_Gateway
 
+    %% META CONVERSATION
+    subgraph Meta_Conv [Meta Conversation]
+        Meta_Entry{Check R Band & Turns}:::logic
+        Meta_Entry -- "Contemplation / Action" --> MI_Tech_Entry
+        Meta_Entry -- "Turns >= 8 & Precont." --> Anticipated_Closing[Anticipated Closing]
+        
+        Meta_Entry -- "Turns < 8" --> Meta_Routing{Turns Count Substage}:::logic
+        Meta_Routing -- "0" --> Meta_Open[Meta Open]
+        Meta_Routing -- "1" --> Meta_Probe[Meta Probe]
+        Meta_Routing -- "2+" --> Meta_Adjust[Meta Adjust]
+        Meta_Routing -- "Requested End" --> Meta_Close[Meta Close]
+        
+        Meta_Open --> Meta_Resp[Patient Responds]
+        Meta_Probe --> Meta_Resp
+        Meta_Adjust --> Meta_Resp
+        Meta_Resp --> Update_R_Meta[Update Predicted R]
+        Update_R_Meta --> Meta_Entry
+    end
+    
+    Meta_Close --> End((End Session)):::terminal
+    Anticipated_Closing --> End
+
+    %% CBT INTERRUPTS (Reflecting _handle_pre_stage_routing inside CBT_STAGES)
+    TransitionToCBT --> CBT_Gateway
+    
     %% CONTINUOUS CBT FLOW
     subgraph CBT_Main [CBT Flow & Action State]
-        CBT_Gateway{Prior to Utt: R <= 0.5?}:::logic
-        CBT_Gateway -- No --> SaveState[Save CBT State Summary]
-        SaveState --> MITechStart
-        CBT_Gateway -- Yes --> ID_DistEntry
+        CBT_Gateway{Check Current R Band}:::logic
         
-        %% 2. ID DISTORTIONS (UPDATED)
+        %% Interrupts
+        CBT_Gateway -- "Contemplation (if not paused)" --> SaveStateTech[Save CBT State]
+        SaveStateTech --> MI_Tech_Entry
+        
+        CBT_Gateway -- "Precontemplation" --> SaveStateTopic[Save CBT State & Unpause MI Techs]
+        SaveStateTopic --> MI_Topic_Entry
+        
+        %% Flow
+        CBT_Gateway -- "Action" --> ID_DistEntry
+        
+        %% 2. ID DISTORTIONS
         subgraph Stage2 [2. Id. Distortions]
             ID_DistEntry[Enter / Resume ID Distortions] --> CheckBootstrap{Is Bootstrap Substage?}:::logic
             
@@ -110,7 +156,7 @@ graph LR
             CheckCompletion -- No --> ReviewGap
             
             DeliverID --> PatRespID[Patient Responds]
-            PatRespID --> ID_DistEntry
+            PatRespID --> CBT_Gateway
         end
         CheckCompletion -- Yes --> CBT_TechStart
 
@@ -130,13 +176,16 @@ graph LR
             
             PlanCurrent[Create / Update Detailed Plan] --> DeliverCurrent[Deliver Utterance]
             DeliverCurrent --> PatRespCBT[Patient Responds]
-            PatRespCBT --> ReviewCurrent{Technique Complete?}:::logic
-            
-            ReviewCurrent -- No --> PlanCurrent
-            ReviewCurrent -- Yes --> EvalTech[Evaluate & Complete Tech]
-            EvalTech --> DecideNext
+            PatRespCBT --> CBT_Gateway
         end
     end
+    
+    %% Routing logic check after CBT iterations (simulating intercept back to CBT Gateway)
+    ReviewCurrent{Technique Complete?}:::logic
+    PatRespCBT -.-> ReviewCurrent
+    ReviewCurrent -- No --> PlanCurrent
+    ReviewCurrent -- Yes --> EvalTech[Evaluate & Complete Tech]
+    EvalTech --> DecideNext
 
     EndCBT --> HWStart
 
@@ -166,23 +215,19 @@ graph LR
 
     %% 5. CLOSING
     subgraph Stage5 [5. Closing]
-        %% Phase 1: Summary
         ShareSummary[Session Summary] --> SharePlan[Next Session Plan]
         
-        %% Phase 2: Plan Discussion
         SharePlan --> ReviewPlan{Plan Agreed or Refinements >= 10?}:::logic
         
-        %% Phase 3: Plan Refinement Loop
         ReviewPlan -- No --> RevisePlan[Plan Refinement]
         RevisePlan --> ReviewPlan
         
-        %% Phase 4: Feedback & Final Close
         ReviewPlan -- Yes --> AskFB[Ask for Feedback]
         AskFB --> FinalClose[Final Closing]
     end
 
-    FinalClose --> End((End Session)):::terminal
+    FinalClose --> End
 
     %% Apply Classes
     class Stage1,Stage2,Stage3,Stage4,Stage5 cbtStage;
-    class MI_Topic,MI_Tech miStage;
+    class MI_Topic,MI_Tech,Meta_Conv miStage;

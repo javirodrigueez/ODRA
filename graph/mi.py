@@ -9,35 +9,6 @@ from .state import CBT_STAGES, MI_TOPICS, SessionState, Stage, SubStage
 
 
 class MIStageMixin(GraphSupportMixin):
-  def _maybe_handle_ending_needed(self, state: SessionState, traces: list[dict[str, Any]]) -> str | None:
-    if state["final_patient_pending_end"]:
-      return None
-    if state["current_stage"] not in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
-      return None
-
-    instruction = self._load_stage_prompt(
-      "shared",
-      "ending_needed_check",
-    )
-    parsed = self._run_therapist_structured(state, traces, "ending_needed_check", instruction)
-    payload = self._require_dict(parsed, "ending_needed_check")
-    if not self._require_bool(payload, "ending_needed", "ending_needed_check"):
-      return None
-
-    state["mi_active"] = False
-    state["final_patient_pending_end"] = True
-    state["session_ended_reason"] = "patient_requested_ending"
-    self._set_stage(state, "meta_conversation", "mi_meta_close")
-    traces.append(
-      {
-        "step": "ending_needed_close",
-        "input": state["messages"][-1]["content"] if state["messages"] else "",
-        "output": "Patient clearly requested to end the conversation; generating empathic closing utterance.",
-      }
-    )
-    instruction = self._load_stage_prompt("meta_conversation", "close_utterance")
-    return self._generate_therapist_utterance(state, instruction)
-
   def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]], reason: str) -> None:
     if not state["mi_techniques_paused_until_precontemplation"]:
       return
@@ -244,7 +215,8 @@ class MIStageMixin(GraphSupportMixin):
     if turns == 1:
       return "mi_meta_probe"
     if turns == 2:
-      return "mi_meta_adjust"
+      #return "mi_meta_adjust"
+      return "mi_meta_close"
     return "mi_meta_close"
 
   def _handle_meta_conversation(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
@@ -255,24 +227,26 @@ class MIStageMixin(GraphSupportMixin):
         state["session_ended_reason"] = "anticipated_closing"
       return self._handle_stage_dispatch(state, traces)
 
-    self._set_substage(state, self._meta_substage_for_turns(turns))
-    current_substage = state["current_substage"]
-    print(f"<META DEBUG> turns={turns}, substage={current_substage}, predicted_resistance={state['predicted_resistance']:.2f} ({self._current_band(state['predicted_resistance'])}) </META DEBUG>")
+    #self._set_substage(state, self._meta_substage_for_turns(turns))
+    current_substage = state["current_substage"] 
+    #print(f"<META DEBUG> turns={turns}, substage={current_substage}, predicted_resistance={state['predicted_resistance']:.2f} ({self._current_band(state['predicted_resistance'])}) </META DEBUG>")
 
     # Open the meta-conversation by acknowledging the difficulty.
     if current_substage == "mi_meta_open":
+      state["current_substage"] = "mi_meta_probe"
       instruction = self._load_stage_prompt("meta_conversation", "open_utterance")
       return self._generate_therapist_utterance(state, instruction)
 
     # Probe the process for specific points of friction.
     if current_substage == "mi_meta_probe":
+      state["current_substage"] = "mi_meta_close"
       instruction = self._load_stage_prompt("meta_conversation", "probe_utterance")
       return self._generate_therapist_utterance(state, instruction)
 
     # Offer a concrete adjustment after the patient has named a barrier.
-    if current_substage == "mi_meta_adjust":
-      instruction = self._load_stage_prompt("meta_conversation", "adjust_utterance")
-      return self._generate_therapist_utterance(state, instruction)
+    # if current_substage == "mi_meta_adjust":
+    #   instruction = self._load_stage_prompt("meta_conversation", "adjust_utterance")
+    #   return self._generate_therapist_utterance(state, instruction)
 
     # Close meta-conversation and session
     if current_substage == "mi_meta_close":

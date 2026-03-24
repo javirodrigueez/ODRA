@@ -55,6 +55,7 @@ SubStage = Literal[
   "closing_review_plan",
   "closing_review_feedback",
   "closing_finalize_feedback",
+  "closing_fallback",
   "closing_end_session",
   "forced_closing_end",
 ]
@@ -97,6 +98,7 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "closing_review_plan",
   "closing_review_feedback",
   "closing_finalize_feedback",
+  "closing_fallback",
   "closing_end_session",
   "forced_closing_end",
 )
@@ -178,7 +180,9 @@ class SessionState(TypedDict):
   messages: list[ConversationMessage]
 
   patient_profile: dict[str, Any]
+  initial_resistance: float
   resistance: float
+  initial_predicted_resistance: float
   predicted_resistance: float
 
   opening_patient_mood: str
@@ -187,6 +191,7 @@ class SessionState(TypedDict):
 
   cognitive_model_sets: list[CognitiveModelSet]
   working_cognitive_set: CognitiveModelSet
+  shelved_cognitive_sets: list[CognitiveModelSet]
   cognitive_gap_plan: str
   active_cognitive_target: str
   active_cognitive_question: str
@@ -231,6 +236,11 @@ class SessionState(TypedDict):
   exchange_counts: dict[str, list[int]]
   active_exchange_stage: Stage | Literal[""]
   active_exchange_substage: SubStage | Literal[""]
+  high_resistance_redirect_triggered: bool
+  high_resistance_level: str
+  high_resistance_source_stage: Stage | Literal[""]
+  high_resistance_source_substage: SubStage | Literal[""]
+  high_resistance_reasoning: str
 
   final_patient_pending_end: bool
   session_ended: bool

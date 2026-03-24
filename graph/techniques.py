@@ -9,6 +9,26 @@ from .support import ConversationProcessingError, GraphSupportMixin
 
 
 class TechniqueStageMixin(GraphSupportMixin):
+  def _choose_additional_technique(self, state: SessionState, traces: list[dict[str, Any]]) -> SelectedTechnique:
+    techniques_catalog = self.cbt_techniques
+    formatted_catalog = "\n".join(
+      f'- {name}: {description}'
+      for name, description in techniques_catalog.items()
+    )
+
+    instruction = self._load_stage_prompt(
+      "cbt_technique",
+      "additional_technique_selection",
+      formatted_catalog=formatted_catalog,
+    )
+    parsed = self._run_therapist_structured(state, traces, "additional_technique_selection", instruction)
+    payload = self._require_dict(parsed, "additional_technique_selection")
+    return {
+      "name": self._require_non_empty_string(payload, "name", "additional_technique_selection"),
+      "target_distortion": ensure_str(payload.get("target_distortion")),
+      "rationale": ensure_str(payload.get("rationale")),
+    }
+
   def _select_initial_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     techniques_catalog = self.cbt_techniques
     formatted_catalog = "\n".join(
@@ -59,26 +79,22 @@ class TechniqueStageMixin(GraphSupportMixin):
     # state["selected_techniques"] = selected[:3]
 
   def _select_additional_technique(self, state: SessionState, traces: list[dict[str, Any]]) -> SelectedTechnique:
-    techniques_catalog = self.cbt_techniques
-    formatted_catalog = "\n".join(
-      f'- {name}: {description}'
-      for name, description in techniques_catalog.items()
-    )
-
-    instruction = self._load_stage_prompt(
-      "cbt_technique",
-      "additional_technique_selection",
-      formatted_catalog=formatted_catalog,
-    )
-    parsed = self._run_therapist_structured(state, traces, "additional_technique_selection", instruction)
-    payload = self._require_dict(parsed, "additional_technique_selection")
-    technique: SelectedTechnique = {
-      "name": self._require_non_empty_string(payload, "name", "additional_technique_selection"),
-      "target_distortion": ensure_str(payload.get("target_distortion")),
-      "rationale": ensure_str(payload.get("rationale")),
-    }
+    technique = self._choose_additional_technique(state, traces)
     state["selected_techniques"].append(technique)
     return technique
+
+  def _replace_current_technique_due_to_resistance(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
+    replacement = self._choose_additional_technique(state, traces)
+    idx = int(state["current_technique_index"])
+    if idx < len(state["selected_techniques"]):
+      state["selected_techniques"][idx] = replacement
+    else:
+      state["selected_techniques"].append(replacement)
+      state["current_technique_index"] = len(state["selected_techniques"]) - 1
+    state["current_technique_plan"] = ""
+    state["current_technique_expected_outcome"] = ""
+    state["current_technique_current_progress"] = ""
+    state["technique_turn_count"] = 0
 
   def _current_technique(self, state: SessionState) -> Optional[SelectedTechnique]:
     idx = state["current_technique_index"]

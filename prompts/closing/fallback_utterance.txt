@@ -1,0 +1,4 @@
+Generate the therapist's fallback closing utterance for the closing stage.
+The latest patient response, session summary, next-session plan, high-resistance routing markers, and patient feedback are available as 'last_patient_response', 'session_summary', 'next_session_plan', 'high_resistance_redirect_triggered', 'high_resistance_level', 'high_resistance_reasoning', and 'patient_feedback' within <session_context>.
+Respond to the patient's wish to stop or change course with understanding, avoid reopening the session, and close it in a warm, natural way. Briefly connect the close to what the patient just communicated, and leave the door open for future work without pressuring them.
+Respond with plain text.

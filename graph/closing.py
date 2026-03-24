@@ -92,4 +92,11 @@ class ClosingStageMixin(GraphSupportMixin):
       instruction = self._load_stage_prompt("closing", "finalize_feedback_utterance")
       return self._generate_closing_utterance(state, instruction)
 
+    if current_substage == "closing_fallback":
+      state["final_patient_pending_end"] = True
+      if not state["session_ended_reason"]:
+        state["session_ended_reason"] = "closing_fallback"
+      instruction = self._load_stage_prompt("closing", "fallback_utterance")
+      return self._generate_closing_utterance(state, instruction)
+
     raise ConversationProcessingError(f"Unexpected closing substage: {current_substage}")

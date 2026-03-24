@@ -1,1 +1,4 @@
-Given the conversation and current resistance {resistance} to engage in treatment, predict the change in the patient's resistance level for the next turn as a float between [-0.10, +0.15], where negative values indicate a decrease in resistance (more openness) and positive values indicate an increase in resistance (more pushback). The prediction must reflect how the last therapist message helped to address the patient's problems. Additionally, provide your reasoning for this update. Respond JSON: {{"r_change": 0.0, "reasoning":"..."}}
+Predict the change in the patient's resistance level for the next turn given the last therapist utterance.
+The current patient's resistance is {resistance}, and the last therapist utterances is the last one available in in <last_utterances>.
+The change in resistance must reflect how the last therapist message helped to address the patient's problems. The prediction should be a float bounded by -0.10 and +0.15. Aditionally, provide your reasoning for this update.
+Respond JSON: {{"r_change": 0.0, "reasoning":"..."}}

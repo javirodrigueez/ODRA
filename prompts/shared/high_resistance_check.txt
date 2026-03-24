@@ -1,0 +1,32 @@
+Evaluate whether the patient's last utterance shows high resistance toward continuing the current therapeutic direction.
+The patient's last response is available as 'last_patient_response' within <session_context>, and you also have the recent exchange in <last_utterances>.
+Return:
+- "yes" when the patient clearly wants to end, leave, stop the session, or not continue talking now (e.g., "I want to leave now", "I don't want to continue").
+- "partial" when the patient does not clearly want to end the full session, but does want to stop this line of discussion, change focus, or move away from the current topic because it feels too uncomfortable or unhelpful (e.g., "I want to talk about something else", "Can we move on?").
+- "no" otherwise.
+Be conservative: "yes" and "partial" should only be returned when the patient EXPLICITLY uses an expression where they are wanting to stop or change the subject. The reasoning should explain what in the patient's response led to that conclusion. When in doubt or not explicit, return "no".
+Respond JSON: {{"high_r":"no" or "partial" or "yes","reasoning":"..."}}
+
+## Examples:
+Example 1 ("yes" output):
+- Input: "Look, I see you are trying to help, but I need to go home. I can't do this anymore today."
+- Output:
+{{
+    "high_r": "yes",
+    "reasoning": "The patient explicitly states 'I need to go home' and 'I can't do this anymore today', showing a clear desire to end the session."
+}}
+
+Example 2 ("partial" output):
+- Input: "Look, I know we're supposed to be talking about my childhood, but I really just can't get into that right now. It's too much. Can we talk about something else?"
+{{
+    "high_r": "partial",
+    "reasoning": "The patient does not want to end the session but explicitly asks to change the subject away from their childhood ('Can we talk about something else?'), indicating they want to stop the current line of discussion."
+}}
+
+Example 3 ("no" output):
+- Input: "I don't know, I just... it's not that big a deal. Everyone has stuff. I probably shouldn't even be here wasting your time."
+- Output:
+{{
+    "high_r": "no",
+    "reasoning": "While the patient expresses some discomfort, they do not explicitly indicate a desire to end the session or change the topic. The statements are more about minimizing their issues rather than wanting to stop the conversation."
+}}

@@ -138,7 +138,9 @@ class GraphSupportMixin:
     s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
     base_resistance = self._initial_resistance()
+    s["initial_resistance"] = base_resistance
     s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
+    s["initial_predicted_resistance"] = 0.55
     s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog 0.95 should be 0.55
     s.setdefault("patient_profile", deepcopy(self.profile))
 
@@ -151,6 +153,7 @@ class GraphSupportMixin:
 
     s.setdefault("cognitive_model_sets", [])
     s.setdefault("working_cognitive_set", self._new_cognitive_set(len(s["cognitive_model_sets"]) + 1))
+    s.setdefault("shelved_cognitive_sets", [])
     s.setdefault("cognitive_gap_plan", "")
     s.setdefault("active_cognitive_target", "")
     s.setdefault("active_cognitive_question", "")
@@ -222,6 +225,12 @@ class GraphSupportMixin:
     s.setdefault("active_exchange_stage", "")
     s.setdefault("active_exchange_substage", "")
     # devlog end
+
+    s.setdefault("high_resistance_redirect_triggered", False)
+    s.setdefault("high_resistance_level", "")
+    s.setdefault("high_resistance_source_stage", "")
+    s.setdefault("high_resistance_source_substage", "")
+    s.setdefault("high_resistance_reasoning", "")
     
     s.setdefault("final_patient_pending_end", False)
     s.setdefault("session_ended", False)
@@ -270,6 +279,11 @@ class GraphSupportMixin:
       "predicted_resistance": state["predicted_resistance"],
       "stage_exchange_count": self._current_stage_exchange_count(state, stage),
       "stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
+      "high_resistance_redirect_triggered": state["high_resistance_redirect_triggered"],
+      "high_resistance_level": state["high_resistance_level"],
+      "high_resistance_source_stage": state["high_resistance_source_stage"],
+      "high_resistance_source_substage": state["high_resistance_source_substage"],
+      "high_resistance_reasoning": state["high_resistance_reasoning"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -287,6 +301,7 @@ class GraphSupportMixin:
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
           "cognitive_model_sets": state["cognitive_model_sets"],
+          "shelved_cognitive_sets": state["shelved_cognitive_sets"],
           "working_cognitive_set": state["working_cognitive_set"],
           "active_cognitive_target": state["active_cognitive_target"],
           "active_cognitive_question": state["active_cognitive_question"],
@@ -405,13 +420,28 @@ class GraphSupportMixin:
     )
     return f"{text} {suffix}"
 
+  def _instruction_with_high_resistance_redirect(self, state: SessionState, instruction: str) -> str:
+    text = ensure_str(instruction)
+    if not state.get("high_resistance_redirect_triggered"):
+      return text
+
+    level = ensure_str(state.get("high_resistance_level"), "partial")
+    source_stage = ensure_str(state.get("high_resistance_source_stage"), "unknown stage")
+    suffix = (
+      " Before moving forward, briefly acknowledge the patient's wish to stop, step back, or change focus "
+      f"in a natural therapist voice. This was a high-resistance reroute with level='{level}' from {source_stage}. "
+      "Then continue with the current stage goal smoothly, without sounding abrupt, defensive, or scripted."
+    )
+    return f"{text} {suffix}"
+
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
+    enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
     return self.therapist.generate_utterance(
       full_conversation=self._format_conversation(state["messages"]),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
-      instruction=instruction,
+      instruction=enriched_instruction,
     )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:
@@ -434,6 +464,7 @@ class GraphSupportMixin:
     stage: Stage,
     substage: SubStage,
   ) -> int:
+    resistance = state["predicted_resistance"] if role == "therapist" else state["resistance"]
     state["utterance_index"] += 1
     state["messages"].append(
       {
@@ -442,6 +473,7 @@ class GraphSupportMixin:
         "content": ensure_str(content),
         "stage": stage,
         "substage": substage,
+        "resistance": resistance,
       }
     )
     return state["utterance_index"]
@@ -523,6 +555,35 @@ class GraphSupportMixin:
     history = state["exchange_counts"][stage]
     history[-1] = int(history[-1]) + 1
     return history[-1]
+
+  def _mark_high_resistance_redirect(
+    self,
+    state: SessionState,
+    level: str,
+    source_stage: Stage,
+    source_substage: SubStage,
+    reasoning: str,
+  ) -> None:
+    state["high_resistance_redirect_triggered"] = True
+    state["high_resistance_level"] = level
+    state["high_resistance_source_stage"] = source_stage
+    state["high_resistance_source_substage"] = source_substage
+    state["high_resistance_reasoning"] = reasoning
+
+  def _clear_high_resistance_redirect(self, state: SessionState) -> None:
+    state["high_resistance_redirect_triggered"] = False
+    state["high_resistance_level"] = ""
+    state["high_resistance_source_stage"] = ""
+    state["high_resistance_source_substage"] = ""
+    state["high_resistance_reasoning"] = ""
+
+  def _next_cognitive_set_id(self, state: SessionState) -> int:
+    known_ids = [
+      int(state["working_cognitive_set"].get("cognitive_model_set_id", 0)),
+      *[int(set_.get("cognitive_model_set_id", 0)) for set_ in state["cognitive_model_sets"]],
+      *[int(set_.get("cognitive_model_set_id", 0)) for set_ in state["shelved_cognitive_sets"]],
+    ]
+    return max(known_ids, default=0) + 1
 
   def _current_band(self, value: float) -> Literal["precontemplation", "contemplation", "action"]:
     if value >= 0.75:

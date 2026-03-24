@@ -121,7 +121,12 @@ class CognitiveStageMixin(GraphSupportMixin):
     if not ordered_targets:
       return "", ""
     is_discover_situation = ordered_targets and ordered_targets[0] == "situation"
-    id_situations = ". ".join([set_.get("situation") for set_ in state["cognitive_model_sets"] if set_.get("situation")])
+    known_situations = [
+      set_.get("situation")
+      for set_ in [*state["cognitive_model_sets"], *state["shelved_cognitive_sets"]]
+      if set_.get("situation")
+    ]
+    id_situations = ". ".join(known_situations)
 
     # Put first active target
     preferred_target = state["active_cognitive_target"]
@@ -319,6 +324,14 @@ class CognitiveStageMixin(GraphSupportMixin):
     self._merge_extracted_items(state, filled_items)
     state["last_reasoning"] = ensure_str(payload.get("reasoning"))
 
+  def _shelve_current_cognitive_set_and_begin_new(self, state: SessionState) -> None:
+    if self._working_set_has_content(state):
+      state["shelved_cognitive_sets"].append(deepcopy(state["working_cognitive_set"]))
+    state["working_cognitive_set"] = self._new_cognitive_set(self._next_cognitive_set_id(state))
+    state["working_cognitive_set_exchange_count"] = 0
+    self._reset_cognitive_gap_tracking(state)
+    self._set_substage(state, "cognitive_review_active_question")
+
   def _assign_core_belief(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     belief_instruction = self._load_stage_prompt("id_distortions", "core_belief_probability")
     belief_probs = self._run_therapist_structured(state, traces, "core_belief_probability", belief_instruction)
@@ -443,7 +456,7 @@ class CognitiveStageMixin(GraphSupportMixin):
       if self._working_set_full_complete(state):
         completed_set = deepcopy(state["working_cognitive_set"])
         state["cognitive_model_sets"].append(completed_set)
-        state["working_cognitive_set"] = self._new_cognitive_set(len(state["cognitive_model_sets"]) + 1)
+        state["working_cognitive_set"] = self._new_cognitive_set(self._next_cognitive_set_id(state))
         state["working_cognitive_set_exchange_count"] = 0
         self._reset_cognitive_gap_tracking(state)
       self._set_substage(state, "cognitive_check_completion")

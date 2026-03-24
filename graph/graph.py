@@ -5,7 +5,7 @@ from typing import Any, Literal
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
 from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
-from agents.interfaces import clamp
+from agents.interfaces import clamp, ensure_str
 
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
@@ -57,6 +57,117 @@ class TherapyGraphBuilder(
     self._set_stage(state, "opening")
     return self._handle_opening(state, traces)
 
+  def _route_high_resistance(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    level: str,
+    source_stage: str,
+    source_substage: str,
+  ) -> None:
+    if level == "yes":
+      if source_stage in {"opening", "id_distortions", "cbt_technique", "homework"}:
+        resume_stage = "id_distortions" if source_stage == "opening" else source_stage
+        self._enter_mi(
+          state,
+          "mi_topic_exploration",
+          resume_stage,
+          f"High-resistance request to stop detected during {source_stage}.",
+        )
+        return
+      if source_stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
+        state["mi_active"] = False
+        self._set_stage(state, "closing", "closing_fallback")
+        return
+      if source_stage == "closing":
+        self._set_stage(state, "closing", "closing_fallback")
+        return
+      return
+
+    if level != "partial":
+      return
+
+    if source_stage == "opening":
+      if source_substage == "open_mood":
+        self._set_substage(state, "open_problem")
+      else:
+        self._set_stage(state, "id_distortions")
+      return
+
+    if source_stage == "id_distortions":
+      self._shelve_current_cognitive_set_and_begin_new(state)
+      traces.append(
+        {
+          "step": "high_resistance_new_cognitive_set",
+          "input": "Patient pushed back against the current cognitive topic.",
+          "output": "Shelved the current working set and began a new one.",
+        }
+      )
+      return
+
+    if source_stage == "cbt_technique":
+      self._replace_current_technique_due_to_resistance(state, traces)
+      traces.append(
+        {
+          "step": "high_resistance_new_technique",
+          "input": "Patient pushed back against the current CBT technique.",
+          "output": "Selected a different CBT technique and reset the active plan.",
+        }
+      )
+      return
+
+    if source_stage == "homework":
+      state["homework_waiting_for_patient"] = False
+      state["homework_fallback_to_apply"] = False
+      state["homework_fallback_done"] = False
+      return
+
+    if source_stage == "closing":
+      self._set_substage(state, "closing_fallback")
+      return
+
+    if source_stage == "mi_topic_exploration":
+      state["current_mi_topic"] = ""
+      self._set_substage(state, "mi_choose_topic")
+      return
+
+    if source_stage == "mi_techniques":
+      self._set_substage(state, "mi_choose_technique")
+
+  def _maybe_handle_high_resistance(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    if state["session_ended"] or state["final_patient_pending_end"]:
+      return "no"
+    if state["current_stage"] in {"anticipated_closing", "forced_closing"}:
+      return "no"
+
+    instruction = self._load_stage_prompt("shared", "high_resistance_check")
+    parsed = self._run_therapist_structured(state, traces, "high_resistance_check", instruction)
+    payload = self._require_dict(parsed, "high_resistance_check")
+    level = ensure_str(payload.get("high_r")).strip().lower()
+    if level not in {"yes", "partial", "no"}:
+      raise ConversationProcessingError(
+        f"high_resistance_check.high_r must be one of yes, partial, or no, got {level!r}."
+      )
+    if level == "no":
+      return "no"
+
+    source_stage = state["current_stage"]
+    source_substage = state["current_substage"]
+    reasoning = ensure_str(payload.get("reasoning"))
+    self._mark_high_resistance_redirect(state, level, source_stage, source_substage, reasoning)
+    if level == "yes":
+      state["predicted_resistance"] = max(state["predicted_resistance"], 0.85)
+
+    traces.append(
+      {
+        "step": "high_resistance_route",
+        "input": state["messages"][-1]["content"] if state["messages"] else "",
+        "output": f"Detected high resistance={level} at stage={source_stage}, substage={source_substage}.",
+      }
+    )
+    self._route_high_resistance(state, traces, level, source_stage, source_substage)
+    return level
+
   def therapist_turn(self, state: SessionState) -> SessionState:
     s = self._ensure_state_defaults(state)
     first_exchange = len(s["messages"]) == 0
@@ -65,15 +176,15 @@ class TherapyGraphBuilder(
 
     traces: list[dict[str, Any]] = []
     try:
+      self._clear_high_resistance_redirect(s)
       if not first_exchange:
         self._maybe_force_closing(s)
-        utterance = self._maybe_handle_ending_needed(s, traces)
-        if utterance is None:
+        high_resistance_level = self._maybe_handle_high_resistance(s, traces)
+        if high_resistance_level != "yes":
           self._run_resistance_prediction(s, traces)
+        if high_resistance_level == "no":
           self._handle_pre_stage_routing(s, traces)
-          utterance = self._handle_stage_dispatch(s, traces)
-      else:
-        utterance = self._handle_stage_dispatch(s, traces)
+      utterance = self._handle_stage_dispatch(s, traces)
 
       s["active_exchange_stage"] = s["current_stage"]
       s["active_exchange_substage"] = s["current_substage"]
@@ -94,7 +205,9 @@ class TherapyGraphBuilder(
           s["active_exchange_substage"],
         )
       self._append_trace(s, idx, "therapist", traces)
+      self._clear_high_resistance_redirect(s)
     except ConversationProcessingError as exc:
+      self._clear_high_resistance_redirect(s)
       self._end_session_with_error(s, traces, exc)
     return s
 
