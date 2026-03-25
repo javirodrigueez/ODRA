@@ -180,7 +180,8 @@ class SessionState(TypedDict):
   messages: list[ConversationMessage]
 
   patient_profile: dict[str, Any]
-  initial_resistance: float
+  resistance_baseline: float
+  resistance_recovery_rate: float
   resistance: float
   initial_predicted_resistance: float
   predicted_resistance: float

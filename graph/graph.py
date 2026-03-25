@@ -5,7 +5,7 @@ from typing import Any, Literal
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
 from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
-from agents.interfaces import clamp, ensure_str
+from agents.interfaces import ensure_str
 
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
@@ -158,13 +158,13 @@ class TherapyGraphBuilder(
     if level == "yes":
       state["predicted_resistance"] = max(state["predicted_resistance"], 0.85)
 
-    traces.append(
-      {
-        "step": "high_resistance_route",
-        "input": state["messages"][-1]["content"] if state["messages"] else "",
-        "output": f"Detected high resistance={level} at stage={source_stage}, substage={source_substage}.",
-      }
-    )
+    # traces.append(
+    #   {
+    #     "step": "high_resistance_route",
+    #     "input": state["messages"][-1]["content"] if state["messages"] else "",
+    #     "output": f"Detected high resistance={level} at stage={source_stage}, substage={source_substage}.",
+    #   }
+    # )
     self._route_high_resistance(state, traces, level, source_stage, source_substage)
     return level
 
@@ -251,8 +251,17 @@ class TherapyGraphBuilder(
         update_instruction,
       )
       payload = self._require_dict(update, "resistance_update")
-      r_change = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
-      s["resistance"] = clamp(s["resistance"] + r_change, 0.0, 1.0)
+      delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+      resistance_update = self._apply_homeostatic_resistance_update(
+        previous_r=s["resistance"],
+        delta_llm=delta_llm,
+        baseline=s["resistance_baseline"],
+        alpha=s["resistance_recovery_rate"],
+      )
+      s["resistance"] = resistance_update["new_r"]
+      trace_payload = dict(payload)
+      trace_payload.update(resistance_update)
+      self._set_last_trace_output(traces, "resistance_update", trace_payload)
 
       utterance = self.patient.generate_utterance(
         full_conversation=self._format_conversation(s["messages"]),

@@ -9,6 +9,10 @@ from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_f
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
+from .resistance import (
+  apply_homeostatic_resistance_update,
+  normalize_resistance_state_fields,
+)
 from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
 
 
@@ -106,11 +110,6 @@ class GraphSupportMixin:
     resumed["min_turns"] = int(min_turns)
     return self._ensure_state_defaults(resumed)
 
-  def _initial_resistance(self) -> float:
-    attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.75, "neutral": 0.55, "positive": 0.35} #devlog 0.9 should be 0.75
-    return mapping.get(attitude, 0.55)
-
   def _is_error_trace(self, trace: Any) -> bool:
     if not isinstance(trace, dict):
       return False
@@ -137,12 +136,9 @@ class GraphSupportMixin:
     raw_messages = s.get("messages")
     s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
-    base_resistance = self._initial_resistance()
-    s["initial_resistance"] = base_resistance
-    s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
+    s = cast(SessionState, cast(object, normalize_resistance_state_fields(s, deepcopy(self.profile))))
     s["initial_predicted_resistance"] = 0.55
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog 0.95 should be 0.55
-    s.setdefault("patient_profile", deepcopy(self.profile))
+    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog
 
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
@@ -716,6 +712,12 @@ class GraphSupportMixin:
       }
     )
 
+  def _set_last_trace_output(self, traces: list[dict[str, Any]], step_name: str, payload: dict[str, Any]) -> None:
+    for trace in reversed(traces):
+      if trace.get("step") == step_name:
+        trace["output"] = json.dumps(payload, ensure_ascii=True)
+        return
+
   def _run_therapist_structured(
     self,
     state: SessionState,
@@ -783,6 +785,15 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
     state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
+
+  def _apply_homeostatic_resistance_update(
+    self,
+    previous_r: float,
+    delta_llm: float,
+    baseline: float,
+    alpha: float,
+  ) -> dict[str, float]:
+    return apply_homeostatic_resistance_update(previous_r, delta_llm, baseline, alpha)
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

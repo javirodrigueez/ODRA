@@ -139,7 +139,7 @@ def main(cfg_path: str):
       resume_state=resume_state,
     )
     exchange_counts = cast(dict[str, int], result.get("exchange_counts", {}))
-    exchanges = sum(exchange_counts.values())
+    exchanges = sum(item for sublist in exchange_counts.values() for item in sublist)
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
     print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
