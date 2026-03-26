@@ -155,8 +155,6 @@ class TherapyGraphBuilder(
     source_substage = state["current_substage"]
     reasoning = ensure_str(payload.get("reasoning"))
     self._mark_high_resistance_redirect(state, level, source_stage, source_substage, reasoning)
-    if level == "yes":
-      state["predicted_resistance"] = max(state["predicted_resistance"], 0.85)
 
     traces.append(
       {
@@ -180,8 +178,7 @@ class TherapyGraphBuilder(
       if not first_exchange:
         self._maybe_force_closing(s)
         high_resistance_level = self._maybe_handle_high_resistance(s, traces)
-        if high_resistance_level != "yes":
-          self._run_resistance_prediction(s, traces)
+        self._run_resistance_prediction(s, traces)
         if high_resistance_level == "no":
           self._handle_pre_stage_routing(s, traces)
       utterance = self._handle_stage_dispatch(s, traces)
@@ -217,19 +214,19 @@ class TherapyGraphBuilder(
     if state["final_patient_pending_end"]:
       return "Provide a brief closing response."
     if stage == "opening":
-      return "Respond naturally to the therapist's opening and share only what feels comfortable."
+      return "Respond to the therapist's opening and share only what feels comfortable."
     if stage == "id_distortions":
       return "Answer the therapist's question based on your real thoughts, emotions, and behavior."
     if stage == "cbt_technique":
-      return "Respond to the CBT exercise with realistic engagement for your current resistance."
+      return "Respond to the CBT exercise with realistic engagement for your current resistance level."
     if stage == "homework":
       return "Respond honestly about whether the proposed homework feels feasible."
     if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
-      return "Respond to the motivational discussion in line with your current openness."
+      return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
       return "Respond briefly to close the session."
     if stage == "closing":
-      return "Respond naturally to the therapist's closing prompts without closing the conversation."
+      return "Respond to the therapist's closing prompts without closing the conversation."
     return "Respond naturally."
 
   def patient_turn(self, state: SessionState) -> SessionState:

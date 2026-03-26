@@ -5,10 +5,19 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
-from agents.interfaces import LLMFactory, StructuredOutputError, clamp, coerce_float, ensure_str, ensure_str_list, load_prompt, render_prompt
+from agents.interfaces import LLMFactory, StructuredOutputError, ensure_str, ensure_str_list, load_prompt, render_prompt
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
+<<<<<<< HEAD
+=======
+from .resistance import (
+  apply_homeostatic_resistance_update,
+  apply_bayesian_predicted_resistance_update,
+  normalize_predicted_resistance_state_fields,
+  normalize_resistance_state_fields,
+)
+>>>>>>> 17fe196 (Bayesian inference for predicted_resistance of therapist.)
 from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
 
 
@@ -137,12 +146,8 @@ class GraphSupportMixin:
     raw_messages = s.get("messages")
     s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
-    base_resistance = self._initial_resistance()
-    s["initial_resistance"] = base_resistance
-    s["resistance"] = coerce_float(s.get("resistance"), base_resistance, 0.0, 1.0)
-    s["initial_predicted_resistance"] = 0.55
-    s["predicted_resistance"] = coerce_float(s.get("predicted_resistance"), 0.55, 0.0, 1.0) #devlog
-    s.setdefault("patient_profile", deepcopy(self.profile))
+    s = cast(SessionState, cast(object, normalize_resistance_state_fields(s, deepcopy(self.profile))))
+    s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(s)))
 
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
@@ -585,7 +590,9 @@ class GraphSupportMixin:
     ]
     return max(known_ids, default=0) + 1
 
-  def _current_band(self, value: float) -> Literal["precontemplation", "contemplation", "action"]:
+  def _current_band(self, value: float | None) -> Literal["precontemplation", "contemplation", "action"]:
+    if value is None:
+      return "contemplation"
     if value >= 0.75:
       return "precontemplation"
     if value >= 0.50:
@@ -773,16 +780,29 @@ class GraphSupportMixin:
     return ""
 
   def _run_resistance_prediction(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
-    old_r = state["predicted_resistance"]
+    previous_p = state["predicted_resistance"]
     instruction = self._load_stage_prompt(
       "shared",
       "resistance_prediction",
-      old_r=f"{old_r:.2f}",
+      old_r="none yet" if previous_p is None else f"{previous_p:.2f}",
     )
     parsed = self._run_therapist_structured(state, traces, "resistance_prediction", instruction)
     payload = self._require_dict(parsed, "resistance_prediction")
-    r_change = self._require_bounded_float(payload, "r_change", "resistance_prediction", -0.10, 0.15)
-    state["predicted_resistance"] = clamp(state["predicted_resistance"] + r_change, 0.0, 1.0)
+    p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0)
+    signal_clarity = self._require_bounded_float(payload, "signal_clarity", "resistance_prediction", 0.0, 1.0)
+    prediction_update = self._apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
+    state["predicted_resistance"] = prediction_update["new_p"]
+    trace_payload = dict(payload)
+    trace_payload.update(prediction_update)
+    self._set_last_trace_output(traces, "resistance_prediction", trace_payload)
+
+  def _apply_bayesian_predicted_resistance_update(
+    self,
+    previous_p: float | None,
+    p_target: float,
+    signal_clarity: float,
+  ) -> dict[str, float | str]:
+    return apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

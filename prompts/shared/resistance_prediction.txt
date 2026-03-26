@@ -1,4 +1,8 @@
-Predict the change in the patient's resistance level for the next turn given the last patient utterance.
-The last patient resistance prediction was {old_r}, the last patient response is 'last_patient_response' within <session_context>, and the last session utterances are in <last_utterances>.
-The prediction must reflect how the patient responded to the therapist's last utterance. The change in resistance should be a float between -0.10 and +0.15, where negative values indicate a decrease in resistance (more openness) and positive values indicate an increase in resistance (more pushback). Additionally, provide your reasoning for this update. Aditionally, provide your reasoning for this update.
-Respond JSON: {{"r_change": 0.0, "reasoning":"..."}}
+Estimate the patient's current resistance level from the latest patient utterance.
+The previous therapist predicted resistance is {old_r}. If no previous prediction exists yet, establish the first prediction from the current patient utterance alone.
+Return:
+- p_target: your direct estimate of the patient's resistance level based only on the current patient utterance, as a float in [0.0, 1.0]
+- signal_clarity: how unambiguous and informative the current patient utterance is for updating resistance, as a float in [0.0, 1.0]
+- reasoning: brief explanation
+High signal_clarity means the utterance clearly reveals openness or resistance. Low signal_clarity means the utterance is vague, mixed, or weakly informative.
+Respond JSON: {{"p_target": 0.0, "signal_clarity": 0.0, "reasoning":"..."}}

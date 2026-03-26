@@ -182,8 +182,7 @@ class SessionState(TypedDict):
   patient_profile: dict[str, Any]
   initial_resistance: float
   resistance: float
-  initial_predicted_resistance: float
-  predicted_resistance: float
+  predicted_resistance: float | None
 
   opening_patient_mood: str
   opening_patient_problem: str
@@ -216,7 +215,7 @@ class SessionState(TypedDict):
   mi_techniques_used: list[str]
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
-  last_mi_predicted_resistance: float
+  last_mi_predicted_resistance: float | None
 
   proposed_tasks: list[HomeworkTask]
   homework_proposal_attempts: int
