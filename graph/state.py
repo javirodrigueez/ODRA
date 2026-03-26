@@ -7,6 +7,7 @@ Stage = Literal[
   "mi_topic_exploration",
   "mi_techniques",
   "meta_conversation",
+  "patient_demand",
   "id_distortions",
   "cbt_technique",
   "homework",
@@ -31,6 +32,10 @@ SubStage = Literal[
   "mi_meta_adjust",
   "mi_meta_close",
   "mi_end_session",
+  "demand_plan",
+  "demand_deliver",
+  "demand_check",
+  "demand_resume",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
   "cognitive_refinement",
@@ -74,6 +79,10 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "mi_meta_adjust",
   "mi_meta_close",
   "mi_end_session",
+  "demand_plan",
+  "demand_deliver",
+  "demand_check",
+  "demand_resume",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
   "cognitive_refinement",
@@ -126,6 +135,7 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "mi_topic_exploration": "mi_choose_topic",
   "mi_techniques": "mi_choose_technique",
   "meta_conversation": "mi_meta_open",
+  "patient_demand": "demand_plan",
   "id_distortions": "cognitive_review_active_question",
   "cbt_technique": "cbt_select_techniques",
   "homework": "homework_check_existing",
@@ -217,6 +227,11 @@ class SessionState(TypedDict):
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
+  patient_demand_text: str
+  patient_demand_plan: str
+  patient_demand_reasoning: str
+  patient_demand_resume_stage: Stage | Literal[""]
+  patient_demand_resume_substage: SubStage | Literal[""]
 
   proposed_tasks: list[HomeworkTask]
   homework_proposal_attempts: int

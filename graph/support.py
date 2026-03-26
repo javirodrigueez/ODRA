@@ -177,6 +177,15 @@ class GraphSupportMixin:
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
+    s.setdefault("patient_demand_text", "")
+    s.setdefault("patient_demand_plan", "")
+    s.setdefault("patient_demand_reasoning", "")
+    raw_demand_resume_stage = ensure_str(s.get("patient_demand_resume_stage"))
+    s["patient_demand_resume_stage"] = cast(Stage, raw_demand_resume_stage) if raw_demand_resume_stage in DEFAULT_SUBSTAGE_BY_STAGE else ""
+    raw_demand_resume_substage = ensure_str(s.get("patient_demand_resume_substage"))
+    if raw_demand_resume_substage not in ALL_SUBSTAGES:
+      raw_demand_resume_substage = ""
+    s["patient_demand_resume_substage"] = cast(SubStage, raw_demand_resume_substage) if raw_demand_resume_substage else ""
 
     s.setdefault("proposed_tasks", [])
     s.setdefault("homework_proposal_attempts", 0)
@@ -281,6 +290,11 @@ class GraphSupportMixin:
       "high_resistance_source_stage": state["high_resistance_source_stage"],
       "high_resistance_source_substage": state["high_resistance_source_substage"],
       "high_resistance_reasoning": state["high_resistance_reasoning"],
+      "patient_demand_text": state["patient_demand_text"],
+      "patient_demand_plan": state["patient_demand_plan"],
+      "patient_demand_reasoning": state["patient_demand_reasoning"],
+      "patient_demand_resume_stage": state["patient_demand_resume_stage"],
+      "patient_demand_resume_substage": state["patient_demand_resume_substage"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -391,6 +405,19 @@ class GraphSupportMixin:
           "mi_techniques_used": state["mi_techniques_used"][-5:],
           "mi_context": state["mi_context"],
           "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+    elif stage == "patient_demand":
+      context.update(
+        {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "current_mi_topic": state["current_mi_topic"],
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "selected_techniques": state["selected_techniques"],
+          "current_technique_index": state["current_technique_index"],
+          "patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
+          "patient_demand_turn_cap": 10,
         }
       )
     elif stage in {"anticipated_closing", "forced_closing"}:
@@ -573,6 +600,14 @@ class GraphSupportMixin:
     state["high_resistance_source_stage"] = ""
     state["high_resistance_source_substage"] = ""
     state["high_resistance_reasoning"] = ""
+
+  def _clear_patient_demand_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
+    state["patient_demand_text"] = ""
+    state["patient_demand_plan"] = ""
+    state["patient_demand_reasoning"] = ""
+    if clear_resume_cursor:
+      state["patient_demand_resume_stage"] = ""
+      state["patient_demand_resume_substage"] = ""
 
   def _next_cognitive_set_id(self, state: SessionState) -> int:
     known_ids = [
