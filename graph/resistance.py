@@ -27,6 +27,14 @@ class HomeostaticResistanceUpdate(TypedDict):
   new_r: float
 
 
+class TherapistResistanceUpdate(TypedDict, total=False):
+  prediction_mode: str
+  previous_p: float
+  p_target: float
+  signal_clarity: float
+  new_p: float
+
+
 class PatientResistanceState(TypedDict):
   patient_profile: dict[str, Any]
   resistance_baseline: float
@@ -96,6 +104,24 @@ def normalize_resistance_state_fields(state: dict[str, Any], profile: Any) -> di
   return normalized_state
 
 
+def normalize_predicted_resistance_state_fields(state: dict[str, Any]) -> dict[str, Any]:
+  normalized_state = dict(state)
+  raw_predicted = normalized_state.get("predicted_resistance")
+  if raw_predicted is None:
+    normalized_state["predicted_resistance"] = None
+  else:
+    normalized_state["predicted_resistance"] = _coerce_bounded_float(raw_predicted, 0.0, 0.0, 1.0)
+
+  raw_last_mi = normalized_state.get("last_mi_predicted_resistance")
+  if raw_last_mi is None:
+    normalized_state["last_mi_predicted_resistance"] = normalized_state["predicted_resistance"]
+  else:
+    normalized_state["last_mi_predicted_resistance"] = _coerce_bounded_float(raw_last_mi, 0.0, 0.0, 1.0)
+
+  normalized_state.pop("initial_predicted_resistance", None)
+  return normalized_state
+
+
 def apply_homeostatic_resistance_update(
   previous_r: float,
   delta_llm: float,
@@ -112,4 +138,31 @@ def apply_homeostatic_resistance_update(
     "alpha": round(alpha, 4),
     "decay_vector": decay_vector,
     "new_r": new_r,
+  }
+
+
+def apply_bayesian_predicted_resistance_update(
+  previous_p: float | None,
+  p_target: float,
+  signal_clarity: float,
+) -> TherapistResistanceUpdate:
+  bounded_target = round(_clamp(p_target, 0.0, 1.0), 4)
+  bounded_clarity = round(_clamp(signal_clarity, 0.0, 1.0), 4)
+  if previous_p is None:
+    return {
+      "prediction_mode": "initial_from_first_patient_utterance",
+      "p_target": bounded_target,
+      "signal_clarity": bounded_clarity,
+      "new_p": bounded_target,
+    }
+
+  bounded_previous = round(_clamp(previous_p, 0.0, 1.0), 4)
+  raw_new_p = bounded_previous + bounded_clarity * (bounded_target - bounded_previous)
+  new_p = round(_clamp(raw_new_p, 0.0, 1.0), 4)
+  return {
+    "prediction_mode": "bayesian_update",
+    "previous_p": bounded_previous,
+    "p_target": bounded_target,
+    "signal_clarity": bounded_clarity,
+    "new_p": new_p,
   }

@@ -57,7 +57,7 @@ class PatientAgent(Agent):
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
-      f"<resistance_level>\n{resistance_level:.2f}\n</resistance_level>\n\n"
+      f"<resistance_level>\nYour resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}\n</resistance_level>\n\n"
       f"Instruction: {instruction}\n"
       f"{suffix}"
     )
