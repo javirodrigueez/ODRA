@@ -1,4 +1,4 @@
 Create a brief therapist plan for addressing the patient's explicit demand before returning to the normal therapy flow.
 The active patient demand, the saved resume target, the latest patient response, and the recent exchange are available as 'patient_demand_text', 'patient_demand_resume_stage', 'patient_demand_resume_substage', and 'last_patient_response' within <session_context>.
-Make the plan concrete, clinically appropriate, and limited in scope so it can be covered within a short detour from the main session.
+Make the plan concrete, therapeutically appropriate, and limited in scope so it can be covered within a short detour from the main session.
 Respond JSON: {{"demand_plan":"..."}}
