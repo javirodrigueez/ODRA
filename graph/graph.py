@@ -27,6 +27,8 @@ class TherapyGraphBuilder(
   HomeworkStageMixin,
   ClosingStageMixin,
 ):
+  MI_END_SESSION_DEMAND_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
+
   def __init__(self, config_path: str, profile: dict[str, Any]):
     self.cfg = OmegaConf.load(config_path)
     self.profile = profile
@@ -79,8 +81,11 @@ class TherapyGraphBuilder(
           f"High-resistance request to stop detected during {source_stage}.",
         )
         return
-      if source_stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
+      if source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES:
         state["mi_active"] = False
+        if state["mi_end_session_demand_redirect_used"]:
+          self._set_stage(state, "closing")
+          return
         self._set_stage(state, "closing", "closing_fallback")
         return
       if source_stage == "closing":
@@ -184,6 +189,27 @@ class TherapyGraphBuilder(
       raise ConversationProcessingError("high_resistance_check.demand must be a non-empty string when has_demand=true.")
 
     source_stage, source_substage = self._high_resistance_route_source(state)
+    if (
+      demand_kind == "end_session"
+      and source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES
+      and not state["mi_end_session_demand_redirect_used"]
+    ):
+      self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+      if state["current_stage"] == "patient_demand":
+        self._replace_active_patient_demand(state, traces, demand, reasoning)
+        state["patient_demand_end_session_attempt_active"] = True
+        state["mi_end_session_demand_redirect_used"] = True
+      else:
+        self._enter_patient_demand(
+          state,
+          traces,
+          demand,
+          reasoning,
+          source_stage,
+          source_substage,
+          end_session_attempt_active=True,
+        )
+      return demand_kind
     if demand_kind in {"end_session", "item_move"}:
       level = "yes" if demand_kind == "end_session" else "partial"
       if state["current_stage"] == "patient_demand":
