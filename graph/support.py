@@ -9,15 +9,12 @@ from agents.interfaces import LLMFactory, StructuredOutputError, ensure_str, ens
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
-<<<<<<< HEAD
-=======
 from .resistance import (
   apply_homeostatic_resistance_update,
   apply_bayesian_predicted_resistance_update,
   normalize_predicted_resistance_state_fields,
   normalize_resistance_state_fields,
 )
->>>>>>> 17fe196 (Bayesian inference for predicted_resistance of therapist.)
 from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
 
 
