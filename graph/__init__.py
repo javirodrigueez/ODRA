@@ -1,4 +1,9 @@
+from typing import TYPE_CHECKING
+
 from .state import SessionState, Stage, SubStage
+
+if TYPE_CHECKING:
+  from .graph import TherapyGraphBuilder
 
 __all__ = ["TherapyGraphBuilder", "SessionState", "Stage", "SubStage"]
 

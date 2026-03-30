@@ -66,12 +66,12 @@ class TherapyGraphBuilder(
     state: SessionState,
     traces: list[dict[str, Any]],
     level: str,
-    source_stage: str,
-    source_substage: str,
+    source_stage: Stage,
+    source_substage: SubStage,
   ) -> None:
     if level == "yes":
       if source_stage in {"opening", "id_distortions", "cbt_technique", "homework"}:
-        resume_stage = "id_distortions" if source_stage == "opening" else source_stage
+        resume_stage: Stage = "id_distortions" if source_stage == "opening" else source_stage
         self._enter_mi(
           state,
           "mi_topic_exploration",

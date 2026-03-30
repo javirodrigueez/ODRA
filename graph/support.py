@@ -10,6 +10,8 @@ from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
 from .resistance import (
+  HomeostaticResistanceUpdate,
+  TherapistResistanceUpdate,
   apply_homeostatic_resistance_update,
   apply_bayesian_predicted_resistance_update,
   normalize_predicted_resistance_state_fields,
@@ -138,8 +140,8 @@ class GraphSupportMixin:
     raw_messages = s.get("messages")
     s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
-    s = cast(SessionState, cast(object, normalize_resistance_state_fields(s, deepcopy(self.profile))))
-    s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(s)))
+    s = cast(SessionState, cast(object, normalize_resistance_state_fields(dict(s), deepcopy(self.profile))))
+    s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(dict(s))))
 
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
@@ -834,7 +836,7 @@ class GraphSupportMixin:
     previous_p: float | None,
     p_target: float,
     signal_clarity: float,
-  ) -> dict[str, float | str]:
+  ) -> TherapistResistanceUpdate:
     return apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
 
   def _apply_homeostatic_resistance_update(
@@ -843,7 +845,7 @@ class GraphSupportMixin:
     delta_llm: float,
     baseline: float,
     alpha: float,
-  ) -> dict[str, float]:
+  ) -> HomeostaticResistanceUpdate:
     return apply_homeostatic_resistance_update(previous_r, delta_llm, baseline, alpha)
 
   def _maybe_force_closing(self, state: SessionState) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 EmotionalRecovery = Literal["high", "moderate", "low"]
 
@@ -27,12 +27,12 @@ class HomeostaticResistanceUpdate(TypedDict):
   new_r: float
 
 
-class TherapistResistanceUpdate(TypedDict, total=False):
-  prediction_mode: str
-  previous_p: float
+class TherapistResistanceUpdate(TypedDict):
   p_target: float
   signal_clarity: float
   new_p: float
+  prediction_mode: NotRequired[str]
+  previous_p: NotRequired[float]
 
 
 class PatientResistanceState(TypedDict):

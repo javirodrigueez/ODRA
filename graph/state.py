@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 Stage = Literal[
   "opening",
@@ -151,6 +151,7 @@ class ConversationMessage(TypedDict):
   content: str
   stage: Stage
   substage: SubStage
+  resistance: NotRequired[float | None]
 
 
 class CognitiveModelSet(TypedDict):
