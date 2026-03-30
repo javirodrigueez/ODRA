@@ -5,7 +5,7 @@ therapist:
 patient:
   type: deepseek
   model_id: deepseek-chat
-  profiles: ./data/miniset_cactus.json
+  profiles: ./misc/negative.json
 
 env:
   max_turns: 100

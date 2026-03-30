@@ -20,12 +20,17 @@ class PatientDemandStageMixin(GraphSupportMixin):
     reasoning: str,
     resume_stage: Stage,
     resume_substage: SubStage,
+    *,
+    end_session_attempt_active: bool = False,
   ) -> None:
     state["patient_demand_text"] = demand
     state["patient_demand_plan"] = ""
     state["patient_demand_reasoning"] = reasoning
     state["patient_demand_resume_stage"] = resume_stage
     state["patient_demand_resume_substage"] = resume_substage
+    state["patient_demand_end_session_attempt_active"] = end_session_attempt_active
+    if end_session_attempt_active:
+      state["mi_end_session_demand_redirect_used"] = True
     self._set_stage(state, "patient_demand", "demand_plan")
     traces.append(
       {
@@ -36,6 +41,7 @@ class PatientDemandStageMixin(GraphSupportMixin):
             "resume_stage": resume_stage,
             "resume_substage": resume_substage,
             "reasoning": reasoning,
+            "end_session_attempt_active": end_session_attempt_active,
           },
           ensure_ascii=True,
         ),
@@ -52,6 +58,7 @@ class PatientDemandStageMixin(GraphSupportMixin):
     state["patient_demand_text"] = demand
     state["patient_demand_plan"] = ""
     state["patient_demand_reasoning"] = reasoning
+    state["patient_demand_end_session_attempt_active"] = False
     self._set_substage(state, "demand_plan")
     traces.append(
       {
@@ -62,6 +69,7 @@ class PatientDemandStageMixin(GraphSupportMixin):
             "resume_stage": state["patient_demand_resume_stage"],
             "resume_substage": state["patient_demand_resume_substage"],
             "reasoning": reasoning,
+            "end_session_attempt_active": False,
           },
           ensure_ascii=True,
         ),
@@ -103,6 +111,34 @@ class PatientDemandStageMixin(GraphSupportMixin):
     self._set_stage(state, resume_stage, resume_substage)
     self._clear_patient_demand_state(state, clear_resume_cursor=True)
     return utterance
+
+  def _exit_patient_demand_to_closing_fallback(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    exit_reason: str,
+  ) -> str:
+    demand = state["patient_demand_text"]
+    resume_stage = state["patient_demand_resume_stage"] or "id_distortions"
+    resume_substage = state["patient_demand_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
+    traces.append(
+      {
+        "step": "patient_demand_exit_to_closing_fallback",
+        "input": demand,
+        "output": json.dumps(
+          {
+            "exit_reason": exit_reason,
+            "resume_stage": resume_stage,
+            "resume_substage": resume_substage,
+          },
+          ensure_ascii=True,
+        ),
+      }
+    )
+    self._clear_patient_demand_state(state, clear_resume_cursor=True)
+    state["mi_active"] = False
+    self._set_stage(state, "closing", "closing_fallback")
+    return self._handle_closing(state, traces)
 
   def _handle_patient_demand(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     demand = ensure_str(state["patient_demand_text"])
@@ -166,6 +202,8 @@ class PatientDemandStageMixin(GraphSupportMixin):
             ),
           }
         )
+        if state["patient_demand_end_session_attempt_active"]:
+          return self._exit_patient_demand_to_closing_fallback(state, traces, "max_turn_cap")
         self._set_substage(state, "demand_resume")
         return self._resume_from_patient_demand(state, traces, "max_turn_cap")
       self._set_substage(state, "demand_deliver")

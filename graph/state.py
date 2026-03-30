@@ -228,11 +228,13 @@ class SessionState(TypedDict):
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
+  mi_end_session_demand_redirect_used: bool
   patient_demand_text: str
   patient_demand_plan: str
   patient_demand_reasoning: str
   patient_demand_resume_stage: Stage | Literal[""]
   patient_demand_resume_substage: SubStage | Literal[""]
+  patient_demand_end_session_attempt_active: bool
 
   proposed_tasks: list[HomeworkTask]
   homework_proposal_attempts: int

@@ -22,7 +22,7 @@ Respond JSON: {{"has_demand": false, "demand_kind": "none", "demand": null, "rea
 
 ## Examples
 Example 1:
-Input: "I want to stop for today. I just need to go home."
+Input: "Look, I see you are trying to help, but I need to go home. I can't do this anymore today."
 Output:
 {{
   "has_demand": true,
@@ -32,7 +32,7 @@ Output:
 }}
 
 Example 2:
-Input: "Can we move on? I really don't want to keep talking about my childhood."
+Input: "I know we're supposed to be talking about my childhood, but I really just can't get into that right now. It's too much. Can we talk about something else?"
 Output:
 {{
   "has_demand": true,
@@ -42,7 +42,7 @@ Output:
 }}
 
 Example 3:
-Input: "This feels useless. Just tell me how I can handle the situation."
+Input: "I don't know, I just... it's not that big a deal. Everyone has stuff. I probably shouldn't even be here wasting your time."
 Output:
 {{
   "has_demand": true,
@@ -59,4 +59,14 @@ Output:
   "demand_kind": "none",
   "demand": null,
   "reasoning": "The patient expresses doubt, but there is no explicit request to end the session, change focus, or do something different."
+}}
+
+Example 5: 
+Input: "I don't know what would be helpful. I told you, it's just the grind. Maybe we should just call it a day."
+Output:
+{{
+  "has_demand": false,
+  "demand_kind": "none",
+  "demand": null,
+  "reasoning": "Although the patient mentions calling it a day, they do not explicitly request to end the session. The statement is more of a vague expression of frustration rather than a clear demand, as it uses the expression 'Maybe'."
 }}

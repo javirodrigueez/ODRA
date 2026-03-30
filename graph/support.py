@@ -179,6 +179,7 @@ class GraphSupportMixin:
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
+    s.setdefault("mi_end_session_demand_redirect_used", False)
     s.setdefault("patient_demand_text", "")
     s.setdefault("patient_demand_plan", "")
     s.setdefault("patient_demand_reasoning", "")
@@ -188,6 +189,7 @@ class GraphSupportMixin:
     if raw_demand_resume_substage not in ALL_SUBSTAGES:
       raw_demand_resume_substage = ""
     s["patient_demand_resume_substage"] = cast(SubStage, raw_demand_resume_substage) if raw_demand_resume_substage else ""
+    s.setdefault("patient_demand_end_session_attempt_active", False)
 
     s.setdefault("proposed_tasks", [])
     s.setdefault("homework_proposal_attempts", 0)
@@ -297,6 +299,8 @@ class GraphSupportMixin:
       "patient_demand_reasoning": state["patient_demand_reasoning"],
       "patient_demand_resume_stage": state["patient_demand_resume_stage"],
       "patient_demand_resume_substage": state["patient_demand_resume_substage"],
+      "patient_demand_end_session_attempt_active": state["patient_demand_end_session_attempt_active"],
+      "mi_end_session_demand_redirect_used": state["mi_end_session_demand_redirect_used"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -607,6 +611,7 @@ class GraphSupportMixin:
     state["patient_demand_text"] = ""
     state["patient_demand_plan"] = ""
     state["patient_demand_reasoning"] = ""
+    state["patient_demand_end_session_attempt_active"] = False
     if clear_resume_cursor:
       state["patient_demand_resume_stage"] = ""
       state["patient_demand_resume_substage"] = ""
