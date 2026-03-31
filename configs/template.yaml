@@ -4,8 +4,6 @@ therapist:
   base_url:
   temperature:
   top_p:
-  top_k:
-  min_p:
   presence_penalty:
   repetition_penalty:
   max_tokens:
@@ -16,8 +14,6 @@ therapist_struct:
   base_url:
   temperature:
   top_p:
-  top_k:
-  min_p:
   presence_penalty:
   repetition_penalty:
   max_tokens:
@@ -28,8 +24,6 @@ patient:
   base_url:
   temperature:
   top_p:
-  top_k:
-  min_p:
   presence_penalty:
   repetition_penalty:
   max_tokens:
@@ -41,8 +35,6 @@ patient_struct:
   base_url:
   temperature:
   top_p:
-  top_k:
-  min_p:
   presence_penalty:
   repetition_penalty:
   max_tokens:
