@@ -3,11 +3,21 @@ therapist:
   model_id: 
   base_url:
 
+therapist_struct:
+  type:
+  model_id:
+  base_url:
+
 patient:
   type: 
   model_id:
-  base_url:  
-  profiles: 
+  base_url:
+  profiles:
+
+patient_struct:
+  type:
+  model_id:
+  base_url:
 
 env:
   max_turns:

@@ -9,6 +9,7 @@ from langchain.messages import AIMessage, HumanMessage, SystemMessage  # pyright
 from langchain_aws import ChatBedrock  # pyright: ignore[reportMissingImports]
 from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline  # pyright: ignore[reportMissingImports]
+from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
 load_dotenv()
@@ -185,9 +186,9 @@ class LocalLLM(LLM):
     return response
 
 class DeepseekLLM(LLM):
-  def __init__(self, model_id: str = "deepseek-chat"):
+  def __init__(self, model_id: str = "deepseek-chat", base_url: str = "https://api.deepseek.com/v1"):
     self.model_id = model_id
-    self.chat_model = OpenAI(api_key=os.getenv("DS_API_KEY") or "", base_url="https://api.deepseek.com/v1")
+    self.chat_model = OpenAI(api_key=os.getenv("DS_API_KEY") or "", base_url=base_url)
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     create_kwargs: dict[str, Any] = {
@@ -215,14 +216,32 @@ class LLMFactory:
             raise ValueError("local LLM requires a host model_id/base URL")
           return LocalLLM(base_url, model_id)
         elif llm_type == "deepseek":
-          return DeepseekLLM(model_id or "deepseek-chat")
+          return DeepseekLLM(model_id or "deepseek-chat", base_url=base_url or "https://api.deepseek.com/v1")
         raise ValueError(f"Unsupported LLM type: {llm_type}")
+
+    @staticmethod
+    def create_from_config(config: Any) -> LLM:
+        if config is None:
+          raise ValueError("Missing LLM config block.")
+        raw_config = OmegaConf.to_container(config, resolve=True) if OmegaConf.is_config(config) else config
+        if not isinstance(raw_config, dict):
+          raise ValueError(f"LLM config block must be a mapping, got {type(raw_config).__name__}.")
+        llm_type = ensure_str(raw_config.get("type"))
+        base_url = ensure_str(raw_config.get("base_url")) or None
+        model_id = ensure_str(raw_config.get("model_id")) or None
+        extra = {
+          key: value
+          for key, value in raw_config.items()
+          if key not in {"type", "base_url", "model_id", "profiles"} and value is not None
+        }
+        return LLMFactory.create(llm_type, base_url=base_url, model_id=model_id, **extra)
 
 
 # Agent interface
 class Agent(ABC):
-  def __init__(self, llm: LLM):
+  def __init__(self, llm: LLM, structured_llm: LLM | None = None):
     self.llm = llm
+    self.structured_llm = structured_llm or llm
 
   # @abstractmethod
   # def generate(self, context: str) -> str:

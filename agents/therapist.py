@@ -7,8 +7,8 @@ from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_pro
 
 
 class TherapistAgent(Agent):
-  def __init__(self, llm: LLM, profile: dict[str, Any]):
-    super().__init__(llm)
+  def __init__(self, llm: LLM, profile: dict[str, Any], structured_llm: LLM | None = None):
+    super().__init__(llm, structured_llm=structured_llm)
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
     self.system_prompt = load_prompt(system_path)
@@ -91,7 +91,7 @@ class TherapistAgent(Agent):
     last_error = "invalid response"
     for _ in range(max_retries + 1):
       attempts += 1
-      raw = self.llm.generate(messages, temperature=temperature, max_tokens=5000)
+      raw = self.structured_llm.generate(messages, temperature=temperature, max_tokens=5000)
       last_raw = raw or ""
       try:
         parsed, parse_meta = parse_json_response(last_raw)

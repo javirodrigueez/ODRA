@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
-from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
 from agents.interfaces import ensure_str
+from runtime_config import load_runtime_config
 
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
@@ -30,7 +30,7 @@ class TherapyGraphBuilder(
   MI_END_SESSION_DEMAND_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
 
   def __init__(self, config_path: str, profile: dict[str, Any]):
-    self.cfg = OmegaConf.load(config_path)
+    self.cfg = load_runtime_config(config_path)
     self.profile = profile
     self._init_agents()
     self.cbt_techniques = self._load_techniques()

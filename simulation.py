@@ -3,11 +3,11 @@ import argparse
 from copy import deepcopy
 import json
 import os
-from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 from typing import cast
 
 from graph.state import ConversationMessage
+from runtime_config import load_runtime_config
 
 
 def _load_profiles(profiles_path: str) -> list[dict]:
@@ -116,7 +116,7 @@ def run_simulation(
 def main(cfg_path: str):
   load_dotenv()
 
-  cfg = OmegaConf.load(cfg_path)
+  cfg = load_runtime_config(cfg_path)
 
   max_turns = cfg.env.max_turns
   min_turns = cfg.env.get("min_turns", 0)

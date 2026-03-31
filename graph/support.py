@@ -36,10 +36,12 @@ class GraphSupportMixin:
     return Path(__file__).resolve().parent.parent
 
   def _init_agents(self) -> None:
-    therapist_llm = LLMFactory.create(self.cfg.therapist.type, self.cfg.therapist.base_url, self.cfg.therapist.model_id)
-    patient_llm = LLMFactory.create(self.cfg.patient.type, self.cfg.patient.base_url, self.cfg.patient.model_id)
-    self.therapist = TherapistAgent(therapist_llm, self.profile)
-    self.patient = PatientAgent(patient_llm, self.profile)
+    therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
+    therapist_struct_llm = LLMFactory.create_from_config(self.cfg.therapist_struct)
+    patient_llm = LLMFactory.create_from_config(self.cfg.patient)
+    patient_struct_llm = LLMFactory.create_from_config(self.cfg.patient_struct)
+    self.therapist = TherapistAgent(therapist_llm, self.profile, structured_llm=therapist_struct_llm)
+    self.patient = PatientAgent(patient_llm, self.profile, structured_llm=patient_struct_llm)
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
     filename = f"{stage}/{name}.txt"
