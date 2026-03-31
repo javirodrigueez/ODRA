@@ -36,8 +36,8 @@ class GraphSupportMixin:
     return Path(__file__).resolve().parent.parent
 
   def _init_agents(self) -> None:
-    therapist_llm = LLMFactory.create(self.cfg.therapist.type, self.cfg.therapist.model_id)
-    patient_llm = LLMFactory.create(self.cfg.patient.type, self.cfg.patient.model_id)
+    therapist_llm = LLMFactory.create(self.cfg.therapist.type, self.cfg.therapist.base_url, self.cfg.therapist.model_id)
+    patient_llm = LLMFactory.create(self.cfg.patient.type, self.cfg.patient.base_url, self.cfg.patient.model_id)
     self.therapist = TherapistAgent(therapist_llm, self.profile)
     self.patient = PatientAgent(patient_llm, self.profile)
 

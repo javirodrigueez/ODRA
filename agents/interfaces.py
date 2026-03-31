@@ -163,12 +163,13 @@ class BedrockLLM(LLM):
     return str(response.content)
 
 class LocalLLM(LLM):
-  def __init__(self, host: str):
+  def __init__(self, host: str, model_id: str):
     self.chat_model = OpenAI(api_key="test", base_url=host)
+    self.model_id = model_id
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     create_kwargs: dict[str, Any] = {
-      "model": "local",
+      "model": self.model_id,
       "messages": messages,
       "temperature": kwargs.get("temperature", 0.7),
       "max_tokens": kwargs.get("max_tokens", 20000),
@@ -178,7 +179,10 @@ class LocalLLM(LLM):
     if "response_format" in kwargs:
       create_kwargs["response_format"] = kwargs["response_format"]
     response = self.chat_model.chat.completions.create(**create_kwargs)
-    return response.choices[0].message.content
+    response = response.choices[0].message.content
+    if '</think>' in response:
+      response = response.split('</think>')[-1].strip()
+    return response
 
 class DeepseekLLM(LLM):
   def __init__(self, model_id: str = "deepseek-chat"):
@@ -197,7 +201,7 @@ class DeepseekLLM(LLM):
 
 class LLMFactory:
     @staticmethod
-    def create(llm_type: str, model_id: str | None = None, **kwargs: Any) -> LLM:
+    def create(llm_type: str, base_url: str | None = None, model_id: str | None = None, **kwargs: Any) -> LLM:
         if llm_type == "huggingface":
           if model_id is None:
             raise ValueError("huggingface LLM requires a model_id")
@@ -207,9 +211,9 @@ class LLMFactory:
             raise ValueError("bedrock LLM requires a model_id")
           return BedrockLLM(model_id, **{k: v for k, v in kwargs.items() if k == "region_name"})
         elif llm_type == "local":
-          if model_id is None:
+          if model_id is None or base_url is None:
             raise ValueError("local LLM requires a host model_id/base URL")
-          return LocalLLM(model_id)
+          return LocalLLM(base_url, model_id)
         elif llm_type == "deepseek":
           return DeepseekLLM(model_id or "deepseek-chat")
         raise ValueError(f"Unsupported LLM type: {llm_type}")

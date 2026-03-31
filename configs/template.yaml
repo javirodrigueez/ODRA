@@ -1,10 +1,12 @@
 therapist:
   type: 
   model_id: 
+  base_url:
 
 patient:
   type: 
-  model_id: 
+  model_id:
+  base_url:  
   profiles: 
 
 env:
