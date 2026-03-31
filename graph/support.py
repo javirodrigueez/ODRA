@@ -5,7 +5,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
-from agents.interfaces import LLMFactory, StructuredOutputError, ensure_str, ensure_str_list, load_prompt, render_prompt
+from agents.interfaces import (
+  LLMFactory,
+  StructuredOutputError,
+  ensure_str,
+  ensure_str_list,
+  extract_generation_config,
+  load_prompt,
+  render_prompt,
+)
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
@@ -40,8 +48,20 @@ class GraphSupportMixin:
     therapist_struct_llm = LLMFactory.create_from_config(self.cfg.therapist_struct)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
     patient_struct_llm = LLMFactory.create_from_config(self.cfg.patient_struct)
-    self.therapist = TherapistAgent(therapist_llm, self.profile, structured_llm=therapist_struct_llm)
-    self.patient = PatientAgent(patient_llm, self.profile, structured_llm=patient_struct_llm)
+    self.therapist = TherapistAgent(
+      therapist_llm,
+      self.profile,
+      structured_llm=therapist_struct_llm,
+      generation_defaults=extract_generation_config(self.cfg.therapist),
+      structured_generation_defaults=extract_generation_config(self.cfg.therapist_struct),
+    )
+    self.patient = PatientAgent(
+      patient_llm,
+      self.profile,
+      structured_llm=patient_struct_llm,
+      generation_defaults=extract_generation_config(self.cfg.patient),
+      structured_generation_defaults=extract_generation_config(self.cfg.patient_struct),
+    )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
     filename = f"{stage}/{name}.txt"
@@ -772,7 +792,7 @@ class GraphSupportMixin:
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
-    temperature: float = 0.2,
+    temperature: float | None = None,
   ) -> Any:
     try:
       parsed, _meta = self.therapist.generate_structured(

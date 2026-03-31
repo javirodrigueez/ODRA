@@ -2,22 +2,50 @@ therapist:
   type: 
   model_id: 
   base_url:
+  temperature:
+  top_p:
+  top_k:
+  min_p:
+  presence_penalty:
+  repetition_penalty:
+  max_tokens:
 
 therapist_struct:
   type:
   model_id:
   base_url:
+  temperature:
+  top_p:
+  top_k:
+  min_p:
+  presence_penalty:
+  repetition_penalty:
+  max_tokens:
 
 patient:
   type: 
   model_id:
   base_url:
+  temperature:
+  top_p:
+  top_k:
+  min_p:
+  presence_penalty:
+  repetition_penalty:
+  max_tokens:
   profiles:
 
 patient_struct:
   type:
   model_id:
   base_url:
+  temperature:
+  top_p:
+  top_k:
+  min_p:
+  presence_penalty:
+  repetition_penalty:
+  max_tokens:
 
 env:
   max_turns:
