@@ -7,6 +7,7 @@ from agents.interfaces import ensure_str
 
 from .state import DEFAULT_SUBSTAGE_BY_STAGE, SessionState, Stage, SubStage
 from .support import ConversationProcessingError, GraphSupportMixin
+from .closing import ClosingStageMixin
 
 PATIENT_DEMAND_MAX_TURNS = 10
 

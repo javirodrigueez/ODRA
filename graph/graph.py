@@ -84,7 +84,7 @@ class TherapyGraphBuilder(
       if source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES:
         state["mi_active"] = False
         if state["mi_end_session_demand_redirect_used"]:
-          self._set_stage(state, "closing")
+          self._set_stage(state, "closing", "closing_fallback")
           return
         self._set_stage(state, "closing", "closing_fallback")
         return

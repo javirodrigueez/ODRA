@@ -290,6 +290,9 @@ class GraphSupportMixin:
   def _handle_stage_dispatch(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     raise NotImplementedError
 
+  def _handle_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    raise NotImplementedError
+
   def _enter_mi(self, state: SessionState, target_stage: Stage, resume_stage: Stage | None, reason: str) -> None:
     raise NotImplementedError
 
