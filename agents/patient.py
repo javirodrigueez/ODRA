@@ -82,6 +82,7 @@ class PatientAgent(Agent):
     top_k: float | None = None,
     min_p: float | None = None,
     presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
     repetition_penalty: float | None = None,
   ) -> str:
     suffix = load_prompt("shared/patient_utterance_suffix.txt")
@@ -107,6 +108,7 @@ class PatientAgent(Agent):
         "top_k": top_k,
         "min_p": min_p,
         "presence_penalty": presence_penalty,
+        "frequency_penalty": frequency_penalty,
         "repetition_penalty": repetition_penalty,
       },
     )
@@ -126,6 +128,7 @@ class PatientAgent(Agent):
     top_k: float | None = None,
     min_p: float | None = None,
     presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
     repetition_penalty: float | None = None,
   ) -> tuple[Any, dict[str, Any]]:
     suffix = load_prompt("shared/patient_structured_suffix.txt")
@@ -150,7 +153,7 @@ class PatientAgent(Agent):
     for _ in range(max_retries + 1):
       attempts += 1
       generation_kwargs = self._build_generation_kwargs(
-        default_values={"max_tokens": 5000, "temperature": 0.2},
+        default_values={"max_tokens": 8192, "temperature": 0.6, "top_p": 0.95, "presence_penalty": 0.0, "frequency_penalty": 1.0},
         override_values={
           "max_tokens": max_tokens,
           "temperature": temperature,
@@ -158,8 +161,10 @@ class PatientAgent(Agent):
           "top_k": top_k,
           "min_p": min_p,
           "presence_penalty": presence_penalty,
+          "frequency_penalty": frequency_penalty,
           "repetition_penalty": repetition_penalty,
         },
+        include_generation_defaults=False,
       )
       raw = self.llm.generate(messages, **generation_kwargs)
       last_raw = raw or ""

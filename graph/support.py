@@ -484,13 +484,13 @@ class GraphSupportMixin:
     return f"{text} {suffix}"
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
-    enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
+    #enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
     return self.therapist.generate_utterance(
       full_conversation=self._format_conversation(state["messages"]),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
-      instruction=enriched_instruction,
+      instruction=instruction
     )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:

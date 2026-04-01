@@ -23,6 +23,7 @@ GENERATION_CONFIG_KEYS = (
   "top_k",
   "min_p",
   "presence_penalty",
+  "frequency_penalty",
   "repetition_penalty",
   "max_tokens",
 )
@@ -293,13 +294,15 @@ class Agent(ABC):
     *,
     default_values: dict[str, Any] | None = None,
     override_values: dict[str, Any] | None = None,
+    include_generation_defaults: bool = True,
   ) -> dict[str, Any]:
     generation_kwargs = {
       key: value
       for key, value in (default_values or {}).items()
       if value is not None
     }
-    generation_kwargs.update(self.generation_defaults)
+    if include_generation_defaults:
+      generation_kwargs.update(self.generation_defaults)
     generation_kwargs.update(
       {
         key: value
