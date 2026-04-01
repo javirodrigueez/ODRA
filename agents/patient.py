@@ -153,7 +153,7 @@ class PatientAgent(Agent):
     for _ in range(max_retries + 1):
       attempts += 1
       generation_kwargs = self._build_generation_kwargs(
-        default_values={"max_tokens": 8192, "temperature": 0.6, "top_p": 0.95, "presence_penalty": 0.0, "frequency_penalty": 1.0},
+        default_values={"max_tokens": 8192, "temperature": 0.2},
         override_values={
           "max_tokens": max_tokens,
           "temperature": temperature,
