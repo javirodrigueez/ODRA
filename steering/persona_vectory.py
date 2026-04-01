@@ -52,6 +52,15 @@ def generate_steered_response(model, tokenizer, prompt, persona_vector, layer_id
     handle.remove()
     return tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
 
+def generate_std_response(model, tokenizer, prompt):
+    """
+    Generates a standard response without steering for comparison.
+    """
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7)
+    return tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+
 def main():
     parser = argparse.ArgumentParser(description="Steer patient resistance in LLM using Persona Vectors.")
     parser.add_argument("--model_name", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct", help="HuggingFace model ID")
@@ -77,8 +86,11 @@ def main():
     test_prompt = "Therapist: Have you had a chance to reflect on the homework we discussed last session?"
     
     print("\n--- Generating Steered Response ---")
-    response = generate_steered_response(model, tokenizer, test_prompt, vector, args.layer, alpha)
-    print(f"Patient: {response}")
+    steered_response = generate_steered_response(model, tokenizer, test_prompt, vector, args.layer, alpha)
+    std_response = generate_std_response(model, tokenizer, test_prompt)
+
+    print(f"Patient steered: {steered_response}")
+    print(f"Patient standard: {std_response}")
 
 if __name__ == "__main__":
     main()
