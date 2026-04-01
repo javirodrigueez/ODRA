@@ -13,15 +13,11 @@ class PatientAgent(Agent):
     self,
     llm: LLM,
     profile: dict[str, Any],
-    structured_llm: LLM | None = None,
     generation_defaults: dict[str, Any] | None = None,
-    structured_generation_defaults: dict[str, Any] | None = None,
   ):
     super().__init__(
       llm,
-      structured_llm=structured_llm,
       generation_defaults=generation_defaults,
-      structured_generation_defaults=structured_generation_defaults,
     )
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
@@ -164,9 +160,8 @@ class PatientAgent(Agent):
           "presence_penalty": presence_penalty,
           "repetition_penalty": repetition_penalty,
         },
-        structured=True,
       )
-      raw = self.structured_llm.generate(messages, **generation_kwargs)
+      raw = self.llm.generate(messages, **generation_kwargs)
       last_raw = raw or ""
       try:
         parsed, parse_meta = parse_json_response(last_raw)

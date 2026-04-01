@@ -116,7 +116,7 @@ def parse_json_response(raw_text: str) -> tuple[Any, dict[str, Any]]:
     raise StructuredOutputError(f"invalid JSON: {exc.msg}") from exc
 
 
-def _to_config_mapping(config: Any) -> dict[str, Any]:
+def _to_config_mapping(config: Any) -> dict:
   if config is None:
     return {}
   raw_config = OmegaConf.to_container(config, resolve=True) if OmegaConf.is_config(config) else config
@@ -283,28 +283,23 @@ class Agent(ABC):
   def __init__(
     self,
     llm: LLM,
-    structured_llm: LLM | None = None,
     generation_defaults: dict[str, Any] | None = None,
-    structured_generation_defaults: dict[str, Any] | None = None,
   ):
     self.llm = llm
-    self.structured_llm = structured_llm or llm
     self.generation_defaults = extract_generation_config(generation_defaults)
-    self.structured_generation_defaults = extract_generation_config(structured_generation_defaults)
 
   def _build_generation_kwargs(
     self,
     *,
     default_values: dict[str, Any] | None = None,
     override_values: dict[str, Any] | None = None,
-    structured: bool = False,
   ) -> dict[str, Any]:
     generation_kwargs = {
       key: value
       for key, value in (default_values or {}).items()
       if value is not None
     }
-    generation_kwargs.update(self.structured_generation_defaults if structured else self.generation_defaults)
+    generation_kwargs.update(self.generation_defaults)
     generation_kwargs.update(
       {
         key: value

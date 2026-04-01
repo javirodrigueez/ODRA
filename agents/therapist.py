@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response, render_prompt
 
 
 class TherapistAgent(Agent):
@@ -11,19 +10,44 @@ class TherapistAgent(Agent):
     self,
     llm: LLM,
     profile: dict[str, Any],
-    structured_llm: LLM | None = None,
     generation_defaults: dict[str, Any] | None = None,
-    structured_generation_defaults: dict[str, Any] | None = None,
   ):
     super().__init__(
       llm,
-      structured_llm=structured_llm,
       generation_defaults=generation_defaults,
-      structured_generation_defaults=structured_generation_defaults,
     )
     self.profile = profile
-    system_path = Path(__file__).parent.parent / "prompts" / "therapist_system.txt"
-    self.system_prompt = load_prompt(system_path)
+    self.system_prompt = render_prompt(
+      "therapist_system.txt",
+      patient_intake_form=self._format_patient_intake_form(),
+    )
+
+  def _format_patient_intake_form(self) -> str:
+    personal_info = self.profile.get("personal_info", {})
+    more_info = self.profile.get("more_information", {})
+
+    sections: list[str] = []
+    if isinstance(personal_info, dict) and personal_info:
+      personal_lines = [
+        f"{str(key).replace('_', ' ').title()}: {value}"
+        for key, value in personal_info.items()
+      ]
+      sections.append("Personal Info:\n" + "\n".join(personal_lines))
+
+    reason = self.profile.get("reason_seeking_counseling", "")
+    if reason:
+      sections.append(f"Reason Seeking Counseling:\n{reason}")
+
+    if isinstance(more_info, dict) and more_info:
+      more_info_lines = [
+        f"{str(key).replace('_', ' ').title()}:\n{value}"
+        for key, value in more_info.items()
+        if value
+      ]
+      if more_info_lines:
+        sections.append("More Information:\n" + "\n\n".join(more_info_lines))
+
+    return "\n\n".join(sections)
 
   def _build_user_prompt(
     self,
@@ -137,9 +161,8 @@ class TherapistAgent(Agent):
           "presence_penalty": presence_penalty,
           "repetition_penalty": repetition_penalty,
         },
-        structured=True,
       )
-      raw = self.structured_llm.generate(messages, **generation_kwargs)
+      raw = self.llm.generate(messages, **generation_kwargs)
       last_raw = raw or ""
       try:
         parsed, parse_meta = parse_json_response(last_raw)

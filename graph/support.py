@@ -45,22 +45,16 @@ class GraphSupportMixin:
 
   def _init_agents(self) -> None:
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
-    therapist_struct_llm = LLMFactory.create_from_config(self.cfg.therapist_struct)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
-    patient_struct_llm = LLMFactory.create_from_config(self.cfg.patient_struct)
     self.therapist = TherapistAgent(
       therapist_llm,
       self.profile,
-      structured_llm=therapist_struct_llm,
       generation_defaults=extract_generation_config(self.cfg.therapist),
-      structured_generation_defaults=extract_generation_config(self.cfg.therapist_struct),
     )
     self.patient = PatientAgent(
       patient_llm,
       self.profile,
-      structured_llm=patient_struct_llm,
       generation_defaults=extract_generation_config(self.cfg.patient),
-      structured_generation_defaults=extract_generation_config(self.cfg.patient_struct),
     )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
@@ -232,7 +226,7 @@ class GraphSupportMixin:
       max_message_index = max(int(msg.get("utterance_index", 0)) for msg in s["messages"])
     max_trace_index = 0
     if s["reasoning_traces"]:
-      max_trace_index = max(int(cast(dict[str, Any], trace).get("utterance_index", 0)) for trace in s["reasoning_traces"])
+      max_trace_index = max(int(trace["utterance_index"]) for trace in s["reasoning_traces"])
     s["utterance_index"] = max(int(s.get("utterance_index", 0)), max_message_index, max_trace_index)
     raw_exchange_counts = s.get("exchange_counts")
     normalized_exchange_counts: dict[str, list[int]] = {}
