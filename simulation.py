@@ -3,11 +3,11 @@ import argparse
 from copy import deepcopy
 import json
 import os
-from omegaconf import OmegaConf
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 from typing import cast
 
 from graph.state import ConversationMessage
+from runtime_config import load_runtime_config
 
 
 def _load_profiles(profiles_path: str) -> list[dict]:
@@ -116,7 +116,7 @@ def run_simulation(
 def main(cfg_path: str):
   load_dotenv()
 
-  cfg = OmegaConf.load(cfg_path)
+  cfg = load_runtime_config(cfg_path)
 
   max_turns = cfg.env.max_turns
   min_turns = cfg.env.get("min_turns", 0)
@@ -138,8 +138,8 @@ def main(cfg_path: str):
       verbose,
       resume_state=resume_state,
     )
-    exchange_counts = cast(dict[str, int], result.get("exchange_counts", {}))
-    exchanges = sum(exchange_counts.values())
+    exchange_counts = cast(dict[str, list[int]], result.get("exchange_counts", {}))
+    exchanges = sum(item for sublist in exchange_counts.values() for item in sublist)
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
     print(f"  Total exchanges: {exchanges}")
     print(f'  End reason: {result.get("session_ended_reason", "unknown")}\n')
@@ -158,7 +158,7 @@ def main(cfg_path: str):
     print(f'{"="*60}')
 
     result = run_simulation(cfg_path, profile, max_turns, min_turns, output_dir, verbose)
-    exchange_counts = cast(dict[str, int], result.get("exchange_counts", {}))
+    exchange_counts = cast(dict[str, list[int]], result.get("exchange_counts", {}))
     exchanges = sum(item for sublist in exchange_counts.values() for item in sublist)
     print(f'  Total utterances: {result.get("utterance_index", 0)}')
     print(f"  Total exchanges: {exchanges}")

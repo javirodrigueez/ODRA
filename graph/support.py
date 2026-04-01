@@ -5,11 +5,21 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
-from agents.interfaces import LLMFactory, StructuredOutputError, ensure_str, ensure_str_list, load_prompt, render_prompt
+from agents.interfaces import (
+  LLMFactory,
+  StructuredOutputError,
+  ensure_str,
+  ensure_str_list,
+  extract_generation_config,
+  load_prompt,
+  render_prompt,
+)
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
 from .resistance import (
+  HomeostaticResistanceUpdate,
+  TherapistResistanceUpdate,
   apply_homeostatic_resistance_update,
   apply_bayesian_predicted_resistance_update,
   normalize_predicted_resistance_state_fields,
@@ -34,10 +44,24 @@ class GraphSupportMixin:
     return Path(__file__).resolve().parent.parent
 
   def _init_agents(self) -> None:
-    therapist_llm = LLMFactory.create(self.cfg.therapist.type, self.cfg.therapist.model_id)
-    patient_llm = LLMFactory.create(self.cfg.patient.type, self.cfg.patient.model_id)
-    self.therapist = TherapistAgent(therapist_llm, self.profile)
-    self.patient = PatientAgent(patient_llm, self.profile)
+    therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
+    therapist_struct_llm = LLMFactory.create_from_config(self.cfg.therapist_struct)
+    patient_llm = LLMFactory.create_from_config(self.cfg.patient)
+    patient_struct_llm = LLMFactory.create_from_config(self.cfg.patient_struct)
+    self.therapist = TherapistAgent(
+      therapist_llm,
+      self.profile,
+      structured_llm=therapist_struct_llm,
+      generation_defaults=extract_generation_config(self.cfg.therapist),
+      structured_generation_defaults=extract_generation_config(self.cfg.therapist_struct),
+    )
+    self.patient = PatientAgent(
+      patient_llm,
+      self.profile,
+      structured_llm=patient_struct_llm,
+      generation_defaults=extract_generation_config(self.cfg.patient),
+      structured_generation_defaults=extract_generation_config(self.cfg.patient_struct),
+    )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
     filename = f"{stage}/{name}.txt"
@@ -112,11 +136,6 @@ class GraphSupportMixin:
     resumed["min_turns"] = int(min_turns)
     return self._ensure_state_defaults(resumed)
 
-  def _initial_resistance(self) -> float:
-    attitude = str(self.profile.get("attitude", "neutral")).lower()
-    mapping = {"negative": 0.80, "neutral": 0.55, "positive": 0.35} #devlog
-    return mapping.get(attitude, 0.55)
-
   def _is_error_trace(self, trace: Any) -> bool:
     if not isinstance(trace, dict):
       return False
@@ -143,8 +162,8 @@ class GraphSupportMixin:
     raw_messages = s.get("messages")
     s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
 
-    s = cast(SessionState, cast(object, normalize_resistance_state_fields(s, deepcopy(self.profile))))
-    s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(s)))
+    s = cast(SessionState, cast(object, normalize_resistance_state_fields(dict(s), deepcopy(self.profile))))
+    s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(dict(s))))
 
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
@@ -182,6 +201,17 @@ class GraphSupportMixin:
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
+    s.setdefault("mi_end_session_demand_redirect_used", False)
+    s.setdefault("patient_demand_text", "")
+    s.setdefault("patient_demand_plan", "")
+    s.setdefault("patient_demand_reasoning", "")
+    raw_demand_resume_stage = ensure_str(s.get("patient_demand_resume_stage"))
+    s["patient_demand_resume_stage"] = cast(Stage, raw_demand_resume_stage) if raw_demand_resume_stage in DEFAULT_SUBSTAGE_BY_STAGE else ""
+    raw_demand_resume_substage = ensure_str(s.get("patient_demand_resume_substage"))
+    if raw_demand_resume_substage not in ALL_SUBSTAGES:
+      raw_demand_resume_substage = ""
+    s["patient_demand_resume_substage"] = cast(SubStage, raw_demand_resume_substage) if raw_demand_resume_substage else ""
+    s.setdefault("patient_demand_end_session_attempt_active", False)
 
     s.setdefault("proposed_tasks", [])
     s.setdefault("homework_proposal_attempts", 0)
@@ -286,6 +316,13 @@ class GraphSupportMixin:
       "high_resistance_source_stage": state["high_resistance_source_stage"],
       "high_resistance_source_substage": state["high_resistance_source_substage"],
       "high_resistance_reasoning": state["high_resistance_reasoning"],
+      "patient_demand_text": state["patient_demand_text"],
+      "patient_demand_plan": state["patient_demand_plan"],
+      "patient_demand_reasoning": state["patient_demand_reasoning"],
+      "patient_demand_resume_stage": state["patient_demand_resume_stage"],
+      "patient_demand_resume_substage": state["patient_demand_resume_substage"],
+      "patient_demand_end_session_attempt_active": state["patient_demand_end_session_attempt_active"],
+      "mi_end_session_demand_redirect_used": state["mi_end_session_demand_redirect_used"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -396,6 +433,19 @@ class GraphSupportMixin:
           "mi_techniques_used": state["mi_techniques_used"][-5:],
           "mi_context": state["mi_context"],
           "cbt_resume_stage": state["cbt_resume_stage"],
+        }
+      )
+    elif stage == "patient_demand":
+      context.update(
+        {
+          "opening_patient_mood": state["opening_patient_mood"],
+          "opening_patient_problem": state["opening_patient_problem"],
+          "current_mi_topic": state["current_mi_topic"],
+          "cognitive_model_sets": state["cognitive_model_sets"],
+          "selected_techniques": state["selected_techniques"],
+          "current_technique_index": state["current_technique_index"],
+          "patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
+          "patient_demand_turn_cap": 10,
         }
       )
     elif stage in {"anticipated_closing", "forced_closing"}:
@@ -579,6 +629,15 @@ class GraphSupportMixin:
     state["high_resistance_source_substage"] = ""
     state["high_resistance_reasoning"] = ""
 
+  def _clear_patient_demand_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
+    state["patient_demand_text"] = ""
+    state["patient_demand_plan"] = ""
+    state["patient_demand_reasoning"] = ""
+    state["patient_demand_end_session_attempt_active"] = False
+    if clear_resume_cursor:
+      state["patient_demand_resume_stage"] = ""
+      state["patient_demand_resume_substage"] = ""
+
   def _next_cognitive_set_id(self, state: SessionState) -> int:
     known_ids = [
       int(state["working_cognitive_set"].get("cognitive_model_set_id", 0)),
@@ -720,6 +779,12 @@ class GraphSupportMixin:
       }
     )
 
+  def _set_last_trace_output(self, traces: list[dict[str, Any]], step_name: str, payload: dict[str, Any]) -> None:
+    for trace in reversed(traces):
+      if trace.get("step") == step_name:
+        trace["output"] = json.dumps(payload, ensure_ascii=True)
+        return
+
   def _run_therapist_structured(
     self,
     state: SessionState,
@@ -727,7 +792,7 @@ class GraphSupportMixin:
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
-    temperature: float = 0.2,
+    temperature: float | None = None,
   ) -> Any:
     try:
       parsed, _meta = self.therapist.generate_structured(
@@ -798,8 +863,17 @@ class GraphSupportMixin:
     previous_p: float | None,
     p_target: float,
     signal_clarity: float,
-  ) -> dict[str, float | str]:
+  ) -> TherapistResistanceUpdate:
     return apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
+
+  def _apply_homeostatic_resistance_update(
+    self,
+    previous_r: float,
+    delta_llm: float,
+    baseline: float,
+    alpha: float,
+  ) -> HomeostaticResistanceUpdate:
+    return apply_homeostatic_resistance_update(previous_r, delta_llm, baseline, alpha)
 
   def _maybe_force_closing(self, state: SessionState) -> None:
     if state["session_ended"] or state["final_patient_pending_end"]:

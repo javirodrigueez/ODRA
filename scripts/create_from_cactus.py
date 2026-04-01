@@ -48,6 +48,7 @@ def process_dataset(output_file):
             "reason_seeking_counseling": extract_section("3. Reason for Seeking Counseling", text),
             "patterns": item["patterns"],
             "attitude": item["attitude"],
+            "emotional_recovery": "moderate",
             "more_information": more_info,
         }
         

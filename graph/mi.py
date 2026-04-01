@@ -113,7 +113,12 @@ class MIStageMixin(GraphSupportMixin):
   def _handle_mi_topic_exploration(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     previous_pred = state["last_mi_predicted_resistance"]
     current_pred = state["predicted_resistance"]
-    need_new_topic = not state["current_mi_topic"] or current_pred > previous_pred + 0.02 # 0.02 is a small tolerance to avoid overreacting to minor prediction fluctuations.
+    need_new_topic = (
+      not state["current_mi_topic"]
+      or current_pred is None
+      or previous_pred is None
+      or current_pred > previous_pred + 0.02
+    )  # 0.02 is a small tolerance to avoid overreacting to minor prediction fluctuations.
     if need_new_topic:
       self._set_substage(state, "mi_choose_topic")
 

@@ -3,16 +3,17 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
-from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
-from agents.interfaces import clamp, ensure_str
+from agents.interfaces import ensure_str
+from runtime_config import load_runtime_config
 
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
+from .demand import PatientDemandStageMixin
 from .homework import HomeworkStageMixin
 from .mi import MIStageMixin
 from .opening import OpeningStageMixin
-from .state import MI_STAGES, SessionState
+from .state import DEFAULT_SUBSTAGE_BY_STAGE, MI_STAGES, SessionState, Stage, SubStage
 from .support import ConversationProcessingError
 from .techniques import TechniqueStageMixin
 
@@ -20,13 +21,16 @@ from .techniques import TechniqueStageMixin
 class TherapyGraphBuilder(
   OpeningStageMixin,
   MIStageMixin,
+  PatientDemandStageMixin,
   CognitiveStageMixin,
   TechniqueStageMixin,
   HomeworkStageMixin,
   ClosingStageMixin,
 ):
+  MI_END_SESSION_DEMAND_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
+
   def __init__(self, config_path: str, profile: dict[str, Any]):
-    self.cfg = OmegaConf.load(config_path)
+    self.cfg = load_runtime_config(config_path)
     self.profile = profile
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
@@ -50,6 +54,8 @@ class TherapyGraphBuilder(
       return self._handle_mi_techniques(state, traces)
     if stage == "meta_conversation":
       return self._handle_meta_conversation(state, traces)
+    if stage == "patient_demand":
+      return self._handle_patient_demand(state, traces)
     if stage == "anticipated_closing":
       return self._handle_anticipated_closing(state, traces)
     if stage == "forced_closing":
@@ -62,12 +68,12 @@ class TherapyGraphBuilder(
     state: SessionState,
     traces: list[dict[str, Any]],
     level: str,
-    source_stage: str,
-    source_substage: str,
+    source_stage: Stage,
+    source_substage: SubStage,
   ) -> None:
     if level == "yes":
       if source_stage in {"opening", "id_distortions", "cbt_technique", "homework"}:
-        resume_stage = "id_distortions" if source_stage == "opening" else source_stage
+        resume_stage: Stage = "id_distortions" if source_stage == "opening" else source_stage
         self._enter_mi(
           state,
           "mi_topic_exploration",
@@ -75,8 +81,11 @@ class TherapyGraphBuilder(
           f"High-resistance request to stop detected during {source_stage}.",
         )
         return
-      if source_stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
+      if source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES:
         state["mi_active"] = False
+        if state["mi_end_session_demand_redirect_used"]:
+          self._set_stage(state, "closing")
+          return
         self._set_stage(state, "closing", "closing_fallback")
         return
       if source_stage == "closing":
@@ -134,37 +143,87 @@ class TherapyGraphBuilder(
     if source_stage == "mi_techniques":
       self._set_substage(state, "mi_choose_technique")
 
+  def _high_resistance_route_source(self, state: SessionState) -> tuple[Stage, SubStage]:
+    if state["current_stage"] == "patient_demand" and state["patient_demand_resume_stage"]:
+      source_stage = state["patient_demand_resume_stage"]
+      source_substage = state["patient_demand_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[source_stage]
+      return source_stage, source_substage
+    return state["current_stage"], state["current_substage"]
+
   def _maybe_handle_high_resistance(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     if state["session_ended"] or state["final_patient_pending_end"]:
-      return "no"
+      return "none"
     if state["current_stage"] in {"anticipated_closing", "forced_closing"}:
-      return "no"
+      return "none"
 
     instruction = self._load_stage_prompt("shared", "high_resistance_check")
     parsed = self._run_therapist_structured(state, traces, "high_resistance_check", instruction)
     payload = self._require_dict(parsed, "high_resistance_check")
-    level = ensure_str(payload.get("high_r")).strip().lower()
-    if level not in {"yes", "partial", "no"}:
+    has_demand = self._require_bool(payload, "has_demand", "high_resistance_check")
+    demand_kind = ensure_str(payload.get("demand_kind")).strip().lower()
+    if demand_kind not in {"none", "end_session", "item_move", "other"}:
       raise ConversationProcessingError(
-        f"high_resistance_check.high_r must be one of yes, partial, or no, got {level!r}."
+        "high_resistance_check.demand_kind must be one of none, end_session, item_move, or other, "
+        f"got {demand_kind!r}."
       )
-    if level == "no":
-      return "no"
-
-    source_stage = state["current_stage"]
-    source_substage = state["current_substage"]
+    demand = ensure_str(payload.get("demand")).strip()
     reasoning = ensure_str(payload.get("reasoning"))
-    self._mark_high_resistance_redirect(state, level, source_stage, source_substage, reasoning)
+    normalized_payload = dict(payload)
+    normalized_payload["has_demand"] = has_demand
+    normalized_payload["demand_kind"] = demand_kind
+    normalized_payload["demand"] = demand or None
+    self._set_last_trace_output(traces, "high_resistance_check", normalized_payload)
 
-    traces.append(
-      {
-        "step": "high_resistance_route",
-        "input": state["messages"][-1]["content"] if state["messages"] else "",
-        "output": f"Detected high resistance={level} at stage={source_stage}, substage={source_substage}.",
-      }
-    )
-    self._route_high_resistance(state, traces, level, source_stage, source_substage)
-    return level
+    if not has_demand:
+      if demand_kind != "none":
+        raise ConversationProcessingError(
+          "high_resistance_check.has_demand=false must be paired with demand_kind='none'."
+        )
+      return "none"
+
+    if demand_kind == "none":
+      raise ConversationProcessingError(
+        "high_resistance_check.has_demand=true must not be paired with demand_kind='none'."
+      )
+    if not demand:
+      raise ConversationProcessingError("high_resistance_check.demand must be a non-empty string when has_demand=true.")
+
+    source_stage, source_substage = self._high_resistance_route_source(state)
+    if (
+      demand_kind == "end_session"
+      and source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES
+      and not state["mi_end_session_demand_redirect_used"]
+    ):
+      self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+      if state["current_stage"] == "patient_demand":
+        self._replace_active_patient_demand(state, traces, demand, reasoning)
+        state["patient_demand_end_session_attempt_active"] = True
+        state["mi_end_session_demand_redirect_used"] = True
+      else:
+        self._enter_patient_demand(
+          state,
+          traces,
+          demand,
+          reasoning,
+          source_stage,
+          source_substage,
+          end_session_attempt_active=True,
+        )
+      return demand_kind
+    if demand_kind in {"end_session", "item_move"}:
+      level = "yes" if demand_kind == "end_session" else "partial"
+      if state["current_stage"] == "patient_demand":
+        self._clear_patient_demand_state(state, clear_resume_cursor=True)
+        self._set_stage(state, source_stage, source_substage)
+      self._mark_high_resistance_redirect(state, level, source_stage, source_substage, reasoning)
+      self._route_high_resistance(state, traces, level, source_stage, source_substage)
+      return demand_kind
+
+    if state["current_stage"] == "patient_demand":
+      self._replace_active_patient_demand(state, traces, demand, reasoning)
+    else:
+      self._enter_patient_demand(state, traces, demand, reasoning, source_stage, source_substage)
+    return "other"
 
   def therapist_turn(self, state: SessionState) -> SessionState:
     s = self._ensure_state_defaults(state)
@@ -179,7 +238,7 @@ class TherapyGraphBuilder(
         self._maybe_force_closing(s)
         high_resistance_level = self._maybe_handle_high_resistance(s, traces)
         self._run_resistance_prediction(s, traces)
-        if high_resistance_level == "no":
+        if high_resistance_level == "none":
           self._handle_pre_stage_routing(s, traces)
       utterance = self._handle_stage_dispatch(s, traces)
 
@@ -221,6 +280,8 @@ class TherapyGraphBuilder(
       return "Respond to the CBT exercise with realistic engagement for your current resistance level."
     if stage == "homework":
       return "Respond honestly about whether the proposed homework feels feasible."
+    if stage == "patient_demand":
+      return "Respond to the therapist's attempt to address your request, including whether it feels sufficiently helpful."
     if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
@@ -248,8 +309,17 @@ class TherapyGraphBuilder(
         update_instruction,
       )
       payload = self._require_dict(update, "resistance_update")
-      r_change = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
-      s["resistance"] = clamp(s["resistance"] + r_change, 0.0, 1.0)
+      delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+      resistance_update = self._apply_homeostatic_resistance_update(
+        previous_r=s["resistance"],
+        delta_llm=delta_llm,
+        baseline=s["resistance_baseline"],
+        alpha=s["resistance_recovery_rate"],
+      )
+      s["resistance"] = resistance_update["new_r"]
+      trace_payload = dict(payload)
+      trace_payload.update(resistance_update)
+      self._set_last_trace_output(traces, "resistance_update", trace_payload)
 
       utterance = self.patient.generate_utterance(
         full_conversation=self._format_conversation(s["messages"]),

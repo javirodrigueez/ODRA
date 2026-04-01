@@ -1,4 +1,4 @@
 Predict the change in the patient's resistance level for the next turn given the last therapist utterance.
 The current patient's resistance is {resistance}, and the last therapist utterances is the last one available in in <last_utterances>.
-The change in resistance must reflect how the last therapist message helped to address the patient's problems. The prediction should be a float bounded by -0.10 and +0.15. Aditionally, provide your reasoning for this update.
+Predict the raw interaction-driven delta before any homeostatic decay back toward the patient's baseline is applied. The delta must reflect how the last therapist message helped to address the patient's problems. The predicted delta should be a float bounded by -0.10 and +0.15. Aditionally, provide your reasoning for this update.
 Respond JSON: {{"r_change": 0.0, "reasoning":"..."}}

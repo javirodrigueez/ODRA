@@ -1,32 +1,72 @@
-Evaluate whether the patient's last utterance shows high resistance toward continuing the current therapeutic direction.
+Evaluate whether the patient's last utterance contains an explicit demand to change the current direction of the session.
 The patient's last response is available as 'last_patient_response' within <session_context>, and you also have the recent exchange in <last_utterances>.
-Return:
-- "yes" when the patient clearly wants to end, leave, stop the session, or not continue talking now (e.g., "I want to leave now", "I don't want to continue").
-- "partial" when the patient does not clearly want to end the full session, but does want to stop this line of discussion, change focus, or move away from the current topic because it feels too uncomfortable or unhelpful (e.g., "I want to talk about something else", "Can we move on?").
-- "no" otherwise.
-Be conservative: "yes" and "partial" should only be returned when the patient EXPLICITLY uses an expression where they are wanting to stop or change the subject. The reasoning should explain what in the patient's response led to that conclusion. When in doubt or not explicit, return "no".
-Respond JSON: {{"high_r":"no" or "partial" or "yes","reasoning":"..."}}
 
-## Examples:
-Example 1 ("yes" output):
-- Input: "Look, I see you are trying to help, but I need to go home. I can't do this anymore today."
-- Output:
+Return a JSON object with:
+- "has_demand": true or false
+- "demand_kind": "none", "end_session", "item_move", or "other"
+- "demand": the patient's request written as a concise explicit demand, or null when there is no demand
+- "reasoning": a brief explanation
+
+Use these classes:
+- "end_session": the patient explicitly wants to stop, leave, end, or not continue the session now
+- "item_move": the patient explicitly wants to move on from the current topic, skip the current exercise, or change the immediate focus, but not end the whole session
+- "other": the patient explicitly asks for a different kind of help, format, or therapist action that is not just ending the session or moving to the next item
+- "none": no explicit demand is present
+
+Be conservative:
+- only explicit requests count as demands
+- vague frustration, discouragement, skepticism, or discomfort without a clear request must return "has_demand": false and "demand_kind": "none"
+- if "has_demand" is true, "demand" must quote or faithfully paraphrase the explicit request
+
+Respond JSON: {{"has_demand": false, "demand_kind": "none", "demand": null, "reasoning": "..."}}
+
+## Examples
+Example 1:
+Input: "Look, I see you are trying to help, but I need to go home. I can't do this anymore today."
+Output:
 {{
-    "high_r": "yes",
-    "reasoning": "The patient explicitly states 'I need to go home' and 'I can't do this anymore today', showing a clear desire to end the session."
+  "has_demand": true,
+  "demand_kind": "end_session",
+  "demand": "Stop the session for today and go home.",
+  "reasoning": "The patient explicitly says they want to stop for today and go home, which is a direct request to end the session."
 }}
 
-Example 2 ("partial" output):
-- Input: "Look, I know we're supposed to be talking about my childhood, but I really just can't get into that right now. It's too much. Can we talk about something else?"
+Example 2:
+Input: "I know we're supposed to be talking about my childhood, but I really just can't get into that right now. It's too much. Can we talk about something else?"
+Output:
 {{
-    "high_r": "partial",
-    "reasoning": "The patient does not want to end the session but explicitly asks to change the subject away from their childhood ('Can we talk about something else?'), indicating they want to stop the current line of discussion."
+  "has_demand": true,
+  "demand_kind": "item_move",
+  "demand": "Move on from talking about childhood.",
+  "reasoning": "The patient explicitly asks to move on from the current topic without asking to end the full session."
 }}
 
-Example 3 ("no" output):
-- Input: "I don't know, I just... it's not that big a deal. Everyone has stuff. I probably shouldn't even be here wasting your time."
-- Output:
+Example 3:
+Input: "I don't know, I just... it's not that big a deal. Everyone has stuff. I probably shouldn't even be here wasting your time."
+Output:
 {{
-    "high_r": "no",
-    "reasoning": "While the patient expresses some discomfort, they do not explicitly indicate a desire to end the session or change the topic. The statements are more about minimizing their issues rather than wanting to stop the conversation."
+  "has_demand": true,
+  "demand_kind": "other",
+  "demand": "Give direct practical guidance on how to handle the situation.",
+  "reasoning": "The patient explicitly asks for a different kind of therapist response, namely direct practical guidance, rather than simply ending the session or moving to the next item."
+}}
+
+Example 4:
+Input: "I don't know if this is helping. Maybe I'm overreacting."
+Output:
+{{
+  "has_demand": false,
+  "demand_kind": "none",
+  "demand": null,
+  "reasoning": "The patient expresses doubt, but there is no explicit request to end the session, change focus, or do something different."
+}}
+
+Example 5: 
+Input: "I don't know what would be helpful. I told you, it's just the grind. Maybe we should just call it a day."
+Output:
+{{
+  "has_demand": false,
+  "demand_kind": "none",
+  "demand": null,
+  "reasoning": "Although the patient mentions calling it a day, they do not explicitly request to end the session. The statement is more of a vague expression of frustration rather than a clear demand, as it uses the expression 'Maybe'."
 }}

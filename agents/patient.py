@@ -9,8 +9,20 @@ from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissi
 from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
 
 class PatientAgent(Agent):
-  def __init__(self, llm: LLM, profile: dict[str, Any]):
-    super().__init__(llm)
+  def __init__(
+    self,
+    llm: LLM,
+    profile: dict[str, Any],
+    structured_llm: LLM | None = None,
+    generation_defaults: dict[str, Any] | None = None,
+    structured_generation_defaults: dict[str, Any] | None = None,
+  ):
+    super().__init__(
+      llm,
+      structured_llm=structured_llm,
+      generation_defaults=generation_defaults,
+      structured_generation_defaults=structured_generation_defaults,
+    )
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
     self.system_prompt = self._build_system_prompt(system_path)
@@ -68,8 +80,13 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
-    max_tokens: int = 5000,
-    temperature: float = 0.8,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: float | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
   ) -> str:
     suffix = load_prompt("shared/patient_utterance_suffix.txt")
     messages: list[ChatMessage] = [
@@ -85,7 +102,19 @@ class PatientAgent(Agent):
         ),
       },
     ]
-    return self.llm.generate(messages, temperature=temperature, max_tokens=max_tokens).strip()
+    generation_kwargs = self._build_generation_kwargs(
+      default_values={"max_tokens": 5000, "temperature": 0.8},
+      override_values={
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "min_p": min_p,
+        "presence_penalty": presence_penalty,
+        "repetition_penalty": repetition_penalty,
+      },
+    )
+    return self.llm.generate(messages, **generation_kwargs).strip()
 
   def generate_structured(
     self,
@@ -95,6 +124,13 @@ class PatientAgent(Agent):
     instruction: str,
     max_retries: int = 2,
     expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: float | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
   ) -> tuple[Any, dict[str, Any]]:
     suffix = load_prompt("shared/patient_structured_suffix.txt")
     retry_suffix = load_prompt("shared/patient_structured_suffix.txt")
@@ -117,7 +153,20 @@ class PatientAgent(Agent):
     last_error = "invalid response"
     for _ in range(max_retries + 1):
       attempts += 1
-      raw = self.llm.generate(messages, temperature=0.2, max_tokens=5000)
+      generation_kwargs = self._build_generation_kwargs(
+        default_values={"max_tokens": 5000, "temperature": 0.2},
+        override_values={
+          "max_tokens": max_tokens,
+          "temperature": temperature,
+          "top_p": top_p,
+          "top_k": top_k,
+          "min_p": min_p,
+          "presence_penalty": presence_penalty,
+          "repetition_penalty": repetition_penalty,
+        },
+        structured=True,
+      )
+      raw = self.structured_llm.generate(messages, **generation_kwargs)
       last_raw = raw or ""
       try:
         parsed, parse_meta = parse_json_response(last_raw)
