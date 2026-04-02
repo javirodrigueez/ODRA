@@ -11,7 +11,7 @@ patient:
   type: deepseek
   base_url: https://api.deepseek.com/v1
   model_id: deepseek-chat
-  profiles: ./data/sample_cactus.json
+  profiles: ./data/miniset_cactus.json
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5

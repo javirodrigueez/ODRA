@@ -7,3 +7,10 @@ myenv
 /.npm-cache
 /steering/models
 /persona_vectors
+.env
+/evaluation/**/test
+/evaluation/**/out_test
+/evaluation/**/out
+/evaluation/**/out_before
+/evaluation/**/out_after
+/evaluation/data.json
