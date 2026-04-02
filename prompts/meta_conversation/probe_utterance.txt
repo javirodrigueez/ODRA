@@ -1,4 +1,4 @@
-Generate the therapist's probing utterance for the meta-conversation stage.
+Generate the therapist's next utterance for the meta-conversation stage.
 The patient's opening mood, opening problem summary, current MI topic, previously tried MI topics, recently used MI techniques, MI-only conversation segment, latest predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_topics_tried', 'mi_techniques_used', 'mi_context', 'predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
-Ask a focused question about what parts of the process feel hardest, least helpful, or least safe from the patient's perspective. Keep the probe specific and non-defensive. Do not stack multiple questions in one turn.
+Briefly reflect the patient's likely feelings and name what seems difficult about the therapy conversation itself. If the patient in its last utterance is still closed to the therapy, ask one focused, non-defensive question about what feels hardest, least helpful, or least safe in the process right now. If the patient seems to be engaging into the therapy, ask if they are comfortable resuming the session. Do not stack multiple questions in one turn.
 Respond with plain text.

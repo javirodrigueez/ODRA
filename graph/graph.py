@@ -189,28 +189,40 @@ class TherapyGraphBuilder(
       raise ConversationProcessingError("high_resistance_check.demand must be a non-empty string when has_demand=true.")
 
     source_stage, source_substage = self._high_resistance_route_source(state)
-    if (
-      demand_kind == "end_session"
-      and source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES
-      and not state["mi_end_session_demand_redirect_used"]
-    ):
-      self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
-      if state["current_stage"] == "patient_demand":
-        self._replace_active_patient_demand(state, traces, demand, reasoning)
-        state["patient_demand_end_session_attempt_active"] = True
-        state["mi_end_session_demand_redirect_used"] = True
-      else:
-        self._enter_patient_demand(
-          state,
-          traces,
-          demand,
-          reasoning,
-          source_stage,
-          source_substage,
-          end_session_attempt_active=True,
+    if demand_kind == "end_session":
+      if state["current_stage"] == "meta_conversation":
+        self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+        self._set_stage(state, "closing", "closing_fallback")
+        traces.append(
+          {
+            "step": "meta_conversation_end_session_repeat",
+            "input": demand,
+            "output": "Repeated end-session demand during meta-conversation. Routing directly to closing fallback.",
+          }
         )
+        return demand_kind
+
+      if state["current_stage"] == "patient_demand":
+        self._clear_patient_demand_state(state, clear_resume_cursor=True)
+        self._set_stage(state, source_stage, source_substage)
+
+      self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+      self._enter_mi(
+        state,
+        "meta_conversation",
+        source_stage,
+        f"Explicit request to end the session: {demand}",
+      )
+      state["mi_end_session_demand_redirect_used"] = True
+      traces.append(
+        {
+          "step": "meta_conversation_end_session_redirect",
+          "input": demand,
+          "output": f"Routing to meta-conversation before resuming {source_stage}.",
+        }
+      )
       return demand_kind
-    if demand_kind in {"end_session", "item_move"}:
+    if demand_kind in {"end_session", "item_move"}: # TODO: end_session is handled above. This conditions is redundant.
       level = "yes" if demand_kind == "end_session" else "partial"
       if state["current_stage"] == "patient_demand":
         self._clear_patient_demand_state(state, clear_resume_cursor=True)
