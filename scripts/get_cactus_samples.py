@@ -2,8 +2,6 @@ import json
 import random
 import argparse
 
-<<<<<<< HEAD
-=======
 def ensure_emotional_recovery(profile):
     normalized = dict(profile)
     normalized["emotional_recovery"] = str(normalized.get("emotional_recovery", "moderate")).strip().lower() or "moderate"
@@ -11,7 +9,6 @@ def ensure_emotional_recovery(profile):
         normalized["emotional_recovery"] = "moderate"
     return normalized
 
->>>>>>> dev
 def get_cactus_samples(input_file, num_samples):
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -22,11 +19,7 @@ def get_cactus_samples(input_file, num_samples):
         num_samples = len(data)
         
     # random.sample extracts multiple unique items at once
-<<<<<<< HEAD
-    return random.sample(data, num_samples)
-=======
     return [ensure_emotional_recovery(sample) for sample in random.sample(data, num_samples)]
->>>>>>> dev
 
 if __name__ == "__main__":
     # 1. Set up the argument parser
@@ -45,8 +38,4 @@ if __name__ == "__main__":
     with open(args.output, 'w') as f:
         json.dump(samples, f, indent=2)
         
-<<<<<<< HEAD
     print(f"Successfully extracted {len(samples)} sample(s) from {args.input} into {args.output}.")
-=======
-    print(f"Successfully extracted {len(samples)} sample(s) from {args.input} into {args.output}.")
->>>>>>> dev
