@@ -73,7 +73,7 @@ class OpeningStageMixin(GraphSupportMixin):
 
     # Ready to move on to id_distortions
     if ready:
-      band = self._current_band(state["predicted_resistance"])
+      band = self._current_band(state["predicted_resistance"], state)
       if band == "action":
         self._set_stage(state, "id_distortions")
       elif band == "contemplation":

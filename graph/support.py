@@ -643,9 +643,32 @@ class GraphSupportMixin:
     ]
     return max(known_ids, default=0) + 1
 
-  def _current_band(self, value: float | None) -> Literal["precontemplation", "contemplation", "action"]:
+  def _current_band(
+    self,
+    value: float | None,
+    state: SessionState | None = None,
+  ) -> Literal["precontemplation", "contemplation", "action"]:
     if value is None:
       return "contemplation"
+
+    current_stage = state["current_stage"] if state is not None else ""
+
+    # Apply a small hysteresis while MI is active so the flow does not bounce
+    # between MI and CBT on minor prediction fluctuations near the thresholds.
+    if current_stage in {"mi_topic_exploration", "meta_conversation"}:
+      if value >= 0.70:
+        return "precontemplation"
+      if value >= 0.50:
+        return "contemplation"
+      return "action"
+
+    if current_stage == "mi_techniques":
+      if value >= 0.75:
+        return "precontemplation"
+      if value >= 0.45:
+        return "contemplation"
+      return "action"
+
     if value >= 0.75:
       return "precontemplation"
     if value >= 0.50:

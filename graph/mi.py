@@ -64,7 +64,7 @@ class MIStageMixin(GraphSupportMixin):
 
   def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     stage = state["current_stage"]
-    band = self._current_band(state["predicted_resistance"])
+    band = self._current_band(state["predicted_resistance"], state)
 
     if stage == "opening":
       return
@@ -144,7 +144,7 @@ class MIStageMixin(GraphSupportMixin):
       current_substage = state["current_substage"]
 
     # Escalate to meta-conversation after repeated topic attempts without movement.
-    if len(state["mi_topics_tried"]) >= len(MI_TOPICS) and self._current_band(state["predicted_resistance"]) == "precontemplation":
+    if len(state["mi_topics_tried"]) >= len(MI_TOPICS) and self._current_band(state["predicted_resistance"], state) == "precontemplation":
       self._set_stage(state, "meta_conversation")
       return self._handle_stage_dispatch(state, traces)
 
@@ -171,7 +171,7 @@ class MIStageMixin(GraphSupportMixin):
       )
       return self._generate_therapist_utterance(state, instruction)
 
-    band = self._current_band(state["predicted_resistance"])
+    band = self._current_band(state["predicted_resistance"], state)
     if band == "precontemplation":
       self._set_stage(state, "mi_topic_exploration")
       return self._handle_stage_dispatch(state, traces)
@@ -237,7 +237,7 @@ class MIStageMixin(GraphSupportMixin):
 
   def _handle_meta_conversation_legacy(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     turns = self._current_stage_exchange_count(state, "meta_conversation")
-    if turns >= 8 and self._current_band(state["predicted_resistance"]) == "precontemplation":
+    if turns >= 8 and self._current_band(state["predicted_resistance"], state) == "precontemplation":
       self._set_stage(state, "anticipated_closing")
       if not state["session_ended_reason"]:
         state["session_ended_reason"] = "anticipated_closing"
