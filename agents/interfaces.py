@@ -228,12 +228,18 @@ class LocalLLM(LLM):
 class DeepseekLLM(LLM):
   def __init__(self, model_id: str = "deepseek-chat", base_url: str = "https://api.deepseek.com/v1"):
     self.model_id = model_id
-    self.chat_model = OpenAI(api_key=os.getenv("DS_API_KEY") or "", base_url=base_url)
+    self.chat_model = OpenAI(api_key=os.getenv("OR_API_KEY") or "", base_url=base_url)
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     create_kwargs: dict[str, Any] = {
       "model": self.model_id,
       "messages": messages,
+      "extra_body": {
+        "provider": {
+          "order": ["deepseek"],
+          "allow_fallbacks": False
+        }
+      }
     }
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:

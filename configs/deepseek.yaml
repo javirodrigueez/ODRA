@@ -1,7 +1,7 @@
 therapist:
   type: deepseek
   base_url: https://openrouter.ai/api/v1
-  model_id: deepseek-chat
+  model_id: deepseek/deepseek-v3.2
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5
@@ -10,8 +10,8 @@ therapist:
 patient:
   type: deepseek
   base_url: https://openrouter.ai/api/v1
-  model_id: deepseek-chat
-  profiles: ./data/miniset_cactus.json
+  model_id: deepseek/deepseek-v3.2
+  profiles: ./data/sample.json
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5
