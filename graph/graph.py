@@ -334,7 +334,7 @@ class TherapyGraphBuilder(
       self._set_last_trace_output(traces, "resistance_update", trace_payload)
 
       utterance = self.patient.generate_utterance(
-        full_conversation=self._format_conversation(s["messages"]),
+        full_conversation=self._full_conversation_for_prompt(s),
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
         instruction=self._patient_utterance_instruction(s),

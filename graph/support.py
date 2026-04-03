@@ -32,6 +32,10 @@ class ConversationProcessingError(RuntimeError):
   pass
 
 
+FULL_CONVERSATION_TOKEN_LIMIT = 500
+FULL_CONVERSATION_SUMMARY_WORD_LIMIT = 300
+
+
 class GraphSupportMixin:
   cfg: Any = None
   profile: dict[str, Any] = {}
@@ -162,6 +166,8 @@ class GraphSupportMixin:
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
     s.setdefault("last_reasoning", "")
+    s.setdefault("conversation_rollup_summary", "")
+    s.setdefault("conversation_rollup_until_utterance_index", 0)
     legacy_is_complete_reasoning = s.get("is_completed_reasoning")    
     if legacy_is_complete_reasoning and not s.get("last_reasoning"):
       s["last_reasoning"] = ensure_str(legacy_is_complete_reasoning)
@@ -300,6 +306,102 @@ class GraphSupportMixin:
       return "(no utterances yet)"
     recent = messages[-limit:]
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
+
+  def _count_text_tokens(self, text: str) -> int:
+    normalized = ensure_str(text)
+    if not normalized:
+      return 0
+    try:
+      import tiktoken  # pyright: ignore[reportMissingImports]
+
+      try:
+        encoding = tiktoken.encoding_for_model("gpt-4o")
+      except KeyError:
+        encoding = tiktoken.get_encoding("cl100k_base")
+      return len(encoding.encode(normalized))
+    except Exception:
+      return max(1, (len(normalized) + 3) // 4)
+
+  def _trim_words(self, text: str, limit: int) -> str:
+    words = ensure_str(text).split()
+    if len(words) <= limit:
+      return ensure_str(text)
+    return " ".join(words[:limit]).strip()
+
+  def _conversation_rollup_latest_index(self, messages: list[ConversationMessage]) -> int:
+    if not messages:
+      return 0
+    return max(int(message.get("utterance_index", 0)) for message in messages)
+
+  def _recent_messages_since_rollup(self, state: SessionState) -> list[ConversationMessage]:
+    cutoff = int(state.get("conversation_rollup_until_utterance_index", 0))
+    return [
+      message
+      for message in state["messages"]
+      if int(message.get("utterance_index", 0)) > cutoff
+    ]
+
+  def _compose_prompt_conversation(
+    self,
+    summary: str,
+    recent_messages: list[ConversationMessage],
+  ) -> str:
+    summary_text = ensure_str(summary).strip()
+    sections: list[str] = []
+    if summary_text:
+      sections.append(f"Summary of earlier conversation:\n{summary_text}")
+    if recent_messages:
+      recent_text = self._format_conversation(recent_messages)
+      if summary_text:
+        sections.append(f"Recent utterances since that summary:\n{recent_text}")
+      else:
+        sections.append(recent_text)
+    if not sections:
+      return "(no utterances yet)"
+    return "\n\n".join(sections)
+
+  def _current_prompt_conversation_text(self, state: SessionState) -> str:
+    summary = ensure_str(state.get("conversation_rollup_summary"))
+    if summary:
+      return self._compose_prompt_conversation(summary, self._recent_messages_since_rollup(state))
+    return self._format_conversation(state["messages"])
+
+  def _summarize_prompt_conversation(self, state: SessionState, conversation_text: str) -> str:
+    instruction = self._load_stage_prompt(
+      "shared",
+      "conversation_rollup_summary",
+      word_limit=FULL_CONVERSATION_SUMMARY_WORD_LIMIT,
+    )
+    try:
+      parsed, _meta = self.therapist.generate_structured(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        last_reasoning="",
+        session_context=json.dumps(
+          {
+            "current_stage": state["current_stage"],
+            "current_substage": state["current_substage"],
+          },
+          ensure_ascii=True,
+        ),
+        instruction=instruction,
+        expected_type=dict,
+        temperature=0.2,
+      )
+    except StructuredOutputError as exc:
+      raise ConversationProcessingError(f"conversation_rollup_summary failed: {exc}") from exc
+
+    payload = self._require_dict(parsed, "conversation_rollup_summary")
+    summary = self._require_non_empty_string(payload, "conversation_summary", "conversation_rollup_summary")
+    return self._trim_words(summary, FULL_CONVERSATION_SUMMARY_WORD_LIMIT)
+
+  def _full_conversation_for_prompt(self, state: SessionState) -> str:
+    current_text = self._current_prompt_conversation_text(state)
+    if self._count_text_tokens(current_text) > FULL_CONVERSATION_TOKEN_LIMIT:
+      state["conversation_rollup_summary"] = self._summarize_prompt_conversation(state, current_text)
+      state["conversation_rollup_until_utterance_index"] = self._conversation_rollup_latest_index(state["messages"])
+      current_text = self._current_prompt_conversation_text(state)
+    return current_text
 
   def _build_stage_user_context(self, state: SessionState) -> str:
     stage = state["current_stage"]
@@ -486,7 +588,7 @@ class GraphSupportMixin:
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     #enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
     return self.therapist.generate_utterance(
-      full_conversation=self._format_conversation(state["messages"]),
+      full_conversation=self._full_conversation_for_prompt(state),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
@@ -816,7 +918,7 @@ class GraphSupportMixin:
   ) -> Any:
     try:
       parsed, _meta = self.therapist.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=self._full_conversation_for_prompt(state),
         last_utterances=self._format_last_utterances(state["messages"]),
         last_reasoning=state["last_reasoning"],
         session_context=self._build_stage_user_context(state),
@@ -844,7 +946,7 @@ class GraphSupportMixin:
   ) -> Any:
     try:
       parsed, _meta = self.patient.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=self._full_conversation_for_prompt(state),
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,

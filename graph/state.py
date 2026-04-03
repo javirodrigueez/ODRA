@@ -199,6 +199,8 @@ class SessionState(TypedDict):
   opening_patient_mood: str
   opening_patient_problem: str
   last_reasoning: str
+  conversation_rollup_summary: str
+  conversation_rollup_until_utterance_index: int
 
   cognitive_model_sets: list[CognitiveModelSet]
   working_cognitive_set: CognitiveModelSet
