@@ -236,7 +236,7 @@ class DeepseekLLM(LLM):
       "messages": messages,
       "extra_body": {
         "provider": {
-          "order": ["deepseek"],
+          "order": ["deepseek", "atlas-cloud/fp8", "novita/fp8"],
           "allow_fallbacks": False
         }
       }
