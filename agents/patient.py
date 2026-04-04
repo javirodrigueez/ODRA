@@ -86,7 +86,6 @@ class PatientAgent(Agent):
     structured: bool = False,
   ) -> str:
     resistance_prompt = self._render_resistance_prompt(resistance_level) if structured == False else f"Your resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}"
-    print(f"<SUMMARY>Using resistance prompt: {resistance_prompt}</SUMMARY>")
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"

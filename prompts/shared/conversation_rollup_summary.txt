@@ -1,6 +1,6 @@
 Summarize the conversation in <full_conversation> so it can replace the original transcript in future prompts.
 Preserve the patient's main concerns, important therapist interventions, key beliefs or distortions discussed, any resistance or motivation shifts, concrete plans or homework, and the most important unresolved next steps.
-Do not invent details, you MUST represent the original conversation with a 100% fidelity. Keep the summary under {word_limit} words.
+Do not invent details, you MUST represent the original conversation with a 100% fidelity. Keep the summary STRICTLY under {word_limit} words. The objetive is to obtain a highly compressed summary that captures the essence of the conversation.
 
 Return JSON:
 {{

@@ -393,7 +393,7 @@ class GraphSupportMixin:
 
     payload = self._require_dict(parsed, "conversation_rollup_summary")
     summary = self._require_non_empty_string(payload, "conversation_summary", "conversation_rollup_summary")
-    return self._trim_words(summary, FULL_CONVERSATION_SUMMARY_WORD_LIMIT)
+    return summary
 
   def _full_conversation_for_prompt(self, state: SessionState) -> str:
     current_text = self._current_prompt_conversation_text(state)
@@ -926,7 +926,7 @@ class GraphSupportMixin:
         expected_type=expected_type,
         temperature=temperature,
       )
-      print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
+      #print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
     except StructuredOutputError as exc:
       raise ConversationProcessingError(f"{step_name} failed: {exc}") from exc
     if isinstance(parsed, dict):
