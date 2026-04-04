@@ -3,6 +3,6 @@ Preserve the patient's main concerns, important therapist interventions, key bel
 Do not invent details, you MUST represent the original conversation with a 100% fidelity. Keep the summary under {word_limit} words.
 
 Return JSON:
-{
+{{
   "conversation_summary": string
-}
+}}

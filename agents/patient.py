@@ -54,6 +54,28 @@ class PatientAgent(Agent):
   def _format_patterns(self) -> str:
     return "\n".join(f"- {p}" for p in self.profile["patterns"])
 
+  def _resistance_prompt_name(self, resistance_level: float) -> str:
+    if resistance_level < 0.20:
+      return "r_very_low"
+    if resistance_level < 0.40:
+      return "r_low"
+    if resistance_level < 0.60:
+      return "r_medium"
+    if resistance_level < 0.80:
+      return "r_high"
+    return "r_very_high"
+
+  def _prompt_resistance_level(self, resistance_level: float) -> float:
+    return max(0, min(10, float(resistance_level) * 10))
+
+  def _render_resistance_prompt(self, resistance_level: float) -> str:
+    prompt_name = self._resistance_prompt_name(float(resistance_level))
+    template = load_prompt(f"patient_resistance/{prompt_name}.txt")
+    prompt_template = PromptTemplate.from_template(template)
+    return prompt_template.format(
+      resistance_level=self._prompt_resistance_level(round(resistance_level)),
+    )
+
   def _build_user_prompt(
     self,
     instruction: str,
@@ -61,11 +83,14 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     suffix: str,
+    structured: bool = False,
   ) -> str:
+    resistance_prompt = self._render_resistance_prompt(resistance_level) if structured == False else f"Your resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}"
+    print(f"<SUMMARY>Using resistance prompt: {resistance_prompt}</SUMMARY>")
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
-      f"<resistance_level>\nYour resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}\n</resistance_level>\n\n"
+      f"<resistance_level>\n{resistance_prompt}\n</resistance_level>\n\n"
       f"Instruction: {instruction}\n"
       f"{suffix}"
     )
@@ -143,6 +168,7 @@ class PatientAgent(Agent):
           last_utterances=last_utterances,
           resistance_level=resistance_level,
           suffix=suffix,
+          structured=True,
         ),
       },
     ]
@@ -193,6 +219,7 @@ class PatientAgent(Agent):
             last_utterances=last_utterances,
             resistance_level=resistance_level,
             suffix=retry_suffix,
+            structured=True,
           ),
         }
       )
