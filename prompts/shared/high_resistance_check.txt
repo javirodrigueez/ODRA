@@ -10,7 +10,7 @@ Return a JSON object with:
 Use these classes:
 - "end_session": the patient explicitly wants to stop, leave, end, or not continue the session now
 - "item_move": the patient explicitly wants to move on from the current topic, skip the current exercise, or change the immediate focus, but not end the whole session
-- "other": the patient explicitly asks for a different kind of help, format, or therapist action that is not just ending the session or moving to the next item
+- "other": the patient expresses a concern or objection that is not a direct request for change, but indicates a desire for the therapist to address something specific
 - "none": no explicit demand is present
 
 Be conservative:
@@ -49,6 +49,16 @@ Output:
   "demand_kind": "other",
   "demand": "Give direct practical guidance on how to handle the situation.",
   "reasoning": "The patient explicitly asks for a different kind of therapist response, namely direct practical guidance, rather than simply ending the session or moving to the next item."
+}}
+
+Example 4:
+Input: I said no. I figured he was just being polite, and he'd have more fun going with someone else. But I don't see how listing them all is going to help. It's just more proof of the same thing.
+Output:
+{{
+  "has_demand": true,
+  "demand_kind": "other",
+  "demand": "Not understand the point of listing all the thoughts.",
+  "reasoning": "The patient explicitly expresses that they don't see the point of listing all the thoughts, which is a clear objection to the current exercise and indicates a desire for the therapist to address this specific concern."
 }}
 
 Example 4:
