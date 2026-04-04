@@ -14,4 +14,4 @@ myenv
 /evaluation/**/out_before
 /evaluation/**/out_after
 /evaluation/data.json
-/evaluation/eval_test
+/evaluation/eval_*

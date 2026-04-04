@@ -14,6 +14,13 @@ from pathlib import Path
 env_path = Path(__file__).resolve().parent.parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
+FEELINGS = [
+    'interested', 'excited', 'strong', 'enthusiastic', 'proud',
+    'alert', 'inspired', 'determined', 'attentive', 'active',
+    'distressed', 'upset', 'guilty', 'scared', 'hostile',
+    'irritable', 'ashamed', 'nervous', 'jittery', 'afraid',
+]
+
 def num_tokens_from_string(string: str) -> int:
     """Returns the number of tokens in a text string."""
     encoding = tiktoken.encoding_for_model("gpt-4o")
@@ -53,20 +60,51 @@ def load_prompt(file_name):
     with open(file_path, "r", encoding="utf-8") as file:
         return file.read()
 
-def score(response, max_iter):
-    score_dict = {}
-    feelings = ['interested', 'excited', 'strong', 'enthusiastic', 'proud', 'alert', 'inspired', 'determined', 'attentive', 'active', 'distressed', 'upset', 'guilty', 'scared', 'hostile', 'irritable', 'ashamed', 'nervous', 'jittery', 'afraid']
-    for i in range(len(feelings)):
-        score_dict[feelings[i]] = []
+def _parse_score_line(line: str) -> tuple[str, str, int] | None:
+    stripped = line.strip()
+    if not stripped:
+        return None
+
+    parts = [part.strip() for part in stripped.split(",")]
+    if len(parts) >= 3:
+        emotion = re.sub(r'[^a-zA-Z0-9]', '', parts[0]).lower()
+        explanation = ",".join(parts[1:-1]).strip()
+        score_str = re.sub(r'[^a-zA-Z0-9]', '', parts[-1])
+    else:
+        txt_list_words = stripped.split()
+        if len(txt_list_words) < 2:
+            return None
+        emotion = re.sub(r'[^a-zA-Z0-9]', '', txt_list_words[0]).lower()
+        explanation = ""
+        score_str = re.sub(r'[^a-zA-Z0-9]', '', txt_list_words[-1])
+
+    if emotion not in FEELINGS or not score_str.isdigit():
+        return None
+
+    return emotion, explanation, int(score_str)
+
+def score(response, max_iter, include_explanations: bool = False):
+    score_dict = {feeling: [] for feeling in FEELINGS}
+    explanations: list[dict[str, Any]] = []
     for i in range(max_iter):
-        txt = response.choices[i].message.content
+        txt = response.choices[i].message.content or ""
         txt_list = txt.split('\n')
-        for j in range(len(txt_list)):
-            txt_list_words = txt_list[j].split()
-            feel = re.sub(r'[^a-zA-Z0-9]', '', txt_list_words[0]).lower()
-            score_str = re.sub(r'[^a-zA-Z0-9]', '', txt_list_words[-1])
-            score = int(score_str)
-            score_dict[feel].append(score)
+        for line in txt_list:
+            parsed_line = _parse_score_line(line)
+            if parsed_line is None:
+                continue
+            emotion, explanation, value = parsed_line
+            score_dict[emotion].append(value)
+            if include_explanations:
+                explanations.append(
+                    {
+                        "emotion": emotion,
+                        "explanation": explanation,
+                        "score": value,
+                    }
+                )
+    if include_explanations:
+        score_dict["explanations"] = explanations
     return score_dict
 
 def save_as_json(dictionary, filename):
@@ -99,6 +137,11 @@ if __name__ == "__main__":
                         help="Directory to to save the results.")
     parser.add_argument("-m_iter","--max_iter", type=int, default=3,
                         help="Number of times GPT-4o is run for scoring a single client.")
+    parser.add_argument(
+        "--include_explanations",
+        action="store_true",
+        help="Include explanation records in the output JSON and use the explanation prompt format.",
+    )
 
     args = parser.parse_args()
     
@@ -123,7 +166,8 @@ if __name__ == "__main__":
                 json_data = json.load(f)
             intake_form = f"{format_persona(json_data["patient_profile"]["personal_info"])}\n{format_more_info(json_data["patient_profile"]["more_information"])}"
             total_cost = 0
-            prompt_text = load_prompt("panas_after.txt")
+            prompt_name = "panas_after.txt" if args.include_explanations else "../prompts_score/panas_after.txt"
+            prompt_text = load_prompt(prompt_name)
             prompt_template = PromptTemplate(
                                 input_variables=["intake_form","conversation"],
                                 template=prompt_text)
@@ -138,7 +182,7 @@ if __name__ == "__main__":
                         model=model_name,
                         n=args.max_iter
                         )
-            score_dict = score(response, args.max_iter)
+            score_dict: Any = score(response, args.max_iter, include_explanations=args.include_explanations)
             score_dict['cost'] = 0
             score_dict['attitude'] = json_data["patient_profile"]["attitude"]
             for i in range(args.max_iter):
