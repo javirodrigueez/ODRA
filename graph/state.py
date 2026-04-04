@@ -185,6 +185,14 @@ class ReasoningTrace(TypedDict):
   traces: list[dict[str, Any]]
 
 
+class PromptAuditRecord(TypedDict):
+  utterance_index: int
+  speaker: str
+  request_kind: str
+  prompt_tokens: int
+  input_prompt: str
+
+
 class SessionState(TypedDict):
   current_stage: Stage
   current_substage: SubStage
@@ -251,6 +259,7 @@ class SessionState(TypedDict):
   patient_feedback: str
   closing_plan_refinements: int
 
+  prompt_audit_records: list[PromptAuditRecord]
   reasoning_traces: list[ReasoningTrace]
   utterance_index: int
   exchange_counts: dict[str, list[int]]

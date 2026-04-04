@@ -73,6 +73,7 @@ class OpeningStageMixin(GraphSupportMixin):
 
     # Ready to move on to id_distortions
     if ready:
+      raise NotImplementedError("Opening stage readiness check passed, but next stage transition logic is not implemented yet.")
       band = self._current_band(state["predicted_resistance"], state)
       if band == "action":
         self._set_stage(state, "id_distortions")

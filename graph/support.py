@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
+
 from agents.interfaces import (
   LLMFactory,
   StructuredOutputError,
@@ -13,10 +14,12 @@ from agents.interfaces import (
   extract_generation_config,
   load_prompt,
   render_prompt,
+  ChatMessage
 )
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
+from .audit_tokens import count_text_tokens, record_large_prompt_request
 from .resistance import (
   HomeostaticResistanceUpdate,
   TherapistResistanceUpdate,
@@ -226,6 +229,7 @@ class GraphSupportMixin:
     s.setdefault("patient_feedback", "")
     s.setdefault("closing_plan_refinements", 0)
 
+    s.setdefault("prompt_audit_records", [])
     s.setdefault("reasoning_traces", [])
     max_message_index = 0
     if s["messages"]:
@@ -307,20 +311,57 @@ class GraphSupportMixin:
     recent = messages[-limit:]
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
 
-  def _count_text_tokens(self, text: str) -> int:
-    normalized = ensure_str(text)
-    if not normalized:
-      return 0
-    try:
-      import tiktoken  # pyright: ignore[reportMissingImports]
+  def _build_therapist_request_messages(
+    self,
+    state: SessionState,
+    instruction: str,
+    *,
+    structured: bool,
+    full_conversation: str | None = None,
+    last_reasoning: str | None = None,
+    session_context: str | None = None,
+  ) -> list[ChatMessage]:
+    conversation_text = full_conversation if full_conversation is not None else self._current_prompt_conversation_text(state)
+    resolved_last_reasoning = state.get("last_reasoning", "") if last_reasoning is None else last_reasoning
+    resolved_session_context = self._build_stage_user_context(state) if session_context is None else session_context
+    if structured:
+      return self.therapist.build_structured_messages(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        last_reasoning=resolved_last_reasoning,
+        session_context=resolved_session_context,
+        instruction=instruction,
+      )
+    return self.therapist.build_utterance_messages(
+      full_conversation=conversation_text,
+      last_utterances=self._format_last_utterances(state["messages"]),
+      last_reasoning=resolved_last_reasoning,
+      session_context=resolved_session_context,
+      instruction=instruction,
+    )
 
-      try:
-        encoding = tiktoken.encoding_for_model("gpt-4o")
-      except KeyError:
-        encoding = tiktoken.get_encoding("cl100k_base")
-      return len(encoding.encode(normalized))
-    except Exception:
-      return max(1, (len(normalized) + 3) // 4)
+  def _build_patient_request_messages(
+    self,
+    state: SessionState,
+    instruction: str,
+    *,
+    structured: bool,
+    full_conversation: str | None = None,
+  ) -> list[ChatMessage]:
+    conversation_text = full_conversation if full_conversation is not None else self._current_prompt_conversation_text(state)
+    if structured:
+      return self.patient.build_structured_messages(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        resistance_level=state["resistance"],
+        instruction=instruction,
+      )
+    return self.patient.build_utterance_messages(
+      full_conversation=conversation_text,
+      last_utterances=self._format_last_utterances(state["messages"]),
+      resistance_level=state["resistance"],
+      instruction=instruction,
+    )
 
   def _trim_words(self, text: str, limit: int) -> str:
     words = ensure_str(text).split()
@@ -358,7 +399,7 @@ class GraphSupportMixin:
         sections.append(recent_text)
     if not sections:
       return "(no utterances yet)"
-    return "\n\n".join(sections)
+    return "\n".join(sections)
 
   def _current_prompt_conversation_text(self, state: SessionState) -> str:
     summary = ensure_str(state.get("conversation_rollup_summary"))
@@ -371,6 +412,25 @@ class GraphSupportMixin:
       "shared",
       "conversation_rollup_summary",
       word_limit=FULL_CONVERSATION_SUMMARY_WORD_LIMIT,
+    )
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(
+        state,
+        instruction,
+        structured=True,
+        full_conversation=conversation_text,
+        last_reasoning="",
+        session_context=json.dumps(
+          {
+            "current_stage": state["current_stage"],
+            "current_substage": state["current_substage"],
+          },
+          ensure_ascii=True,
+        ),
+      ),
+      "therapist",
+      "conversation_rollup_summary",
     )
     try:
       parsed, _meta = self.therapist.generate_structured(
@@ -397,7 +457,7 @@ class GraphSupportMixin:
 
   def _full_conversation_for_prompt(self, state: SessionState) -> str:
     current_text = self._current_prompt_conversation_text(state)
-    if self._count_text_tokens(current_text) > FULL_CONVERSATION_TOKEN_LIMIT:
+    if count_text_tokens(current_text) > FULL_CONVERSATION_TOKEN_LIMIT:
       state["conversation_rollup_summary"] = self._summarize_prompt_conversation(state, current_text)
       state["conversation_rollup_until_utterance_index"] = self._conversation_rollup_latest_index(state["messages"])
       current_text = self._current_prompt_conversation_text(state)
@@ -587,12 +647,18 @@ class GraphSupportMixin:
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     #enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(state, instruction, structured=False),
+      "therapist",
+      "therapist_utterance",
+    )
     return self.therapist.generate_utterance(
       full_conversation=self._full_conversation_for_prompt(state),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
-      instruction=instruction
+      instruction=instruction,
     )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:
@@ -916,6 +982,12 @@ class GraphSupportMixin:
     expected_type: Optional[type | tuple[type, ...]] = dict,
     temperature: float | None = None,
   ) -> Any:
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(state, instruction, structured=True),
+      "therapist",
+      step_name,
+    )
     try:
       parsed, _meta = self.therapist.generate_structured(
         full_conversation=self._full_conversation_for_prompt(state),
@@ -944,6 +1016,12 @@ class GraphSupportMixin:
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> Any:
+    record_large_prompt_request(
+      state,
+      self._build_patient_request_messages(state, instruction, structured=True),
+      "patient",
+      step_name,
+    )
     try:
       parsed, _meta = self.patient.generate_structured(
         full_conversation=self._full_conversation_for_prompt(state),
