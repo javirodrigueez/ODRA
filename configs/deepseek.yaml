@@ -22,4 +22,4 @@ env:
   min_turns: 60
   output_dir: out/deepseek
   verbose: true
-  resume_file:
+  resume_file: out/deepseek/neg_opening.json
