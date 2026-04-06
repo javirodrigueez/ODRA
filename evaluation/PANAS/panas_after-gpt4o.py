@@ -40,8 +40,8 @@ def num_tokens_from_message(messages, model="gpt-4o"):
     return total_tokens
 
 def calculate_cost(input_message, output):
-    input_cost = (num_tokens_from_message(input_message)*(5))/1000000
-    output_cost = (num_tokens_from_string(output)*(20))/1000000
+    input_cost = (num_tokens_from_message(input_message)*(2.5))/1000000
+    output_cost = (num_tokens_from_string(output)*(10))/1000000
     return input_cost+output_cost
 
 def generate_history(history):
@@ -133,6 +133,8 @@ if __name__ == "__main__":
         description="Evaluate PANAS results")
     parser.add_argument("-i","--input_dir", type=str, default=".",
                         help="Directory to read the sessions")
+    parser.add_argument("-p","--presession_dir", type=str, default=".",
+                        help="Directory to read the presession questionnaires")
     parser.add_argument("-o","--output_dir", type=str, default=".",
                         help="Directory to to save the results.")
     parser.add_argument("-m_iter","--max_iter", type=int, default=3,
@@ -146,11 +148,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     model_name = "gpt-4o"
+    #model_name = "gpt-4o-mini"
+    #model_name = "deepseek/deepseek-v3.2"
     
     
     evaluator = OpenAI(
         api_key=os.getenv("GPT_API_KEY") or "", 
         base_url="https://api.openai.com/v1"
+        #base_url="https://openrouter.ai/api/v1"
     )
 
     # with open("../../dataset/data.json", "r", encoding="utf-8") as f:
@@ -159,21 +164,44 @@ if __name__ == "__main__":
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    def format_presession_questionnaire(file_path):
+      """
+      Parses a JSON file to extract top-level emotional scores.
+      """
+      try:
+          with open(file_path, 'r') as f:
+              data = json.load(f)
+          
+          # Filter out non-score keys (explanations, cost, attitude)
+          output = []
+          for key, value in data.items():
+              if isinstance(value, list) and len(value) > 0 and isinstance(value[0], int):
+                  # Format each entry as "feeling": score
+                  output.append(f'{key}: {value[0]}')
+          
+          return "\n".join(output)
+
+      except (FileNotFoundError, json.JSONDecodeError) as e:
+          return f"Error processing file: {e}"
+        
+
     for filename in os.listdir(args.input_dir):
         if filename.endswith('.json'):
             file_path = os.path.join(args.input_dir, filename)
             with open(file_path, 'r', encoding='utf-8') as f:
                 json_data = json.load(f)
             intake_form = f"{format_persona(json_data["patient_profile"]["personal_info"])}\n{format_more_info(json_data["patient_profile"]["more_information"])}"
+            presession_questionnaire = format_presession_questionnaire(os.path.join(args.presession_dir, filename))
             total_cost = 0
             prompt_name = "panas_after.txt" if args.include_explanations else "../prompts_score/panas_after.txt"
             prompt_text = load_prompt(prompt_name)
             prompt_template = PromptTemplate(
-                                input_variables=["intake_form","conversation"],
+                                input_variables=["intake_form","conversation", "presession_questionnaire"],
                                 template=prompt_text)
             prompt = prompt_template.format(
                         intake_form = intake_form,
-                        conversation = generate_history(json_data["messages"])
+                        conversation = generate_history(json_data["messages"]),
+                        presession_questionnaire = presession_questionnaire
                     )
             messages: Any = [{'role': 'user', 'content': prompt}]
             response = evaluator.chat.completions.create(
