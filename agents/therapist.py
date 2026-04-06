@@ -67,6 +67,50 @@ class TherapistAgent(Agent):
       f"{suffix}"
     )
 
+  def build_utterance_messages(
+    self,
+    full_conversation: str,
+    last_utterances: str,
+    last_reasoning: str,
+    session_context: str,
+    instruction: str,
+  ) -> list[ChatMessage]:
+    suffix = load_prompt("shared/utterance_suffix.txt")
+    user_prompt = self._build_user_prompt(
+      instruction=instruction,
+      full_conversation=full_conversation,
+      last_utterances=last_utterances,
+      last_reasoning=last_reasoning,
+      session_context=session_context,
+      suffix=suffix,
+    )
+    return [
+      {"role": "system", "content": self.system_prompt},
+      {"role": "user", "content": user_prompt},
+    ]
+
+  def build_structured_messages(
+    self,
+    full_conversation: str,
+    last_utterances: str,
+    last_reasoning: str,
+    session_context: str,
+    instruction: str,
+  ) -> list[ChatMessage]:
+    suffix = load_prompt("shared/structured_suffix.txt")
+    user_prompt = self._build_user_prompt(
+      instruction=instruction,
+      full_conversation=full_conversation,
+      last_utterances=last_utterances,
+      last_reasoning=last_reasoning,
+      session_context=session_context,
+      suffix=suffix,
+    )
+    return [
+      {"role": "system", "content": self.system_prompt},
+      {"role": "user", "content": user_prompt},
+    ]
+
   def generate_utterance(
     self,
     full_conversation: str,
@@ -83,21 +127,13 @@ class TherapistAgent(Agent):
     frequency_penalty: float | None = None,
     repetition_penalty: float | None = None,
   ) -> str:
-    suffix = load_prompt("shared/utterance_suffix.txt")
-    messages: list[ChatMessage] = [
-      {"role": "system", "content": self.system_prompt},
-      {
-        "role": "user",
-        "content": self._build_user_prompt(
-          instruction=instruction,
-          full_conversation=full_conversation,
-          last_utterances=last_utterances,
-          last_reasoning=last_reasoning,
-          session_context=session_context,
-          suffix=suffix,
-        ),
-      },
-    ]
+    messages = self.build_utterance_messages(
+      full_conversation=full_conversation,
+      last_utterances=last_utterances,
+      last_reasoning=last_reasoning,
+      session_context=session_context,
+      instruction=instruction,
+    )
     generation_kwargs = self._build_generation_kwargs(
       default_values={"max_tokens": 8192, "temperature": 0.7},
       override_values={
@@ -131,22 +167,14 @@ class TherapistAgent(Agent):
     frequency_penalty: float | None = None,
     repetition_penalty: float | None = None,
   ) -> tuple[Any, dict[str, Any]]:
-    suffix = load_prompt("shared/structured_suffix.txt")
     retry_suffix = load_prompt("shared/structured_suffix.txt")
-    messages: list[ChatMessage] = [
-      {"role": "system", "content": self.system_prompt},
-      {
-        "role": "user",
-        "content": self._build_user_prompt(
-          instruction=instruction,
-          full_conversation=full_conversation,
-          last_utterances=last_utterances,
-          last_reasoning=last_reasoning,
-          session_context=session_context,
-          suffix=suffix,
-        ),
-      },
-    ]
+    messages = self.build_structured_messages(
+      full_conversation=full_conversation,
+      last_utterances=last_utterances,
+      last_reasoning=last_reasoning,
+      session_context=session_context,
+      instruction=instruction,
+    )
 
     attempts = 0
     last_raw = ""

@@ -74,8 +74,11 @@ def run_simulation(
       last_msg_count = len(initial_state.get("messages", []))
       for chunk in chain.stream(initial_state, stream_mode="values"):
         messages = chunk.get("messages", [])
+        r = chunk.get("resistance", "N/A")
+        pred_r = chunk.get("predicted_resistance", "N/A")
         for msg in messages[last_msg_count:]:
-          print(f'    {msg["role"].capitalize()}: {msg["content"]}')
+          r_print = pred_r if msg["role"] == "therapist" else r
+          print(f'    {msg["role"].capitalize()} ({r_print}): {msg["content"]}')
         last_msg_count = len(messages)
         result = chunk
       if result.get("conversation_error"):

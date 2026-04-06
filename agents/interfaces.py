@@ -228,7 +228,7 @@ class LocalLLM(LLM):
 class DeepseekLLM(LLM):
   def __init__(self, model_id: str = "deepseek-chat", base_url: str = "https://api.deepseek.com/v1"):
     self.model_id = model_id
-    self.chat_model = OpenAI(api_key=os.getenv("OR_API_KEY") or "", base_url=base_url)
+    self.chat_model = OpenAI(api_key=os.getenv("OR_API_KEY") or "", base_url=base_url, timeout=60, max_retries=3)
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     create_kwargs: dict[str, Any] = {

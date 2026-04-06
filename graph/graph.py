@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMiss
 from agents.interfaces import ensure_str
 from runtime_config import load_runtime_config
 
+from .audit_tokens import record_large_prompt_request
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
 from .demand import PatientDemandStageMixin
@@ -333,8 +334,14 @@ class TherapyGraphBuilder(
       trace_payload.update(resistance_update)
       self._set_last_trace_output(traces, "resistance_update", trace_payload)
 
+      record_large_prompt_request(
+        s,
+        self._build_patient_request_messages(s, self._patient_utterance_instruction(s), structured=False),
+        "patient",
+        "patient_utterance",
+      )
       utterance = self.patient.generate_utterance(
-        full_conversation=self._format_conversation(s["messages"]),
+        full_conversation=self._full_conversation_for_prompt(s),
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
         instruction=self._patient_utterance_instruction(s),

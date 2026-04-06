@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
+
 from agents.interfaces import (
   LLMFactory,
   StructuredOutputError,
@@ -13,10 +14,12 @@ from agents.interfaces import (
   extract_generation_config,
   load_prompt,
   render_prompt,
+  ChatMessage
 )
 from agents.patient import PatientAgent
 from agents.therapist import TherapistAgent
 
+from .audit_tokens import count_text_tokens, record_large_prompt_request
 from .resistance import (
   HomeostaticResistanceUpdate,
   TherapistResistanceUpdate,
@@ -30,6 +33,10 @@ from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, D
 
 class ConversationProcessingError(RuntimeError):
   pass
+
+
+FULL_CONVERSATION_TOKEN_LIMIT = 500
+FULL_CONVERSATION_SUMMARY_WORD_LIMIT = 300
 
 
 class GraphSupportMixin:
@@ -162,6 +169,8 @@ class GraphSupportMixin:
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
     s.setdefault("last_reasoning", "")
+    s.setdefault("conversation_rollup_summary", "")
+    s.setdefault("conversation_rollup_until_utterance_index", 0)
     legacy_is_complete_reasoning = s.get("is_completed_reasoning")    
     if legacy_is_complete_reasoning and not s.get("last_reasoning"):
       s["last_reasoning"] = ensure_str(legacy_is_complete_reasoning)
@@ -220,6 +229,7 @@ class GraphSupportMixin:
     s.setdefault("patient_feedback", "")
     s.setdefault("closing_plan_refinements", 0)
 
+    s.setdefault("prompt_audit_records", [])
     s.setdefault("reasoning_traces", [])
     max_message_index = 0
     if s["messages"]:
@@ -300,6 +310,158 @@ class GraphSupportMixin:
       return "(no utterances yet)"
     recent = messages[-limit:]
     return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in recent)
+
+  def _build_therapist_request_messages(
+    self,
+    state: SessionState,
+    instruction: str,
+    *,
+    structured: bool,
+    full_conversation: str | None = None,
+    last_reasoning: str | None = None,
+    session_context: str | None = None,
+  ) -> list[ChatMessage]:
+    conversation_text = full_conversation if full_conversation is not None else self._current_prompt_conversation_text(state)
+    resolved_last_reasoning = state.get("last_reasoning", "") if last_reasoning is None else last_reasoning
+    resolved_session_context = self._build_stage_user_context(state) if session_context is None else session_context
+    if structured:
+      return self.therapist.build_structured_messages(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        last_reasoning=resolved_last_reasoning,
+        session_context=resolved_session_context,
+        instruction=instruction,
+      )
+    return self.therapist.build_utterance_messages(
+      full_conversation=conversation_text,
+      last_utterances=self._format_last_utterances(state["messages"]),
+      last_reasoning=resolved_last_reasoning,
+      session_context=resolved_session_context,
+      instruction=instruction,
+    )
+
+  def _build_patient_request_messages(
+    self,
+    state: SessionState,
+    instruction: str,
+    *,
+    structured: bool,
+    full_conversation: str | None = None,
+  ) -> list[ChatMessage]:
+    conversation_text = full_conversation if full_conversation is not None else self._current_prompt_conversation_text(state)
+    if structured:
+      return self.patient.build_structured_messages(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        resistance_level=state["resistance"],
+        instruction=instruction,
+      )
+    return self.patient.build_utterance_messages(
+      full_conversation=conversation_text,
+      last_utterances=self._format_last_utterances(state["messages"]),
+      resistance_level=state["resistance"],
+      instruction=instruction,
+    )
+
+  def _trim_words(self, text: str, limit: int) -> str:
+    words = ensure_str(text).split()
+    if len(words) <= limit:
+      return ensure_str(text)
+    return " ".join(words[:limit]).strip()
+
+  def _conversation_rollup_latest_index(self, messages: list[ConversationMessage]) -> int:
+    if not messages:
+      return 0
+    return max(int(message.get("utterance_index", 0)) for message in messages)
+
+  def _recent_messages_since_rollup(self, state: SessionState) -> list[ConversationMessage]:
+    cutoff = int(state.get("conversation_rollup_until_utterance_index", 0))
+    return [
+      message
+      for message in state["messages"]
+      if int(message.get("utterance_index", 0)) > cutoff
+    ]
+
+  def _compose_prompt_conversation(
+    self,
+    summary: str,
+    recent_messages: list[ConversationMessage],
+  ) -> str:
+    summary_text = ensure_str(summary).strip()
+    sections: list[str] = []
+    if summary_text:
+      sections.append(f"Summary of earlier conversation:\n{summary_text}")
+    if recent_messages:
+      recent_text = self._format_conversation(recent_messages)
+      if summary_text:
+        sections.append(f"Recent utterances since that summary:\n{recent_text}")
+      else:
+        sections.append(recent_text)
+    if not sections:
+      return "(no utterances yet)"
+    return "\n".join(sections)
+
+  def _current_prompt_conversation_text(self, state: SessionState) -> str:
+    summary = ensure_str(state.get("conversation_rollup_summary"))
+    if summary:
+      return self._compose_prompt_conversation(summary, self._recent_messages_since_rollup(state))
+    return self._format_conversation(state["messages"])
+
+  def _summarize_prompt_conversation(self, state: SessionState, conversation_text: str) -> str:
+    instruction = self._load_stage_prompt(
+      "shared",
+      "conversation_rollup_summary",
+      word_limit=FULL_CONVERSATION_SUMMARY_WORD_LIMIT,
+    )
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(
+        state,
+        instruction,
+        structured=True,
+        full_conversation=conversation_text,
+        last_reasoning="",
+        session_context=json.dumps(
+          {
+            "current_stage": state["current_stage"],
+            "current_substage": state["current_substage"],
+          },
+          ensure_ascii=True,
+        ),
+      ),
+      "therapist",
+      "conversation_rollup_summary",
+    )
+    try:
+      parsed, _meta = self.therapist.generate_structured(
+        full_conversation=conversation_text,
+        last_utterances=self._format_last_utterances(state["messages"]),
+        last_reasoning="",
+        session_context=json.dumps(
+          {
+            "current_stage": state["current_stage"],
+            "current_substage": state["current_substage"],
+          },
+          ensure_ascii=True,
+        ),
+        instruction=instruction,
+        expected_type=dict,
+        temperature=0.2,
+      )
+    except StructuredOutputError as exc:
+      raise ConversationProcessingError(f"conversation_rollup_summary failed: {exc}") from exc
+
+    payload = self._require_dict(parsed, "conversation_rollup_summary")
+    summary = self._require_non_empty_string(payload, "conversation_summary", "conversation_rollup_summary")
+    return summary
+
+  def _full_conversation_for_prompt(self, state: SessionState) -> str:
+    current_text = self._current_prompt_conversation_text(state)
+    if count_text_tokens(current_text) > FULL_CONVERSATION_TOKEN_LIMIT:
+      state["conversation_rollup_summary"] = self._summarize_prompt_conversation(state, current_text)
+      state["conversation_rollup_until_utterance_index"] = self._conversation_rollup_latest_index(state["messages"])
+      current_text = self._current_prompt_conversation_text(state)
+    return current_text
 
   def _build_stage_user_context(self, state: SessionState) -> str:
     stage = state["current_stage"]
@@ -485,12 +647,18 @@ class GraphSupportMixin:
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     #enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(state, instruction, structured=False),
+      "therapist",
+      "therapist_utterance",
+    )
     return self.therapist.generate_utterance(
-      full_conversation=self._format_conversation(state["messages"]),
+      full_conversation=self._full_conversation_for_prompt(state),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
-      instruction=instruction
+      instruction=instruction,
     )
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:
@@ -814,9 +982,15 @@ class GraphSupportMixin:
     expected_type: Optional[type | tuple[type, ...]] = dict,
     temperature: float | None = None,
   ) -> Any:
+    record_large_prompt_request(
+      state,
+      self._build_therapist_request_messages(state, instruction, structured=True),
+      "therapist",
+      step_name,
+    )
     try:
       parsed, _meta = self.therapist.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=self._full_conversation_for_prompt(state),
         last_utterances=self._format_last_utterances(state["messages"]),
         last_reasoning=state["last_reasoning"],
         session_context=self._build_stage_user_context(state),
@@ -824,7 +998,7 @@ class GraphSupportMixin:
         expected_type=expected_type,
         temperature=temperature,
       )
-      print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
+      #print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
     except StructuredOutputError as exc:
       raise ConversationProcessingError(f"{step_name} failed: {exc}") from exc
     if isinstance(parsed, dict):
@@ -842,9 +1016,15 @@ class GraphSupportMixin:
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
   ) -> Any:
+    record_large_prompt_request(
+      state,
+      self._build_patient_request_messages(state, instruction, structured=True),
+      "patient",
+      step_name,
+    )
     try:
       parsed, _meta = self.patient.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=self._full_conversation_for_prompt(state),
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,

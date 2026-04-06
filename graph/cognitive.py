@@ -466,6 +466,7 @@ class CognitiveStageMixin(GraphSupportMixin):
     if current_substage == "cognitive_check_completion":
       if self._check_distortion_completion(state, traces, id_exchanges):
         self._set_stage(state, "cbt_technique")
+        #raise NotImplementedError("Just trying...")
         return self._handle_stage_dispatch(state, traces)
       self._set_substage(state, "cognitive_review_active_question")
       return self._handle_id_distortions(state, traces)

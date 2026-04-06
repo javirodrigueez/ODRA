@@ -10,8 +10,7 @@ myenv
 .env
 /evaluation/**/test
 /evaluation/**/out_test
-/evaluation/**/out
-/evaluation/**/out_before
-/evaluation/**/out_after
+/evaluation/**/out*
+/evaluation/**/miniout_*
 /evaluation/data.json
 /evaluation/eval_*
