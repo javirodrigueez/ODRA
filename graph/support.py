@@ -28,7 +28,7 @@ from .resistance import (
   normalize_predicted_resistance_state_fields,
   normalize_resistance_state_fields,
 )
-from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SessionState, Stage, SubStage
+from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, HomeworkTask, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SelectedTechnique, SessionState, Stage, SubStage
 
 
 class ConversationProcessingError(RuntimeError):
@@ -465,6 +465,78 @@ class GraphSupportMixin:
 
   # Format functions here
 
+  def _join_compact_fields(self, fields: list[tuple[str, str]]) -> str:
+    return ",".join(f"{key}={value}" for key, value in fields)
+
+  def _format_cognitive_model_sets(self, sets: CognitiveModelSet | list[CognitiveModelSet]) -> str:
+    entries = sets if isinstance(sets, list) else [sets]
+    lines: list[str] = []
+    for item in entries:
+      if not item:
+        continue
+      situation = ensure_str(item.get("situation"))
+      automatic_thoughts = " | ".join(ensure_str_list(item.get("automatic_thoughts")))
+      emotions = " | ".join(ensure_str_list(item.get("emotions")))
+      behaviors = " | ".join(ensure_str_list(item.get("behaviors")))
+      core_belief = ensure_str(item.get("core_belief"))
+      distortion = ensure_str(item.get("distortion"))
+      if not any([situation, automatic_thoughts, emotions, behaviors, core_belief, distortion]):
+        continue
+      lines.append(
+        self._join_compact_fields(
+          [
+            ("situation", situation),
+            ("auto_thoughts", automatic_thoughts),
+            ("emotions", emotions),
+            ("behaviors", behaviors),
+            ("core_belief", core_belief),
+            ("distortion", distortion),
+          ]
+        )
+      )
+    return "\n".join(lines)
+
+  def _format_selected_technique(self, techniques: SelectedTechnique | list[SelectedTechnique] | None) -> str:
+    if not techniques:
+      return ""
+    entries = techniques if isinstance(techniques, list) else [techniques]
+    lines: list[str] = []
+    for item in entries:
+      if not item:
+        continue
+      name = ensure_str(item.get("name"))
+      target_distortion = ensure_str(item.get("target_distortion"))
+      if not any([name, target_distortion]):
+        continue
+      lines.append(
+        self._join_compact_fields(
+          [
+            ("name", name),
+            ("target_distortion", target_distortion),
+          ]
+        )
+      )
+    return "\n".join(lines)
+
+  def _format_tasks(self, tasks: list[HomeworkTask]) -> str:
+    lines: list[str] = []
+    for item in tasks:
+      if not item:
+        continue
+      task_title = ensure_str(item.get("task_title"))
+      task_description = ensure_str(item.get("task_description"))
+      if not any([task_title, task_description]):
+        continue
+      lines.append(
+        self._join_compact_fields(
+          [
+            ("task_title", task_title),
+            ("task_description", task_description),
+          ]
+        )
+      )
+    return "\n".join(lines)
+
   def _build_stage_user_context(self, state: SessionState) -> str:
     stage = state["current_stage"]
     context: dict[str, Any] = {
@@ -500,9 +572,9 @@ class GraphSupportMixin:
         {
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
-          "cognitive_model_sets": state["cognitive_model_sets"],
-          "shelved_cognitive_sets": state["shelved_cognitive_sets"],
-          "working_cognitive_set": state["working_cognitive_set"],
+          "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
+          "shelved_cognitive_sets": self._format_cognitive_model_sets(state["shelved_cognitive_sets"]),
+          "working_cognitive_set": self._format_cognitive_model_sets(state["working_cognitive_set"]),
           "active_cognitive_target": state["active_cognitive_target"],
           "active_cognitive_question": state["active_cognitive_question"],
           "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
@@ -518,10 +590,10 @@ class GraphSupportMixin:
         current_selected_technique = state["selected_techniques"][current_technique_index]
       context.update(
         {
-          "cognitive_model_sets": state["cognitive_model_sets"],
-          "selected_techniques": state["selected_techniques"],
+          "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
+          "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
           "current_technique_index": current_technique_index,
-          "current_selected_technique": current_selected_technique,
+          "current_selected_technique": self._format_selected_technique(current_selected_technique),
           "current_technique_plan": state["current_technique_plan"],
           #"current_technique_expected_outcome": state["current_technique_expected_outcome"],
           "current_technique_current_progress": state["current_technique_current_progress"],
@@ -535,10 +607,10 @@ class GraphSupportMixin:
         {
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
-          "cognitive_model_sets": state["cognitive_model_sets"],
+          "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
           "technique_evaluations": state["technique_evaluations"][-3:],
-          "proposed_tasks": state["proposed_tasks"],
-          "agreed_tasks": state["agreed_tasks"],
+          "proposed_tasks": self._format_tasks(state["proposed_tasks"]),
+          "agreed_tasks": self._format_tasks(state["agreed_tasks"]),
           "homework_proposal_attempts": state["homework_proposal_attempts"],
           #"homework_waiting_for_patient": state["homework_waiting_for_patient"],
           #"homework_fallback_done": state["homework_fallback_done"],
@@ -550,12 +622,12 @@ class GraphSupportMixin:
         {
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
-          "cognitive_model_sets": state["cognitive_model_sets"],
+          "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
           "technique_evaluations": state["technique_evaluations"],
-          "selected_techniques": state["selected_techniques"],
+          "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
           #"session_summary": state["session_summary"],
           #"next_session_plan": state["next_session_plan"],
-          "agreed_tasks": state["agreed_tasks"],
+          "agreed_tasks": self._format_tasks(state["agreed_tasks"]),
           #"patient_feedback": state["patient_feedback"],
           #"closing_plan_refinements": state["closing_plan_refinements"],
         }
@@ -602,8 +674,8 @@ class GraphSupportMixin:
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
           "current_mi_topic": state["current_mi_topic"],
-          "cognitive_model_sets": state["cognitive_model_sets"],
-          "selected_techniques": state["selected_techniques"],
+          "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
+          "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
           "current_technique_index": state["current_technique_index"],
           #"patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
           #"patient_demand_turn_cap": 10,

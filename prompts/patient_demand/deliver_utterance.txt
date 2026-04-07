@@ -1,4 +1,4 @@
 Generate the therapist's next utterance for the temporary patient-demand stage.
-The active patient demand, the current demand plan, the saved resume target, the current turn count in this stage, and the turn cap are available as 'patient_demand_text', 'patient_demand_plan', 'patient_demand_resume_stage', 'patient_demand_turn_count', and 'patient_demand_turn_cap' within <session_context>.
+The active patient demand and the current demand plan are available as 'patient_demand_text' and 'patient_demand_plan' within <session_context>.
 Address the patient's explicit request directly and helpfully, following the demand plan.
 Respond with plain text.

@@ -1,5 +1,5 @@
 Generate the therapist's transition utterance for leaving the temporary patient-demand stage and resuming the saved therapy flow.
-The active patient demand, the current demand plan, the saved resume target, and the latest patient response are available as 'patient_demand_text', 'patient_demand_plan', 'patient_demand_resume_stage', 'patient_demand_resume_substage', and 'last_patient_response' within <session_context>.
+The active patient demand and the current demand plan are available as 'patient_demand_text' and 'patient_demand_plan' within <session_context>.
 The exit reason is "{exit_reason}" and the saved resume target is stage "{resume_stage}" with substage "{resume_substage}".
 Briefly acknowledge the detour and smoothly reorient the patient toward the saved therapy flow. If the exit reason is "max_turn_cap", acknowledge that the request has been addressed as far as possible for now without sounding abrupt or dismissive.
 Respond with plain text.

@@ -9,7 +9,7 @@ from .state import CBT_STAGES, MI_TOPICS, SessionState, Stage, SubStage
 
 
 class MIStageMixin(GraphSupportMixin):
-  META_CONVERSATION_TURN_CAP = 10
+  META_CONVERSATION_TURN_CAP = 5
 
   def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]], reason: str) -> None:
     if not state["mi_techniques_paused_until_precontemplation"]:
@@ -280,18 +280,18 @@ class MIStageMixin(GraphSupportMixin):
       instruction = self._load_stage_prompt("meta_conversation", "open_utterance")
       return self._generate_therapist_utterance(state, instruction)
 
-    ready_to_resume = self._check_meta_conversation_readiness(state, traces)
-    if ready_to_resume:
-      resume_stage = state["cbt_resume_stage"] or "id_distortions"
-      traces.append(
-        {
-          "step": "meta_conversation_resume",
-          "input": f"Meta-conversation readiness check after {turns} completed exchange(s).",
-          "output": f"Patient appears ready to resume CBT flow at {resume_stage}.",
-        }
-      )
-      self._set_stage(state, resume_stage)
-      return self._handle_stage_dispatch(state, traces)
+    # ready_to_resume = self._check_meta_conversation_readiness(state, traces)
+    # if ready_to_resume:
+    #   resume_stage = state["cbt_resume_stage"] or "id_distortions"
+    #   traces.append(
+    #     {
+    #       "step": "meta_conversation_resume",
+    #       "input": f"Meta-conversation readiness check after {turns} completed exchange(s).",
+    #       "output": f"Patient appears ready to resume CBT flow at {resume_stage}.",
+    #     }
+    #   )
+    #   self._set_stage(state, resume_stage)
+    #   return self._handle_stage_dispatch(state, traces)
 
     current_substage = self._meta_substage_for_turns(turns)
     self._set_substage(state, current_substage)
