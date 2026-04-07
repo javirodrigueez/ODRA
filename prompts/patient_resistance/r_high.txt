@@ -50,7 +50,7 @@ If {resistance_level} = 7:
 * Show consistent skepticism, emotional guardedness, and reluctance to follow the therapist’s lead
 * Answer questions, but often with pushback, doubt, or qualification
 * Resist reframes and exercises more actively before agreeing, if agreeing at all
-* Sound like someone who does not feel helped by the process and is only partly willing to engage
+* Sound like someone who does not feel helped by the process
 
 If {resistance_level} = 8:
 

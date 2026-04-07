@@ -1,0 +1,32 @@
+[
+  {
+    "idx": 21282,
+    "personal_info": {
+      "name": "Samantha Frazier",
+      "age": "25",
+      "gender": "female",
+      "occupation": "Maine Coon cat breeder and shower",
+      "education": "Not specified",
+      "marital_status": "Not specified",
+      "family_details": "Parents who recently moved to Florida"
+    },
+    "presenting_problem": "I feel like an incapable cook after my parents visited me and did not like my food. This has led to feelings of inadequacy and self-doubt.\nThese feelings started after my parents' visit last month and have been bothering me since then.\nThe stress level when the problem first occurred was high as I value my cooking skills and seek validation from my parents.\nThe problem has progressed to affecting my confidence in cooking and has made me doubt my abilities in other areas as well.\nI experience these feelings whenever I cook or think about cooking for others.\nI have tried to improve my cooking skills by taking online classes and experimenting with new recipes, but the negative thoughts persist.",
+    "reason_seeking_counseling": "The incident with my parents made me realize that these feelings of inadequacy were affecting my self-esteem and enjoyment of cooking, leading me to seek counseling.",
+    "patterns": [
+      "catastrophizing",
+      "discounting the positive",
+      "labeling and mislabeling",
+      "mental filtering",
+      "jumping to conclusions: fortune-telling",
+      "overgeneralization",
+      "personalization",
+      "black-and-white or polarized thinking / all or nothing thinking"
+    ],
+    "attitude": "very_negative",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for other psychological problems.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My performance in cat breeding and showing has not been affected, but my confidence in my cooking skills has decreased.\nInterpersonal relationships: The incident with my parents has made me hesitant to cook for others, impacting my relationships.\nDaily life: My self-esteem issues have affected my motivation to cook and my enjoyment of the activity.",
+      "social_support_system": "I have a few friends I can talk to and seek advice from, but I struggle to discuss my feelings of inadequacy with them."
+    }
+  }
+]

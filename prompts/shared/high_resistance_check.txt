@@ -47,8 +47,8 @@ Output:
 {{
   "has_demand": true,
   "demand_kind": "other",
-  "demand": "Give direct practical guidance on how to handle the situation.",
-  "reasoning": "The patient explicitly asks for a different kind of therapist response, namely direct practical guidance, rather than simply ending the session or moving to the next item."
+  "demand": "Needs to be convinced about the value of the therapy for them.",
+  "reasoning": "The patient implicitly expresses doubt about the value of the therapy. While they do not explicitly request anything, they express a concern that should be addressed by the therapist to help them engage."
 }}
 
 Example 4:
@@ -58,25 +58,15 @@ Output:
   "has_demand": true,
   "demand_kind": "other",
   "demand": "Not understand the point of listing all the thoughts.",
-  "reasoning": "The patient explicitly expresses that they don't see the point of listing all the thoughts, which is a clear objection to the current exercise and indicates a desire for the therapist to address this specific concern."
+  "reasoning": "The patient explicitly expresses that they don't see the point of listing all the thoughts, which is a clear objection to the current exercise. The therapist should address the concern to help the patient engaging with the exercise."
 }}
 
-Example 4:
-Input: "I don't know if this is helping. Maybe I'm overreacting."
+Example 5:
+Input: "It's... all of those, I think. But the strongest one is probably loneliness."
 Output:
 {{
   "has_demand": false,
   "demand_kind": "none",
   "demand": null,
-  "reasoning": "The patient expresses doubt, but there is no explicit request to end the session, change focus, or do something different."
-}}
-
-Example 5: 
-Input: "I don't know what would be helpful. I told you, it's just the grind. Maybe we should just call it a day."
-Output:
-{{
-  "has_demand": false,
-  "demand_kind": "none",
-  "demand": null,
-  "reasoning": "Although the patient mentions calling it a day, they do not explicitly request to end the session. The statement is more of a vague expression of frustration rather than a clear demand, as it uses the expression 'Maybe'."
+  "reasoning": "The patient just describes their feelings."
 }}

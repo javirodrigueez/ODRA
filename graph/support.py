@@ -824,22 +824,22 @@ class GraphSupportMixin:
     # Apply a small hysteresis while MI is active so the flow does not bounce
     # between MI and CBT on minor prediction fluctuations near the thresholds.
     if current_stage in {"mi_topic_exploration", "meta_conversation"}:
-      if value >= 0.70:
+      if value >= 0.85:
         return "precontemplation"
-      if value >= 0.50:
+      if value >= 0.70:
         return "contemplation"
       return "action"
 
     if current_stage == "mi_techniques":
-      if value >= 0.75:
+      if value >= 0.90:
         return "precontemplation"
-      if value >= 0.45:
+      if value >= 0.65:
         return "contemplation"
       return "action"
 
-    if value >= 0.75:
+    if value >= 0.90:
       return "precontemplation"
-    if value >= 0.50:
+    if value >= 0.70:
       return "contemplation"
     return "action"
 

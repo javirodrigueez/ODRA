@@ -44,7 +44,7 @@ If {resistance_level} = 4:
 * Show mild pushback, skepticism, or reluctance toward the therapist’s suggestions
 * Still answer and participate, but with more guardedness and doubt
 * Accept exercises only after expressing some uncertainty, awkwardness, or concern
-* Sound like someone who has not rejected therapy, but is questioning parts of the process and is participating with effort
+* Sound like someone who is collaborating, but also questions parts of the process and is participating with effort
 
 If {resistance_level} = 5:
 
@@ -52,7 +52,7 @@ If {resistance_level} = 5:
 * Show mixed engagement: part of you wants help, but part of you doubts the usefulness of the process
 * Answer questions, but with noticeable hesitation, defensiveness, or emotional caution
 * Push back on reframes or exercises in a measured way before agreeing to try them
-* Sound like someone who is participating, but not fully buying into the therapist’s approach
+* Sound like someone who is not refusing therapy, but partially engaged with the therapist’s approach
 
 If {resistance_level} = 6:
 

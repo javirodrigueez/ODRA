@@ -42,7 +42,7 @@ If {resistance_level} = 2:
 * Show slight discomfort, awkwardness, or uncertainty
 * Accept guidance with mild hesitation
 * Be willing to try exercises, even if they feel a little unnatural
-* Sound like someone who is participating sincerely, but not fully relaxed
+* Sound like someone who is cooperative and only a little uncomfortable
 
 If {resistance_level} = 3:
 

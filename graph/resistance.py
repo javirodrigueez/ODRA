@@ -6,9 +6,11 @@ from typing import Any, Literal, NotRequired, TypedDict
 EmotionalRecovery = Literal["high", "moderate", "low"]
 
 RESISTANCE_BASELINE_BY_ATTITUDE: dict[str, float] = {
-  "negative": 0.80,
-  "neutral": 0.55,
-  "positive": 0.35,
+  "very_negative": 0.90,
+  "negative": 0.70,
+  "neutral": 0.50,
+  "positive": 0.30,
+  "very_positive": 0.10,
 }
 
 RESISTANCE_RECOVERY_RATE_BY_EMOTIONAL_RECOVERY: dict[EmotionalRecovery, float] = {
