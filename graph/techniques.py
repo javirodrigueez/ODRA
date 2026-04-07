@@ -141,19 +141,20 @@ class TechniqueStageMixin(GraphSupportMixin):
 
     return completed
 
-  def _evaluate_technique(self, state: SessionState, traces: list[dict[str, Any]], technique_name: str) -> None:
+  def _evaluate_technique(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     instruction = self._load_stage_prompt("cbt_technique", "technique_evaluation")
-    evaluation = self._require_dict(
-      self._run_therapist_structured(state, traces, "technique_evaluation", instruction),
-      "technique_evaluation",
-    )
-    state["technique_evaluations"].append(
-      {
-        "technique": technique_name,
-        "evaluation": evaluation,
-        "turns": state["technique_turn_count"],
-      }
-    )
+    evaluation = ensure_str(
+      self._run_therapist_structured(
+        state,
+        traces,
+        "technique_evaluation",
+        instruction,
+        expected_type=str,
+      )
+    ).strip()
+    if not evaluation:
+      raise ConversationProcessingError("technique_evaluation must return a non-empty string.")
+    state["technique_evaluations"].append(evaluation)
 
   def _should_apply_more_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:
     instruction = self._load_stage_prompt("cbt_technique", "apply_more_check")
@@ -168,7 +169,7 @@ class TechniqueStageMixin(GraphSupportMixin):
     current = self._current_technique(state)
     if current is None:
       raise ConversationProcessingError("Current CBT technique could not be resolved.")
-    self._evaluate_technique(state, traces, current["name"])
+    self._evaluate_technique(state, traces)
     state["techniques_completed"] += 1
     state["current_technique_index"] += 1
     state["current_technique_plan"] = ""
@@ -278,7 +279,7 @@ class TechniqueStageMixin(GraphSupportMixin):
         )
         state["current_technique_plan"] = self._require_non_empty_string(
           plan_parsed,
-          "detailed_plan_description",
+          "plan_description",
           "technique_plan",
         )
         state["current_technique_expected_outcome"] = self._require_non_empty_string(
@@ -302,7 +303,7 @@ class TechniqueStageMixin(GraphSupportMixin):
         )
         state["current_technique_plan"] = self._require_non_empty_string(
           plan_parsed,
-          "detailed_plan_description",
+          "plan_description",
           "technique_plan",
         )
         state["current_technique_current_progress"] = self._require_non_empty_string(

@@ -463,13 +463,15 @@ class GraphSupportMixin:
       current_text = self._current_prompt_conversation_text(state)
     return current_text
 
+  # Format functions here
+
   def _build_stage_user_context(self, state: SessionState) -> str:
     stage = state["current_stage"]
     context: dict[str, Any] = {
       "current_stage": stage,
       "predicted_resistance": state["predicted_resistance"],
       #"stage_exchange_count": self._current_stage_exchange_count(state, stage),
-      "stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
+      #"stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
       # "high_resistance_redirect_triggered": state["high_resistance_redirect_triggered"],
       # "high_resistance_level": state["high_resistance_level"],
       # "high_resistance_source_stage": state["high_resistance_source_stage"],
@@ -505,8 +507,8 @@ class GraphSupportMixin:
           "active_cognitive_question": state["active_cognitive_question"],
           "active_cognitive_follow_up_attempts": state["active_cognitive_follow_up_attempts"],
           "cognitive_gap_plan": state["cognitive_gap_plan"],
-          "working_cognitive_set_exchange_count": state["working_cognitive_set_exchange_count"],
-          "working_cognitive_set_min_exchanges": MIN_COGNITIVE_SET_EXCHANGES,
+          #"working_cognitive_set_exchange_count": state["working_cognitive_set_exchange_count"],
+          #"working_cognitive_set_min_exchanges": MIN_COGNITIVE_SET_EXCHANGES,
         }
       )
     elif stage == "cbt_technique":
@@ -521,9 +523,9 @@ class GraphSupportMixin:
           "current_technique_index": current_technique_index,
           "current_selected_technique": current_selected_technique,
           "current_technique_plan": state["current_technique_plan"],
-          "current_technique_expected_outcome": state["current_technique_expected_outcome"],
+          #"current_technique_expected_outcome": state["current_technique_expected_outcome"],
           "current_technique_current_progress": state["current_technique_current_progress"],
-          "technique_turn_count": state["technique_turn_count"],
+          #"technique_turn_count": state["technique_turn_count"],
           "techniques_completed": state["techniques_completed"],
           "technique_evaluations": state["technique_evaluations"][-3:],
         }
@@ -538,9 +540,9 @@ class GraphSupportMixin:
           "proposed_tasks": state["proposed_tasks"],
           "agreed_tasks": state["agreed_tasks"],
           "homework_proposal_attempts": state["homework_proposal_attempts"],
-          "homework_waiting_for_patient": state["homework_waiting_for_patient"],
-          "homework_fallback_done": state["homework_fallback_done"],
-          "homework_fallback_to_apply": state["homework_fallback_to_apply"],
+          #"homework_waiting_for_patient": state["homework_waiting_for_patient"],
+          #"homework_fallback_done": state["homework_fallback_done"],
+          #"homework_fallback_to_apply": state["homework_fallback_to_apply"],
         }
       )
     elif stage == "closing":
@@ -551,11 +553,11 @@ class GraphSupportMixin:
           "cognitive_model_sets": state["cognitive_model_sets"],
           "technique_evaluations": state["technique_evaluations"],
           "selected_techniques": state["selected_techniques"],
-          "session_summary": state["session_summary"],
-          "next_session_plan": state["next_session_plan"],
+          #"session_summary": state["session_summary"],
+          #"next_session_plan": state["next_session_plan"],
           "agreed_tasks": state["agreed_tasks"],
-          "patient_feedback": state["patient_feedback"],
-          "closing_plan_refinements": state["closing_plan_refinements"],
+          #"patient_feedback": state["patient_feedback"],
+          #"closing_plan_refinements": state["closing_plan_refinements"],
         }
       )
     elif stage == "mi_topic_exploration":
@@ -565,9 +567,9 @@ class GraphSupportMixin:
           "opening_patient_problem": state["opening_patient_problem"],
           "current_mi_topic": state["current_mi_topic"],
           "mi_topics_tried": state["mi_topics_tried"],
-          "mi_context": state["mi_context"],
-          "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
-          "cbt_resume_stage": state["cbt_resume_stage"],
+          #"mi_context": state["mi_context"],
+          #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
+          #"cbt_resume_stage": state["cbt_resume_stage"],
         }
       )
     elif stage == "mi_techniques":
@@ -577,9 +579,9 @@ class GraphSupportMixin:
           "opening_patient_problem": state["opening_patient_problem"],
           "current_mi_topic": state["current_mi_topic"],
           "mi_techniques_used": state["mi_techniques_used"][-5:],
-          "mi_context": state["mi_context"],
-          "last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
-          "cbt_resume_stage": state["cbt_resume_stage"],
+          #"mi_context": state["mi_context"],
+          #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
+          #"cbt_resume_stage": state["cbt_resume_stage"],
         }
       )
     elif stage == "meta_conversation":
@@ -590,8 +592,8 @@ class GraphSupportMixin:
           "current_mi_topic": state["current_mi_topic"],
           "mi_topics_tried": state["mi_topics_tried"],
           "mi_techniques_used": state["mi_techniques_used"][-5:],
-          "mi_context": state["mi_context"],
-          "cbt_resume_stage": state["cbt_resume_stage"],
+          #"mi_context": state["mi_context"],
+          #"cbt_resume_stage": state["cbt_resume_stage"],
         }
       )
     elif stage == "patient_demand":
@@ -603,8 +605,8 @@ class GraphSupportMixin:
           "cognitive_model_sets": state["cognitive_model_sets"],
           "selected_techniques": state["selected_techniques"],
           "current_technique_index": state["current_technique_index"],
-          "patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
-          "patient_demand_turn_cap": 10,
+          #"patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
+          #"patient_demand_turn_cap": 10,
         }
       )
     elif stage in {"anticipated_closing", "forced_closing"}:

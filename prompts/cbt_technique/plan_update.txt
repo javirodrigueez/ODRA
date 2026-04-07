@@ -1,8 +1,8 @@
 Update the existing in-session plan for the currently selected CBT technique.
 The active technique object, the current detailed plan, the expected outcome, the latest recorded progress state, and the technique turn count are available as 'current_selected_technique', 'current_technique_plan', 'current_technique_expected_outcome', 'current_technique_current_progress', and 'technique_turn_count' within <session_context>.
-Use the most recent therapist analysis in <last_reasoning> to revise the detailed plan description for the active technique and to define the next step to follow. Keep both fields aligned with the technique's expected outcome and the patient's latest progress in the conversation. `current_progress` should be a brief description of the next step to follow, aligned with the proposed plan.
+Use the most recent therapist analysis in <last_reasoning> to revise the detailed plan description for the active technique and to define the next step to follow. Keep both fields aligned with the technique's expected outcome and the patient's latest progress in the conversation. `current_progress` should be a brief description of the next step to follow, aligned with the proposed plan. The `plan_description` should be brief, with a maximum of 200 words.
 Respond in JSON format with the following structure:
 {{
-  "detailed_plan_description": string,
+  "plan_description": string,
   "current_progress": string
 }}

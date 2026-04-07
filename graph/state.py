@@ -224,7 +224,7 @@ class SessionState(TypedDict):
   current_technique_plan: str
   current_technique_expected_outcome: str
   current_technique_current_progress: str
-  technique_evaluations: list[dict[str, Any]]
+  technique_evaluations: list[str | dict[str, Any]]
   techniques_completed: int
   technique_turn_count: int
   technique_slot_replaced: dict[str, bool]
