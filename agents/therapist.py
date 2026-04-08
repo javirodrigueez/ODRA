@@ -58,11 +58,17 @@ class TherapistAgent(Agent):
     session_context: str,
     suffix: str,
   ) -> str:
+    guidelines = (
+      "Remember to strictly follow these rules:\n"
+      "* Style. Use a standard conversational register. Avoid abusing from stylistic elements such as metaphors.\n"
+      "* Dialogue flow. Follow the natural flow of the therapy session. **The counselor must not end every utterance with a question. The dialogue should not feel like an interview.**"
+    )
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
       f"<last_reasoning>\n{last_reasoning}\n</last_reasoning>\n\n"
       f"<session_context>\n{session_context or 'N/A'}\n</session_context>\n\n"
+      f"<guidelines>\n{guidelines}\n</guidelines>\n\n"
       f"Instruction: {instruction}\n"
       f"{suffix}"
     )

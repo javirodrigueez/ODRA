@@ -79,6 +79,7 @@ class TherapyGraphBuilder(
           state,
           "mi_topic_exploration",
           resume_stage,
+          DEFAULT_SUBSTAGE_BY_STAGE[resume_stage],
           f"High-resistance request to stop detected during {source_stage}.",
         )
         return
@@ -212,6 +213,7 @@ class TherapyGraphBuilder(
         state,
         "meta_conversation",
         source_stage,
+        source_substage,
         f"Explicit request to end the session: {demand}",
       )
       state["mi_end_session_demand_redirect_used"] = True

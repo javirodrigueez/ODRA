@@ -13,6 +13,81 @@ PATIENT_DEMAND_MAX_TURNS = 5
 
 
 class PatientDemandStageMixin(GraphSupportMixin):
+  def _build_patient_demand_resume_subject(self, demand: str, completion_note: str) -> str:
+    demand_text = ensure_str(demand).strip()
+    completion_text = ensure_str(completion_note).strip()
+    if demand_text and completion_text:
+      return f"Patient demand: {demand_text} Completion note: {completion_text}"
+    return demand_text or completion_text
+
+  def _route_after_patient_demand(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    exit_reason: str,
+    completion_reason: str,
+  ) -> str:
+    demand = ensure_str(state["patient_demand_text"])
+    resume_stage = state["patient_demand_resume_stage"] or "id_distortions"
+    resume_substage = state["patient_demand_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
+    completion_note = completion_reason
+    if exit_reason == "max_turn_cap":
+      completion_note = "Maximum turns for the demand were used."
+    subject = self._build_patient_demand_resume_subject(demand, completion_note)
+    band = self._current_band(state["predicted_resistance"], state)
+
+    self._set_resume_context(state, "patient_demand", exit_reason, subject)
+    self._clear_patient_demand_state(state, clear_resume_cursor=True)
+
+    routed_stage = resume_stage
+    routed_substage = resume_substage
+    if band == "contemplation":
+      self._enter_mi(
+        state,
+        "mi_techniques",
+        resume_stage,
+        resume_substage,
+        "Resuming through MI after the patient-demand detour due to contemplation-level resistance.",
+      )
+      routed_stage = state["current_stage"]
+      routed_substage = state["current_substage"]
+    elif band == "precontemplation":
+      self._enter_mi(
+        state,
+        "mi_topic_exploration",
+        resume_stage,
+        resume_substage,
+        "Resuming through MI after the patient-demand detour due to precontemplation-level resistance.",
+      )
+      routed_stage = state["current_stage"]
+      routed_substage = state["current_substage"]
+    else:
+      self._set_stage(state, resume_stage, resume_substage)
+      if resume_stage not in {"opening", "id_distortions", "cbt_technique"}:
+        self._clear_resume_context(state)
+
+    traces.append(
+      {
+        "step": "patient_demand_exit",
+        "input": demand,
+        "output": json.dumps(
+          {
+            "exit_reason": exit_reason,
+            "completion_note": completion_note,
+            "predicted_resistance": state["predicted_resistance"],
+            "band": band,
+            "resume_stage": resume_stage,
+            "resume_substage": resume_substage,
+            "routed_stage": routed_stage,
+            "routed_substage": routed_substage,
+            "resume_context_active": state["resume_context_active"],
+            "resume_context_subject": state["resume_context_subject"],
+          },
+          ensure_ascii=True,
+        ),
+      }
+    )
+    return self._handle_stage_dispatch(state, traces)
 
   def _generate_patient_demand_plan(
     self,
@@ -122,41 +197,6 @@ class PatientDemandStageMixin(GraphSupportMixin):
       }
     )
 
-  def _resume_from_patient_demand(
-    self,
-    state: SessionState,
-    traces: list[dict[str, Any]],
-    exit_reason: str,
-  ) -> str:
-    demand = state["patient_demand_text"]
-    resume_stage = state["patient_demand_resume_stage"] or "id_distortions"
-    resume_substage = state["patient_demand_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
-    instruction = self._load_stage_prompt(
-      "patient_demand",
-      "resume_utterance",
-      exit_reason=exit_reason,
-      resume_stage=resume_stage,
-      resume_substage=resume_substage,
-    )
-    utterance = self._generate_therapist_utterance(state, instruction)
-    traces.append(
-      {
-        "step": "patient_demand_exit",
-        "input": demand,
-        "output": json.dumps(
-          {
-            "exit_reason": exit_reason,
-            "resume_stage": resume_stage,
-            "resume_substage": resume_substage,
-          },
-          ensure_ascii=True,
-        ),
-      }
-    )
-    self._set_stage(state, resume_stage, resume_substage)
-    self._clear_patient_demand_state(state, clear_resume_cursor=True)
-    return utterance
-
   def _exit_patient_demand_to_closing_fallback(
     self,
     state: SessionState,
@@ -202,7 +242,6 @@ class PatientDemandStageMixin(GraphSupportMixin):
       payload = self._require_dict(parsed, "patient_demand_completion_check")
       covered = self._require_bool(payload, "covered", "patient_demand_completion_check")
       covered_reasoning = self._require_non_empty_string(payload, "reasoning", "patient_demand_completion_check")
-      print(f"<DEBUG_PATIENT_DEMAND_COMPLETION_CHECK>covered={covered}, reasoning={covered_reasoning}</DEBUG_PATIENT_DEMAND_COMPLETION_CHECK>") #devlog
       completion_payload = dict(payload)
       completion_payload.update(
         {
@@ -215,7 +254,7 @@ class PatientDemandStageMixin(GraphSupportMixin):
       self._set_last_trace_output(traces, "patient_demand_completion_check", completion_payload)
       if covered:
         self._set_substage(state, "demand_resume")
-        return self._resume_from_patient_demand(state, traces, "covered")
+        return self._route_after_patient_demand(state, traces, "covered", covered_reasoning)
       if turns >= PATIENT_DEMAND_MAX_TURNS:
         traces.append(
           {
@@ -235,12 +274,11 @@ class PatientDemandStageMixin(GraphSupportMixin):
         if state["patient_demand_end_session_attempt_active"]:
           return self._exit_patient_demand_to_closing_fallback(state, traces, "max_turn_cap")
         self._set_substage(state, "demand_resume")
-        return self._resume_from_patient_demand(state, traces, "max_turn_cap")
+        return self._route_after_patient_demand(state, traces, "max_turn_cap", covered_reasoning)
       self._update_patient_demand_plan_if_needed(state, traces, turns)
       self._set_substage(state, "demand_deliver")
     else:
       self._set_substage(state, "demand_deliver")
 
-    print(f"<DEBUG_PLAN>{state['patient_demand_plan']}</DEBUG_PLAN>") #devlog
     instruction = self._load_stage_prompt("patient_demand", "deliver_utterance")
     return self._generate_therapist_utterance(state, instruction)

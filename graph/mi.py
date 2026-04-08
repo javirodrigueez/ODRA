@@ -5,7 +5,7 @@ from typing import Any
 from agents.interfaces import ensure_str
 
 from .support import ConversationProcessingError, GraphSupportMixin
-from .state import CBT_STAGES, MI_TOPICS, SessionState, Stage, SubStage
+from .state import CBT_STAGES, DEFAULT_SUBSTAGE_BY_STAGE, MI_TOPICS, SessionState, Stage, SubStage
 
 
 class MIStageMixin(GraphSupportMixin):
@@ -23,9 +23,17 @@ class MIStageMixin(GraphSupportMixin):
       }
     )
 
-  def _enter_mi(self, state: SessionState, target_stage: Stage, resume_stage: Stage | None, reason: str) -> None:
+  def _enter_mi(
+    self,
+    state: SessionState,
+    target_stage: Stage,
+    resume_stage: Stage | None,
+    resume_substage: SubStage | None,
+    reason: str,
+  ) -> None:
     if resume_stage:
       state["cbt_resume_stage"] = resume_stage
+      state["cbt_resume_substage"] = resume_substage or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
     state["mi_active"] = True
     if not state["cbt_flow_saved_state"] and resume_stage:
       state["cbt_flow_saved_state"] = (
@@ -70,20 +78,34 @@ class MIStageMixin(GraphSupportMixin):
       return
 
     if stage == "mi_techniques" and state["current_substage"] == "mi_transition_to_cbt":
-      self._set_stage(state, state["cbt_resume_stage"] or "id_distortions")
+      resume_stage = state["cbt_resume_stage"] or "id_distortions"
+      resume_substage = state["cbt_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
+      self._set_stage(state, resume_stage, resume_substage)
       return
 
     if stage in CBT_STAGES:
       if band == "contemplation":
         if not state["mi_techniques_paused_until_precontemplation"]:
-          self._enter_mi(state, "mi_techniques", stage, "CBT interrupted due to contemplation-level resistance")
+          self._enter_mi(
+            state,
+            "mi_techniques",
+            stage,
+            state["current_substage"],
+            "CBT interrupted due to contemplation-level resistance",
+          )
       elif band == "precontemplation":
         self._reactivate_mi_techniques(
           state,
           traces,
           "Predicted resistance returned to precontemplation, so MI techniques can be used again.",
         )
-        self._enter_mi(state, "mi_topic_exploration", stage, "CBT interrupted due to precontemplation resistance")
+        self._enter_mi(
+          state,
+          "mi_topic_exploration",
+          stage,
+          state["current_substage"],
+          "CBT interrupted due to precontemplation resistance",
+        )
       return
 
     if stage == "mi_techniques":

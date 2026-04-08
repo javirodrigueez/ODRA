@@ -233,6 +233,7 @@ class SessionState(TypedDict):
   mi_context: list[ConversationMessage]
   cbt_flow_saved_state: str
   cbt_resume_stage: Stage
+  cbt_resume_substage: SubStage | Literal[""]
   mi_topics_tried: list[str]
   mi_techniques_used: list[str]
   mi_techniques_paused_until_precontemplation: bool
@@ -245,6 +246,10 @@ class SessionState(TypedDict):
   patient_demand_resume_stage: Stage | Literal[""]
   patient_demand_resume_substage: SubStage | Literal[""]
   patient_demand_end_session_attempt_active: bool
+  resume_context_active: bool
+  resume_context_from_stage: Stage | Literal[""]
+  resume_context_reason: str
+  resume_context_subject: str
 
   proposed_tasks: list[HomeworkTask]
   homework_proposal_attempts: int

@@ -59,7 +59,13 @@ class OpeningStageMixin(GraphSupportMixin):
     if force_mi:
       state["opening_fallback_triggered"] = True
       state["cbt_resume_stage"] = "id_distortions"
-      self._enter_mi(state, "mi_topic_exploration", "id_distortions", "Opening fallback after 10 exchanges")
+      self._enter_mi(
+        state,
+        "mi_topic_exploration",
+        "id_distortions",
+        None,
+        "Opening fallback after 10 exchanges",
+      )
       return self._handle_stage_dispatch(state, traces)
 
     # Not ready to continue to id_distortions
@@ -78,10 +84,22 @@ class OpeningStageMixin(GraphSupportMixin):
         self._set_stage(state, "id_distortions")
       elif band == "contemplation":
         state["cbt_resume_stage"] = "id_distortions"
-        self._enter_mi(state, "mi_techniques", "id_distortions", "Opening completed with contemplation")
+        self._enter_mi(
+          state,
+          "mi_techniques",
+          "id_distortions",
+          None,
+          "Opening completed with contemplation",
+        )
       else:
         state["cbt_resume_stage"] = "id_distortions"
-        self._enter_mi(state, "mi_topic_exploration", "id_distortions", "Opening completed with precontemplation")
+        self._enter_mi(
+          state,
+          "mi_topic_exploration",
+          "id_distortions",
+          None,
+          "Opening completed with precontemplation",
+        )
       return self._handle_stage_dispatch(state, traces)
 
     raise ConversationProcessingError("Opening stage reached an unexpected state.")

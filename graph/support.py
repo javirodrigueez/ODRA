@@ -199,6 +199,10 @@ class GraphSupportMixin:
     s["mi_context"] = self._normalize_messages(raw_mi_context, stage, cast(SubStage, raw_substage))
     s.setdefault("cbt_flow_saved_state", "")
     s.setdefault("cbt_resume_stage", "id_distortions")
+    raw_cbt_resume_substage = ensure_str(s.get("cbt_resume_substage"))
+    if raw_cbt_resume_substage not in ALL_SUBSTAGES:
+      raw_cbt_resume_substage = ""
+    s["cbt_resume_substage"] = cast(SubStage, raw_cbt_resume_substage) if raw_cbt_resume_substage else ""
     s.setdefault("mi_topics_tried", [])
     s.setdefault("mi_techniques_used", [])
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
@@ -215,6 +219,11 @@ class GraphSupportMixin:
       raw_demand_resume_substage = ""
     s["patient_demand_resume_substage"] = cast(SubStage, raw_demand_resume_substage) if raw_demand_resume_substage else ""
     s.setdefault("patient_demand_end_session_attempt_active", False)
+    s.setdefault("resume_context_active", False)
+    raw_resume_from_stage = ensure_str(s.get("resume_context_from_stage"))
+    s["resume_context_from_stage"] = cast(Stage, raw_resume_from_stage) if raw_resume_from_stage in DEFAULT_SUBSTAGE_BY_STAGE else ""
+    s.setdefault("resume_context_reason", "")
+    s.setdefault("resume_context_subject", "")
 
     s.setdefault("proposed_tasks", [])
     s.setdefault("homework_proposal_attempts", 0)
@@ -297,7 +306,14 @@ class GraphSupportMixin:
   def _handle_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     raise NotImplementedError
 
-  def _enter_mi(self, state: SessionState, target_stage: Stage, resume_stage: Stage | None, reason: str) -> None:
+  def _enter_mi(
+    self,
+    state: SessionState,
+    target_stage: Stage,
+    resume_stage: Stage | None,
+    resume_substage: SubStage | None,
+    reason: str,
+  ) -> None:
     raise NotImplementedError
 
   def _format_conversation(self, messages: list[ConversationMessage]) -> str:
@@ -641,7 +657,8 @@ class GraphSupportMixin:
           "mi_topics_tried": state["mi_topics_tried"],
           #"mi_context": state["mi_context"],
           #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
-          #"cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_substage": state["cbt_resume_substage"],
         }
       )
     elif stage == "mi_techniques":
@@ -653,7 +670,8 @@ class GraphSupportMixin:
           "mi_techniques_used": state["mi_techniques_used"][-5:],
           #"mi_context": state["mi_context"],
           #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
-          #"cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_substage": state["cbt_resume_substage"],
         }
       )
     elif stage == "meta_conversation":
@@ -665,7 +683,8 @@ class GraphSupportMixin:
           "mi_topics_tried": state["mi_topics_tried"],
           "mi_techniques_used": state["mi_techniques_used"][-5:],
           #"mi_context": state["mi_context"],
-          #"cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_stage": state["cbt_resume_stage"],
+          "cbt_resume_substage": state["cbt_resume_substage"],
         }
       )
     elif stage == "patient_demand":
@@ -723,21 +742,62 @@ class GraphSupportMixin:
     )
     return f"{text} {suffix}"
 
+  def _resume_context_applies_to_current_utterance(self, state: SessionState) -> bool:
+    if not state.get("resume_context_active"):
+      return False
+    stage = state["current_stage"]
+    substage = state["current_substage"]
+    if stage == "opening":
+      return substage in {"open_mood", "open_problem"}
+    if stage == "id_distortions":
+      return substage in {"cognitive_review_active_question", "cognitive_refinement"}
+    if stage == "cbt_technique":
+      return substage == "cbt_deliver_current"
+    if stage == "mi_topic_exploration":
+      return substage == "mi_raise_topic"
+    if stage == "mi_techniques":
+      return substage == "mi_raise_technique"
+    return False
+
+  def _instruction_with_resume_context(self, state: SessionState, instruction: str) -> tuple[str, bool]:
+    text = ensure_str(instruction)
+    if not self._resume_context_applies_to_current_utterance(state):
+      return text, False
+
+    from_stage = ensure_str(state.get("resume_context_from_stage"), "a previous stage")
+    reason = ensure_str(state.get("resume_context_reason"))
+    subject = ensure_str(state.get("resume_context_subject"))
+    suffix = (
+      f" Before addressing the instruction, briefly and naturally acknowledge that you are resuming after a detour from '{from_stage}'."
+    )
+    if subject:
+      suffix += f" Use this detour context if helpful: {subject!r}."
+    if reason == "max_turn_cap":
+      suffix += " Frame the detour as addressed as far as possible for now."
+    # suffix += (
+    #   " Then continue directly with the current stage goal in the same utterance."
+    #   " Do not produce a transition-only utterance and do not mention internal stage names."
+    # )
+    return f"{text}{suffix}", True
+
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
-    #enriched_instruction = self._instruction_with_high_resistance_redirect(state, instruction)
+    enriched_instruction, used_resume_context = self._instruction_with_resume_context(state, instruction)
     record_large_prompt_request(
       state,
-      self._build_therapist_request_messages(state, instruction, structured=False),
+      self._build_therapist_request_messages(state, enriched_instruction, structured=False),
       "therapist",
       "therapist_utterance",
     )
-    return self.therapist.generate_utterance(
+    utterance = self.therapist.generate_utterance(
       full_conversation=self._full_conversation_for_prompt(state),
       last_utterances=self._format_last_utterances(state["messages"]),
       last_reasoning=state.get("last_reasoning", ""),
       session_context=self._build_stage_user_context(state),
-      instruction=instruction,
+      instruction=enriched_instruction,
     )
+    if used_resume_context or state.get("resume_context_active"):
+      self._clear_resume_context(state)
+    return utterance
 
   def _append_trace(self, state: SessionState, utterance_index: int, speaker: str, traces: list[dict[str, Any]]) -> None:
     state["reasoning_traces"].append(
@@ -871,6 +931,24 @@ class GraphSupportMixin:
     state["high_resistance_source_stage"] = ""
     state["high_resistance_source_substage"] = ""
     state["high_resistance_reasoning"] = ""
+
+  def _set_resume_context(
+    self,
+    state: SessionState,
+    from_stage: Stage,
+    reason: str,
+    subject: str,
+  ) -> None:
+    state["resume_context_active"] = True
+    state["resume_context_from_stage"] = from_stage
+    state["resume_context_reason"] = ensure_str(reason).strip()
+    state["resume_context_subject"] = ensure_str(subject).strip()
+
+  def _clear_resume_context(self, state: SessionState) -> None:
+    state["resume_context_active"] = False
+    state["resume_context_from_stage"] = ""
+    state["resume_context_reason"] = ""
+    state["resume_context_subject"] = ""
 
   def _clear_patient_demand_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
     state["patient_demand_text"] = ""
