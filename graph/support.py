@@ -677,8 +677,12 @@ class GraphSupportMixin:
           "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
           "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
           "current_technique_index": state["current_technique_index"],
+          "patient_demand_text": state["patient_demand_text"],
+          "patient_demand_plan": state["patient_demand_plan"],
+          #"patient_demand_resume_stage": state["patient_demand_resume_stage"],
+          #"patient_demand_resume_substage": state["patient_demand_resume_substage"],
           #"patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
-          #"patient_demand_turn_cap": 10,
+          #"patient_demand_turn_cap": 5,
         }
       )
     elif stage in {"anticipated_closing", "forced_closing"}:

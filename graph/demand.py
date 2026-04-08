@@ -13,6 +13,51 @@ PATIENT_DEMAND_MAX_TURNS = 5
 
 
 class PatientDemandStageMixin(GraphSupportMixin):
+
+  def _generate_patient_demand_plan(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    demand: str,
+  ) -> None:
+    instruction = self._load_stage_prompt("patient_demand", "plan_generation")
+    parsed = self._run_therapist_structured(state, traces, "patient_demand_plan_generation", instruction)
+    payload = self._require_dict(parsed, "patient_demand_plan_generation")
+    plan = self._require_non_empty_string(payload, "demand_plan", "patient_demand_plan_generation")
+    state["patient_demand_plan"] = plan
+    self._set_last_trace_output(traces, "patient_demand_plan_generation", {"demand_plan": plan})
+
+  def _update_patient_demand_plan_if_needed(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    turns: int,
+  ) -> None:
+    instruction = self._load_stage_prompt("patient_demand", "plan_update")
+    parsed = self._run_therapist_structured(state, traces, "patient_demand_plan_update", instruction)
+    payload = self._require_dict(parsed, "patient_demand_plan_update")
+    updated = self._require_bool(payload, "updated", "patient_demand_plan_update")
+    reasoning = self._require_non_empty_string(payload, "reasoning", "patient_demand_plan_update")
+    trace_payload: dict[str, Any] = {
+      "updated": updated,
+      "demand_plan": "none",
+      "reasoning": reasoning,
+      "turn_count": turns,
+      "turn_cap": PATIENT_DEMAND_MAX_TURNS,
+      "resume_stage": state["patient_demand_resume_stage"],
+      "resume_substage": state["patient_demand_resume_substage"],
+    }
+    if updated:
+      raw_plan = ensure_str(payload.get("demand_plan")).strip()
+      if not raw_plan or raw_plan.lower() == "none":
+        raise ConversationProcessingError(
+          "patient_demand_plan_update.demand_plan must be provided when updated=true."
+        )
+      plan = self._require_non_empty_string(payload, "demand_plan", "patient_demand_plan_update")
+      state["patient_demand_plan"] = plan
+      trace_payload["demand_plan"] = plan
+    self._set_last_trace_output(traces, "patient_demand_plan_update", trace_payload)
+
   def _enter_patient_demand(
     self,
     state: SessionState,
@@ -89,7 +134,6 @@ class PatientDemandStageMixin(GraphSupportMixin):
     instruction = self._load_stage_prompt(
       "patient_demand",
       "resume_utterance",
-      demand=demand,
       exit_reason=exit_reason,
       resume_stage=resume_stage,
       resume_substage=resume_substage,
@@ -149,31 +193,16 @@ class PatientDemandStageMixin(GraphSupportMixin):
     turns = self._current_stage_exchange_count(state, "patient_demand")
 
     if state["current_substage"] == "demand_plan" or not state["patient_demand_plan"]:
-      instruction = self._load_stage_prompt(
-        "patient_demand",
-        "plan_generation",
-        demand=demand,
-        resume_stage=state["patient_demand_resume_stage"] or "unknown",
-        resume_substage=state["patient_demand_resume_substage"] or "unknown",
-      )
-      parsed = self._run_therapist_structured(state, traces, "patient_demand_plan_generation", instruction)
-      payload = self._require_dict(parsed, "patient_demand_plan_generation")
-      plan = self._require_non_empty_string(payload, "demand_plan", "patient_demand_plan_generation")
-      state["patient_demand_plan"] = plan
+      self._generate_patient_demand_plan(state, traces, demand)
       self._set_substage(state, "demand_deliver")
     elif turns > 0:
       self._set_substage(state, "demand_check")
-      instruction = self._load_stage_prompt(
-        "patient_demand",
-        "completion_check",
-        demand=demand,
-        demand_plan=state["patient_demand_plan"],
-        turn_count=turns,
-        turn_cap=PATIENT_DEMAND_MAX_TURNS,
-      )
+      instruction = self._load_stage_prompt("patient_demand", "completion_check")
       parsed = self._run_therapist_structured(state, traces, "patient_demand_completion_check", instruction)
       payload = self._require_dict(parsed, "patient_demand_completion_check")
       covered = self._require_bool(payload, "covered", "patient_demand_completion_check")
+      covered_reasoning = self._require_non_empty_string(payload, "reasoning", "patient_demand_completion_check")
+      print(f"<DEBUG_PATIENT_DEMAND_COMPLETION_CHECK>covered={covered}, reasoning={covered_reasoning}</DEBUG_PATIENT_DEMAND_COMPLETION_CHECK>") #devlog
       completion_payload = dict(payload)
       completion_payload.update(
         {
@@ -207,16 +236,11 @@ class PatientDemandStageMixin(GraphSupportMixin):
           return self._exit_patient_demand_to_closing_fallback(state, traces, "max_turn_cap")
         self._set_substage(state, "demand_resume")
         return self._resume_from_patient_demand(state, traces, "max_turn_cap")
+      self._update_patient_demand_plan_if_needed(state, traces, turns)
       self._set_substage(state, "demand_deliver")
     else:
       self._set_substage(state, "demand_deliver")
 
-    instruction = self._load_stage_prompt(
-      "patient_demand",
-      "deliver_utterance",
-      demand=demand,
-      demand_plan=state["patient_demand_plan"],
-      turn_count=turns,
-      turn_cap=PATIENT_DEMAND_MAX_TURNS,
-    )
+    print(f"<DEBUG_PLAN>{state['patient_demand_plan']}</DEBUG_PLAN>") #devlog
+    instruction = self._load_stage_prompt("patient_demand", "deliver_utterance")
     return self._generate_therapist_utterance(state, instruction)
