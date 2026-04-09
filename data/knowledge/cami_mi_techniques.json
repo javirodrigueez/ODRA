@@ -1,0 +1,19 @@
+{
+  "Advise": "Give advice, makes a suggestion, offers a solution or possible action. For example, \"Consider starting with small, manageable changes like taking a short walk daily.\"",
+  "Affirm": "Say something positive or complimentary to the client. For example, \"You did well by seeking help.\"",
+  "Direct": "Give an order, command, direction. The language is imperative. For example, \"You’ve got to stop drinking.\"",
+  "Emphasize Control": "Directly acknowledges or emphasizes the client's freedom of choice, autonomy, ability to decide, personal responsibility, etc. For example, \"It’s up to you to decide whether to drink.\"",
+  "Facilitate": "Provide simple utterances that function as \"keep going\" acknowledgments encouraging the client to keep sharing. For example, \"Tell me more about that.\"",
+  "Inform": "Give information to the client, explains something, or provides feedback. For example, \"This is a hormone that helps your body utilize sugar.\"",
+  "Closed Question": "Ask a question in order to gather information, understand, or elicit the client's story. The question implies a short answer: Yes or no, a specific fact, a number, etc. For example, \"Did you use heroin this week?\"",
+  "Open Question": "Ask a question in order to gather information, understand, or elicit the client's story. The question should be not closed questions, that leave latitude for response. For example, \"Can you tell me more about your drinking habits?\"",
+  "Raise Concern": "Point out a possible problem with a client's goal, plan, or intention. For example, \"What do you think about my plan?\"",
+  "Confront": "Directly disagrees, argues, corrects, shames, blames, seeks to persuade, criticizes, judges, labels, moralizes, ridicules, or questions the client's honesty. For example, \"What makes you think that you can get away with it?\"",
+  "Simple Reflection": "Make a statement that reflects back content or meaning previously offered by the client, conveying shallow understanding without additional information. Add nothing at all to what the client has said, but simply repeat or restate it using some or all of the same words. For example, \"You don’t want to do that.\"",
+  "Complex Reflection": "Make a statement that reflects back content or meaning previously offered by the client, conveying deep understanding with additional information. Change or add to what the client has said in a significant way, to infer the client's meaning. For example, \"That’s where you drew the line.\"",
+  "Reframe": "Suggest a different meaning for an experience expressed by the client, placing it in a new light. For example, \"Maybe this setback is actually a sign that you're ready for change.\"",
+  "Support": "Generally supportive, understanding comments that are not codable as Affirm or Reflect. For example, \"That must have been difficult for you.\"",
+  "Warn": "Provide a warning or threat, implying negative consequences that will follow unless the client takes certain action. For example, \"You could go blind if you don’t manage your blood sugar levels.\"",
+  "Structure": "Give comments made to explain what is going to happen in the session, to make a transition from one part of a session to another, to help the client anticipate what will happen next, etc. For example, \"First, let’s discuss your drinking, and then we can explore other issues.\"",
+  "No Strategy": "Say something not related to behavior change. For example, \"Good morning!\""
+}

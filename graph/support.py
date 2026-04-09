@@ -88,7 +88,7 @@ class GraphSupportMixin:
     }
   
   def _load_mi_techniques(self) -> dict[str, str]:
-    techniques_path = self._project_root() / "data" / "knowledge" / "mi_techniques.json"
+    techniques_path = self._project_root() / "data" / "knowledge" / "cami_mi_techniques.json"
     if not techniques_path.exists():
       raise ConversationProcessingError(f"Missing MI techniques file: {techniques_path}")
     try:
@@ -205,6 +205,7 @@ class GraphSupportMixin:
     s["cbt_resume_substage"] = cast(SubStage, raw_cbt_resume_substage) if raw_cbt_resume_substage else ""
     s.setdefault("mi_topics_tried", [])
     s.setdefault("mi_techniques_used", [])
+    s.setdefault("current_mi_technique_selection", [])
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])

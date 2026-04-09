@@ -236,6 +236,7 @@ class SessionState(TypedDict):
   cbt_resume_substage: SubStage | Literal[""]
   mi_topics_tried: list[str]
   mi_techniques_used: list[str]
+  current_mi_technique_selection: list[str]
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float | None

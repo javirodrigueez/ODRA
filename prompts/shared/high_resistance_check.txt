@@ -52,6 +52,16 @@ Output:
 }}
 
 Example 4:
+Input: "I understand the point but... which would be the first step?"
+Output:
+{{
+  "has_demand": true,
+  "demand_kind": "other",
+  "demand": "Obtain the first step of a process.",
+  "reasoning": "The patient makes a explicit request for information about the first step in a process."
+}}
+
+Example 5:
 Input: I said no. I figured he was just being polite, and he'd have more fun going with someone else. But I don't see how listing them all is going to help. It's just more proof of the same thing.
 Output:
 {{

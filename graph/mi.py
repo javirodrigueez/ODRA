@@ -11,6 +11,40 @@ from .state import CBT_STAGES, DEFAULT_SUBSTAGE_BY_STAGE, MI_TOPICS, SessionStat
 class MIStageMixin(GraphSupportMixin):
   META_CONVERSATION_TURN_CAP = 5
 
+  def _parse_selected_mi_techniques(
+    self,
+    payload: dict[str, Any],
+    techniques_catalog: dict[str, str],
+  ) -> list[str]:
+    raw_selected = payload.get("techniques")
+    if isinstance(raw_selected, list):
+      selected = [ensure_str(item) for item in raw_selected]
+    else:
+      selected = [self._require_non_empty_string(payload, "technique", "mi_technique_selection")]
+
+    deduped: list[str] = []
+    for technique in selected:
+      if not technique:
+        continue
+      if technique not in techniques_catalog:
+        raise ConversationProcessingError(
+          f"mi_technique_selection.techniques must contain only catalog techniques, got {technique!r}."
+        )
+      if technique not in deduped:
+        deduped.append(technique)
+
+    if not deduped:
+      raise ConversationProcessingError("mi_technique_selection.techniques must contain at least one technique.")
+    if len(deduped) > 2:
+      raise ConversationProcessingError("mi_technique_selection.techniques must contain at most two techniques.")
+    return deduped
+
+  def _format_mi_technique_blend(self, techniques_catalog: dict[str, str], techniques: list[str]) -> str:
+    lines = [f"{technique}:{techniques_catalog[technique]}" for technique in techniques if technique in techniques_catalog]
+    if not lines:
+      raise ConversationProcessingError("Cannot raise an MI technique utterance without a valid selected technique.")
+    return "\n".join(lines)
+
   def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]], reason: str) -> None:
     if not state["mi_techniques_paused_until_precontemplation"]:
       return
@@ -218,20 +252,25 @@ class MIStageMixin(GraphSupportMixin):
       )
       parsed = self._run_therapist_structured(state, traces, "mi_technique_selection", instruction)
       payload = self._require_dict(parsed, "mi_technique_selection")
-      technique = self._require_non_empty_string(payload, "technique", "mi_technique_selection")
-      state["mi_techniques_used"].append(technique)
+      selected_techniques = self._parse_selected_mi_techniques(payload, techniques_catalog)
+      state["current_mi_technique_selection"] = selected_techniques
+      state["mi_techniques_used"].extend(selected_techniques)
       self._set_substage(state, "mi_raise_technique")
       current_substage = state["current_substage"]
 
     # Deliver the selected MI technique as the next therapist utterance.
     if current_substage == "mi_raise_technique":
-      technique = state["mi_techniques_used"][-1]
+      techniques_catalog = self.mi_techniques
+      selected_techniques = state["current_mi_technique_selection"] or state["mi_techniques_used"][-1:]
+      technique_blend = self._format_mi_technique_blend(techniques_catalog, selected_techniques)
       instruction = self._load_stage_prompt(
         "mi_techniques",
         "raise_technique_utterance",
-        technique=technique,
+        technique_blend=technique_blend,
       )
-      return self._generate_therapist_utterance(state, instruction)
+      utterance = self._generate_therapist_utterance(state, instruction)
+      state["current_mi_technique_selection"] = []
+      return utterance
 
     raise ConversationProcessingError(f"Unexpected MI technique substage: {current_substage}")
 

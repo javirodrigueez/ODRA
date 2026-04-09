@@ -21,6 +21,10 @@ class TherapistAgent(Agent):
       "therapist_system.txt",
       patient_intake_form=self._format_patient_intake_form(),
     )
+    self.system_prompt_structured = render_prompt(
+      "therapist_system_structured.txt",
+      patient_intake_form=self._format_patient_intake_form(),
+    )
 
   def _format_patient_intake_form(self) -> str:
     personal_info = self.profile.get("personal_info", {})
@@ -57,12 +61,22 @@ class TherapistAgent(Agent):
     last_reasoning: str,
     session_context: str,
     suffix: str,
+    utterance: bool = False,
   ) -> str:
-    guidelines = (
-      "Remember to strictly follow these rules:\n"
-      "* Style. Use a standard conversational register. Avoid abusing from stylistic elements such as metaphors.\n"
-      "* Dialogue flow. Follow the natural flow of the therapy session. **The counselor must not end every utterance with a question. The dialogue should not feel like an interview.**"
-    )
+    if utterance:
+      guidelines = (
+        "Remember to strictly follow these rules:\n"
+        "* Style. Use a standard conversational register. Avoid abusing from stylistic elements such as metaphors.\n"
+        "* Dialogue flow. Follow the natural flow of the therapy session. **The counselor must not end every utterance with a question. The dialogue should not feel like an interview.**"
+        "* Repetition. Use different phrasing and vocabulary to avoid sounding repetitive in subsequent turns. However, maintain the same core content of the message.",
+        "* Output. Respond only with the next utterance in plain text."
+        # "* Natural signals (e.g., 'mm-hm', 'um', 'yeah','right','...'). Avoid using them with same phrasing repeatedly."
+      )
+    else:
+      guidelines = (
+        "Remember to strictly follow these rules:\n"
+        "* Output. Respond only with the requested structured data in valid JSON format. Do not include any text that is not part of the JSON structure."
+      )
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
@@ -89,6 +103,7 @@ class TherapistAgent(Agent):
       last_reasoning=last_reasoning,
       session_context=session_context,
       suffix=suffix,
+      utterance=True,
     )
     return [
       {"role": "system", "content": self.system_prompt},
@@ -113,7 +128,7 @@ class TherapistAgent(Agent):
       suffix=suffix,
     )
     return [
-      {"role": "system", "content": self.system_prompt},
+      {"role": "system", "content": self.system_prompt_structured},
       {"role": "user", "content": user_prompt},
     ]
 

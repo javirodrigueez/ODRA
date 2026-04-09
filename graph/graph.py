@@ -252,6 +252,7 @@ class TherapyGraphBuilder(
       if not first_exchange:
         self._maybe_force_closing(s)
         high_resistance_level = self._maybe_handle_high_resistance(s, traces)
+        #high_resistance_level = 'none'
         self._run_resistance_prediction(s, traces)
         if high_resistance_level == "none":
           self._handle_pre_stage_routing(s, traces)

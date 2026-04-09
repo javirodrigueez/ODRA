@@ -21,7 +21,9 @@ class PatientAgent(Agent):
     )
     self.profile = profile
     system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
+    system_structured_path = Path(__file__).parent.parent / "prompts" / "patient_system_structured.txt"
     self.system_prompt = self._build_system_prompt(system_path)
+    self.system_prompt_structured = self._build_system_prompt(system_structured_path)
 
   def _build_system_prompt(self, filename: str | Path) -> str:
     template = load_prompt(filename)
@@ -131,7 +133,7 @@ class PatientAgent(Agent):
       structured=True,
     )
     return [
-      {"role": "system", "content": self.system_prompt},
+      {"role": "system", "content": self.system_prompt_structured},
       {"role": "user", "content": user_prompt},
     ]
 
