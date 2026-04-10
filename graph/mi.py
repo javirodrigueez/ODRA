@@ -4,11 +4,12 @@ from typing import Any
 
 from agents.interfaces import ensure_str
 
-from .support import ConversationProcessingError, GraphSupportMixin
-from .state import CBT_STAGES, DEFAULT_SUBSTAGE_BY_STAGE, MI_TOPICS, SessionState, Stage, SubStage
+from .state import CBT_STAGES, DEFAULT_SUBSTAGE_BY_STAGE, SessionState, Stage, SubStage
+from .support import ConversationProcessingError
+from .topic_exploration import TopicExplorationMixin
 
 
-class MIStageMixin(GraphSupportMixin):
+class MIStageMixin(TopicExplorationMixin):
   META_CONVERSATION_TURN_CAP = 5
 
   def _parse_selected_mi_techniques(
@@ -68,6 +69,8 @@ class MIStageMixin(GraphSupportMixin):
     if resume_stage:
       state["cbt_resume_stage"] = resume_stage
       state["cbt_resume_substage"] = resume_substage or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
+    if target_stage == "mi_topic_exploration":
+      self._reset_mi_topic_exploration_state(state)
     state["mi_active"] = True
     if not state["cbt_flow_saved_state"] and resume_stage:
       state["cbt_flow_saved_state"] = (
@@ -164,58 +167,6 @@ class MIStageMixin(GraphSupportMixin):
     if stage == "mi_topic_exploration" and band in {"contemplation", "action"}:
       self._set_stage(state, "mi_techniques")
       return
-
-  def _handle_mi_topic_exploration(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    previous_pred = state["last_mi_predicted_resistance"]
-    current_pred = state["predicted_resistance"]
-    need_new_topic = (
-      not state["current_mi_topic"]
-      or current_pred is None
-      or previous_pred is None
-      or current_pred > previous_pred + 0.02
-    )  # 0.02 is a small tolerance to avoid overreacting to minor prediction fluctuations.
-    if need_new_topic:
-      self._set_substage(state, "mi_choose_topic")
-
-    current_substage = state["current_substage"]
-
-    # Select the next MI topic when resistance has not improved.
-    if current_substage == "mi_choose_topic":
-      available = [topic for topic in MI_TOPICS if topic not in state["mi_topics_tried"]]
-      if not available:
-        available = MI_TOPICS
-      topic_instruction = self._load_stage_prompt(
-        "mi_topic_exploration",
-        "topic_selection",
-        available_topics=", ".join(available),
-      )
-      topic = self._run_therapist_structured(state, traces, "mi_topic_selection", topic_instruction)
-      topic_payload = self._require_dict(topic, "mi_topic_selection")
-      chosen = self._require_non_empty_string(topic_payload, "topic", "mi_topic_selection")
-
-      state["current_mi_topic"] = chosen
-      state["mi_topics_tried"].append(chosen)
-      state["last_mi_predicted_resistance"] = current_pred
-      self._set_substage(state, "mi_raise_topic")
-      current_substage = state["current_substage"]
-
-    # Escalate to meta-conversation after repeated topic attempts without movement.
-    if len(state["mi_topics_tried"]) >= len(MI_TOPICS) and self._current_band(state["predicted_resistance"], state) == "precontemplation":
-      self._set_stage(state, "meta_conversation")
-      return self._handle_stage_dispatch(state, traces)
-
-    # Ask the topic-exploration question.
-    if current_substage == "mi_raise_topic":
-      topic = state["current_mi_topic"]
-      state["last_mi_predicted_resistance"] = current_pred
-      instruction = self._load_stage_prompt(
-        "mi_topic_exploration",
-        "raise_topic_utterance",
-        topic=topic,
-      )
-      return self._generate_therapist_utterance(state, instruction)
-
-    raise ConversationProcessingError(f"Unexpected MI topic substage: {current_substage}")
 
   def _handle_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     if state["current_substage"] == "mi_transition_to_cbt":

@@ -129,10 +129,17 @@ class GraphSupportMixin:
     resumed["session_ended_reason"] = ""
     resumed["conversation_error"] = ""
     resumed["final_patient_pending_end"] = False
+    is_therapist_last = False
+    if isinstance(resumed.get("messages"), list):
+      if resumed["messages"][-1].get("role") == "therapist":
+        resumed["messages"].pop()
+        is_therapist_last = True
     if isinstance(resumed.get("reasoning_traces"), list):
       resumed["reasoning_traces"] = [
         trace for trace in resumed["reasoning_traces"] if not self._is_error_trace(trace)
       ]
+      if is_therapist_last:
+        resumed["reasoning_traces"].pop()
     resumed["max_turns"] = int(max_turns)
     resumed["min_turns"] = int(min_turns)
     return self._ensure_state_defaults(resumed)
@@ -203,12 +210,30 @@ class GraphSupportMixin:
     if raw_cbt_resume_substage not in ALL_SUBSTAGES:
       raw_cbt_resume_substage = ""
     s["cbt_resume_substage"] = cast(SubStage, raw_cbt_resume_substage) if raw_cbt_resume_substage else ""
+    raw_mi_topic_stack = s.get("mi_topic_stack")
+    if isinstance(raw_mi_topic_stack, list):
+      s["mi_topic_stack"] = [item for item in ensure_str_list(raw_mi_topic_stack) if item]
+    else:
+      s["mi_topic_stack"] = []
+    raw_mi_topic_probabilities = s.get("mi_topic_probabilities")
+    normalized_probabilities: dict[str, float] = {}
+    if isinstance(raw_mi_topic_probabilities, dict):
+      for key, value in raw_mi_topic_probabilities.items():
+        topic = ensure_str(key)
+        if not topic:
+          continue
+        try:
+          normalized_probabilities[topic] = float(value)
+        except (TypeError, ValueError):
+          continue
+    s["mi_topic_probabilities"] = normalized_probabilities
     s.setdefault("mi_topics_tried", [])
     s.setdefault("mi_techniques_used", [])
     s.setdefault("current_mi_technique_selection", [])
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
+    s.setdefault("last_mi_topic_action", "")
     s.setdefault("mi_end_session_demand_redirect_used", False)
     s.setdefault("patient_demand_text", "")
     s.setdefault("patient_demand_plan", "")
@@ -654,8 +679,12 @@ class GraphSupportMixin:
         {
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
-          "current_mi_topic": state["current_mi_topic"],
-          "mi_topics_tried": state["mi_topics_tried"],
+          "conversation_rollup_summary": state["conversation_rollup_summary"],
+          #"current_mi_topic": state["current_mi_topic"],
+          #"mi_topic_stack": state["mi_topic_stack"],
+          #"mi_topic_probabilities": state["mi_topic_probabilities"],
+          #"mi_topics_tried": state["mi_topics_tried"],
+          #"last_mi_topic_action": state["last_mi_topic_action"],
           #"mi_context": state["mi_context"],
           #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
           "cbt_resume_stage": state["cbt_resume_stage"],

@@ -4,6 +4,8 @@ import os
 import argparse
 from datasets import load_dataset
 
+ATTITUDES = ["positive", "neutral", "negative"]
+
 def extract_section(header, full_text):
     pattern = rf"{header}\s*(.*?)(?=\n\n\d\.|\n\n[A-Z]|$)"
     match = re.search(pattern, full_text, re.DOTALL | re.IGNORECASE)
@@ -22,11 +24,18 @@ def process_dataset(output_file):
     processed_data = []
 
     print(f"Processing {len(ds['train'])} items...")
+    added_seeds = set()
     for idx, item in enumerate(ds["train"]):
         text = item["intake_form"]
+        name = extract_line("Name", text)
         
+        # Skip if we have already processed this seed (based on name)
+        if name in added_seeds:
+            continue
+        added_seeds.add(name)
+
         personal_info = {
-            "name": extract_line("Name", text),
+            "name": name,
             "age": extract_line("Age", text),
             "gender": extract_line("Gender", text),
             "occupation": extract_line("Occupation", text),
@@ -47,12 +56,15 @@ def process_dataset(output_file):
             "presenting_problem": extract_section("2. Presenting Problem", text),
             "reason_seeking_counseling": extract_section("3. Reason for Seeking Counseling", text),
             "patterns": item["patterns"],
-            "attitude": item["attitude"],
+            "attitude": None,
             "emotional_recovery": "moderate",
             "more_information": more_info,
         }
         
-        processed_data.append(new_entry)
+        for attitude in ATTITUDES:
+          attitude_entry = new_entry.copy()
+          attitude_entry["attitude"] = attitude
+          processed_data.append(attitude_entry)
 
     # 3. Save the results
     with open(output_file, "w") as f:

@@ -1,4 +1,7 @@
-Generate the therapist's next motivational interviewing utterance for topic exploration. Focus on the topic "{topic}".
-The patient's opening problem summary, current MI topic, previously tried MI topics, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_problem', 'current_mi_topic', 'mi_topics_tried', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
-Explore how the patient's current struggle affects this topic area, aim to elicit the patient's own motivations for change, and keep the tone natural rather than templated. Avoid listing multiple topic areas.
+Generate the therapist's next motivational interviewing utterance for topic exploration. Focus on the topic "{topic}" within the current path "{topic_path}".
+Use this topic focus as guidance:
+{topic_focus}
+
+The patient's opening problem summary, conversation rollup summary, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_problem', 'conversation_rollup_summary', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Explore how the patient's current struggle affects this topic area and aim to elicit the patient's own motivations for change without sounding generic or repetitive.
 Respond with plain text.

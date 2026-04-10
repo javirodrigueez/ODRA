@@ -75,7 +75,7 @@ class TherapistAgent(Agent):
     else:
       guidelines = (
         "Remember to strictly follow these rules:\n"
-        "* Output. Respond only with the requested structured data in valid JSON format. Do not include any text that is not part of the JSON structure."
+        "* Output. Respond only with the requested structured data in valid JSON format (without markdown fences). Do not include any text that is not part of the JSON structure."
       )
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"

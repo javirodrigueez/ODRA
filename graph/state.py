@@ -128,8 +128,6 @@ DISTORTION_KEYS = [
   "discounting_the_positive",
 ]
 MIN_COGNITIVE_SET_EXCHANGES = 3
-MI_TOPICS = ["Health", "Economy", "Interpersonal Relationships", "Law", "Education"]
-
 DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "opening": "open_initial",
   "mi_topic_exploration": "mi_choose_topic",
@@ -234,12 +232,15 @@ class SessionState(TypedDict):
   cbt_flow_saved_state: str
   cbt_resume_stage: Stage
   cbt_resume_substage: SubStage | Literal[""]
+  mi_topic_stack: list[str]
+  mi_topic_probabilities: dict[str, float]
   mi_topics_tried: list[str]
   mi_techniques_used: list[str]
   current_mi_technique_selection: list[str]
   mi_techniques_paused_until_precontemplation: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
+  last_mi_topic_action: str
   mi_end_session_demand_redirect_used: bool
   patient_demand_text: str
   patient_demand_plan: str

@@ -138,7 +138,7 @@ class TherapyGraphBuilder(
       return
 
     if source_stage == "mi_topic_exploration":
-      state["current_mi_topic"] = ""
+      self._reset_mi_topic_exploration_state(state)
       self._set_substage(state, "mi_choose_topic")
       return
 
@@ -251,9 +251,9 @@ class TherapyGraphBuilder(
       self._clear_high_resistance_redirect(s)
       if not first_exchange:
         self._maybe_force_closing(s)
-        high_resistance_level = self._maybe_handle_high_resistance(s, traces)
-        #high_resistance_level = 'none'
-        self._run_resistance_prediction(s, traces)
+        #high_resistance_level = self._maybe_handle_high_resistance(s, traces)
+        high_resistance_level = 'none'
+        #self._run_resistance_prediction(s, traces)
         if high_resistance_level == "none":
           self._handle_pre_stage_routing(s, traces)
       utterance = self._handle_stage_dispatch(s, traces)

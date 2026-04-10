@@ -1,0 +1,23 @@
+Infer the most promising motivational interviewing superclass topic from the conversation so far. Your objective is to find the topic that, if explored, would most likely motivate the patient to engage in change.
+Ground your estimate primarily in 'conversation_rollup_summary' within <session_context> and the recent utterances that occurred after that rollup:
+{recent_utterances_since_rollup}
+
+Available superclass topics:
+{formatted_superclass_topics}
+
+The patient's opening problem summary, latest predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_problem', 'predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+
+Use this explicit rollup summary as stable earlier context:
+{conversation_rollup_summary}
+
+Respond in JSON format with the following structure:
+{{
+  "probabilities": {{
+    "Health": float,
+    "Economy": float,
+    "Interpersonal Relationships": float,
+    "Law": float,
+    "Education": float
+  }},
+  "reasoning": string
+}}
