@@ -289,15 +289,15 @@ class TherapyGraphBuilder(
     if state["final_patient_pending_end"]:
       return "Provide a brief closing response."
     if stage == "opening":
-      return "Respond to the therapist's opening and share only what feels comfortable."
+      return "Respond to the therapist's utterance, sharing only what feels comfortable with respect to your resistance level."
     if stage == "id_distortions":
-      return "Answer the therapist's question based on your real thoughts, emotions, and behavior."
+      return "Respond to the therapist's question according to your resistance level. When you are comfortable, share your real thoughts, emotions, and behavior."
     if stage == "cbt_technique":
       return "Respond to the CBT exercise with realistic engagement for your current resistance level."
     if stage == "homework":
-      return "Respond honestly about whether the proposed homework feels feasible."
+      return "Respond honestly about whether the proposed homework feels feasible depending on your current resistance level."
     if stage == "patient_demand":
-      return "Respond to the therapist's attempt to address your request, including whether it feels sufficiently helpful."
+      return "Respond to the therapist's attempt to address your concern according to your resistance level."
     if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
