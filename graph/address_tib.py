@@ -8,8 +8,6 @@ from agents.interfaces import ensure_str
 from .state import DEFAULT_SUBSTAGE_BY_STAGE, SessionState, Stage, SubStage
 from .support import ConversationProcessingError, GraphSupportMixin
 
-ADDRESS_TIB_MAX_TURNS = 5
-
 
 class AddressTIBStageMixin(GraphSupportMixin):
   def _build_address_tib_resume_subject(
@@ -30,23 +28,23 @@ class AddressTIBStageMixin(GraphSupportMixin):
       fields.append(f"Completion note: {normalized_completion_note}")
     return " ".join(fields)
 
-  def _route_after_address_tib(
+  def _finish_address_tib(
     self,
     state: SessionState,
     traces: list[dict[str, Any]],
     exit_reason: str,
     completion_reason: str,
-  ) -> str:
+  ) -> None:
     tib_name = ensure_str(state["address_tib_name"])
     tib_description = ensure_str(state["address_tib_description"])
+    route_bucket = state["address_tib_route_bucket"]
     resume_stage = state["address_tib_resume_stage"] or "id_distortions"
     resume_substage = state["address_tib_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
-    completion_note = completion_reason
-    if exit_reason == "max_turn_cap":
-      completion_note = "Maximum turns for addressing the TIB were used."
+    completion_note = completion_reason or "Addressed in the allotted single exchange turn."
     subject = self._build_address_tib_resume_subject(tib_name, tib_description, completion_note)
     band = self._current_band(state["predicted_resistance"], state)
 
+    self._remember_completed_address_tib(state, route_bucket, tib_name)
     self._set_resume_context(state, "address_tib", exit_reason, subject)
     self._clear_address_tib_state(state, clear_resume_cursor=True)
 
@@ -92,6 +90,8 @@ class AddressTIBStageMixin(GraphSupportMixin):
             "resume_substage": resume_substage,
             "routed_stage": routed_stage,
             "routed_substage": routed_substage,
+            "last_completed_address_tib_name": state["last_completed_address_tib_name"],
+            "last_completed_address_tib_no_reroute_active": state["last_completed_address_tib_no_reroute_active"],
             "resume_context_active": state["resume_context_active"],
             "resume_context_subject": state["resume_context_subject"],
           },
@@ -99,6 +99,15 @@ class AddressTIBStageMixin(GraphSupportMixin):
         ),
       }
     )
+
+  def _route_after_address_tib(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    exit_reason: str,
+    completion_reason: str,
+  ) -> str:
+    self._finish_address_tib(state, traces, exit_reason, completion_reason)
     return self._handle_stage_dispatch(state, traces)
 
   def _generate_address_tib_plan(
@@ -112,37 +121,6 @@ class AddressTIBStageMixin(GraphSupportMixin):
     plan = self._require_non_empty_string(payload, "tib_plan", "address_tib_plan_generation")
     state["address_tib_plan"] = plan
     self._set_last_trace_output(traces, "address_tib_plan_generation", {"tib_plan": plan})
-
-  def _update_address_tib_plan_if_needed(
-    self,
-    state: SessionState,
-    traces: list[dict[str, Any]],
-    turns: int,
-  ) -> None:
-    instruction = self._load_stage_prompt("address_tib", "plan_update")
-    parsed = self._run_therapist_structured(state, traces, "address_tib_plan_update", instruction)
-    payload = self._require_dict(parsed, "address_tib_plan_update")
-    updated = self._require_bool(payload, "updated", "address_tib_plan_update")
-    reasoning = self._require_non_empty_string(payload, "reasoning", "address_tib_plan_update")
-    trace_payload: dict[str, Any] = {
-      "updated": updated,
-      "tib_plan": "none",
-      "reasoning": reasoning,
-      "turn_count": turns,
-      "turn_cap": ADDRESS_TIB_MAX_TURNS,
-      "resume_stage": state["address_tib_resume_stage"],
-      "resume_substage": state["address_tib_resume_substage"],
-    }
-    if updated:
-      raw_plan = ensure_str(payload.get("tib_plan")).strip()
-      if not raw_plan or raw_plan.lower() == "none":
-        raise ConversationProcessingError(
-          "address_tib_plan_update.tib_plan must be provided when updated=true."
-        )
-      plan = self._require_non_empty_string(payload, "tib_plan", "address_tib_plan_update")
-      state["address_tib_plan"] = plan
-      trace_payload["tib_plan"] = plan
-    self._set_last_trace_output(traces, "address_tib_plan_update", trace_payload)
 
   def _enter_address_tib(
     self,
@@ -162,6 +140,7 @@ class AddressTIBStageMixin(GraphSupportMixin):
     state["address_tib_plan"] = ""
     state["address_tib_resume_stage"] = resume_stage
     state["address_tib_resume_substage"] = resume_substage
+    self._clear_inline_tib_ack(state)
     self._set_stage(state, "address_tib", "tib_plan")
     traces.append(
       {
@@ -194,6 +173,7 @@ class AddressTIBStageMixin(GraphSupportMixin):
     state["address_tib_description"] = tib_description
     state["address_tib_reasoning"] = reasoning
     state["address_tib_plan"] = ""
+    self._clear_inline_tib_ack(state)
     self._set_substage(state, "tib_plan")
     traces.append(
       {
@@ -212,59 +192,36 @@ class AddressTIBStageMixin(GraphSupportMixin):
       }
     )
 
+  def _maybe_complete_finished_address_tib(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:
+    if state["current_stage"] != "address_tib":
+      return False
+    if self._current_stage_exchange_count(state, "address_tib") <= 0:
+      return False
+
+    self._finish_address_tib(
+      state,
+      traces,
+      "single_turn_complete",
+      "Addressed in the allotted single exchange turn.",
+    )
+    return True
+
   def _handle_address_tib(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     tib_description = ensure_str(state["address_tib_description"])
     if not tib_description:
       raise ConversationProcessingError("address_tib stage is active without address_tib_description.")
 
     turns = self._current_stage_exchange_count(state, "address_tib")
+    if turns > 0:
+      return self._route_after_address_tib(
+        state,
+        traces,
+        "single_turn_complete",
+        "Addressed in the allotted single exchange turn.",
+      )
 
     if state["current_substage"] == "tib_plan" or not state["address_tib_plan"]:
       self._generate_address_tib_plan(state, traces)
-      self._set_substage(state, "tib_deliver")
-    elif turns > 0:
-      self._set_substage(state, "tib_check")
-      instruction = self._load_stage_prompt("address_tib", "completion_check")
-      parsed = self._run_therapist_structured(state, traces, "address_tib_completion_check", instruction)
-      payload = self._require_dict(parsed, "address_tib_completion_check")
-      covered = self._require_bool(payload, "covered", "address_tib_completion_check")
-      covered_reasoning = self._require_non_empty_string(payload, "reasoning", "address_tib_completion_check")
-      completion_payload = dict(payload)
-      completion_payload.update(
-        {
-          "route_bucket": state["address_tib_route_bucket"],
-          "tib_name": state["address_tib_name"],
-          "turn_count": turns,
-          "turn_cap": ADDRESS_TIB_MAX_TURNS,
-          "resume_stage": state["address_tib_resume_stage"],
-          "resume_substage": state["address_tib_resume_substage"],
-        }
-      )
-      self._set_last_trace_output(traces, "address_tib_completion_check", completion_payload)
-      if covered:
-        self._set_substage(state, "tib_resume")
-        return self._route_after_address_tib(state, traces, "covered", covered_reasoning)
-      if turns >= ADDRESS_TIB_MAX_TURNS:
-        traces.append(
-          {
-            "step": "address_tib_max_turn_cap",
-            "input": tib_description,
-            "output": json.dumps(
-              {
-                "route_bucket": state["address_tib_route_bucket"],
-                "tib_name": state["address_tib_name"],
-                "turn_count": turns,
-                "turn_cap": ADDRESS_TIB_MAX_TURNS,
-                "resume_stage": state["address_tib_resume_stage"],
-                "resume_substage": state["address_tib_resume_substage"],
-              },
-              ensure_ascii=True,
-            ),
-          }
-        )
-        self._set_substage(state, "tib_resume")
-        return self._route_after_address_tib(state, traces, "max_turn_cap", covered_reasoning)
-      self._update_address_tib_plan_if_needed(state, traces, turns)
       self._set_substage(state, "tib_deliver")
     else:
       self._set_substage(state, "tib_deliver")

@@ -289,6 +289,14 @@ class GraphSupportMixin:
       s.get("address_tib_resume_substage", s.get("patient_demand_resume_substage"))
     )
     s["address_tib_resume_substage"] = cast(SubStage, raw_address_tib_resume_substage) if raw_address_tib_resume_substage else ""
+    s.setdefault("last_completed_address_tib_name", "")
+    raw_last_completed_tib_bucket = ensure_str(s.get("last_completed_address_tib_route_bucket")).strip().lower()
+    if raw_last_completed_tib_bucket not in {"none", "end_session", "avoidance", "other"}:
+      raw_last_completed_tib_bucket = "none"
+    s["last_completed_address_tib_route_bucket"] = cast(TIBRouteBucket, raw_last_completed_tib_bucket)
+    s.setdefault("last_completed_address_tib_no_reroute_active", False)
+    s.setdefault("inline_tib_ack_name", "")
+    s.setdefault("inline_tib_ack_description", "")
 
     s.setdefault("resume_context_active", False)
     raw_resume_from_stage = normalize_stage_name(s.get("resume_context_from_stage"))
@@ -878,9 +886,33 @@ class GraphSupportMixin:
     # )
     return f"{text}{suffix}", True
 
+  def _instruction_with_inline_tib_ack(self, state: SessionState, instruction: str) -> tuple[str, bool]:
+    text = ensure_str(instruction)
+    tib_name = ensure_str(state.get("inline_tib_ack_name")).strip()
+    if not tib_name:
+      return text, False
+
+    tib_description = ensure_str(state.get("inline_tib_ack_description")).strip()
+    suffix = (
+      f" The patient's latest reply repeats the same therapy-interfering behavior ({tib_name!r}) that was already addressed."
+    )
+    if tib_description:
+      suffix += f" It is showing up now as: {tib_description!r}."
+    suffix += (
+      " Do not reroute or start a separate TIB detour."
+      " Address it inline very briefly in at most one sentence, connect it back to the current stage goal, and continue the current stage task in the same utterance."
+    )
+    if state.get("resume_context_active"):
+      suffix += " If you are also resuming after a detour, combine that with this acknowledgment instead of creating separate transitions."
+    return f"{text}{suffix}", True
+
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     tib_adjusted_instruction = self._instruction_with_tib_redirect(state, instruction)
-    enriched_instruction, used_resume_context = self._instruction_with_resume_context(state, tib_adjusted_instruction)
+    resume_adjusted_instruction, used_resume_context = self._instruction_with_resume_context(state, tib_adjusted_instruction)
+    enriched_instruction, used_inline_tib_ack = self._instruction_with_inline_tib_ack(
+      state,
+      resume_adjusted_instruction,
+    )
     record_large_prompt_request(
       state,
       self._build_therapist_request_messages(state, enriched_instruction, structured=False),
@@ -894,6 +926,8 @@ class GraphSupportMixin:
       session_context=self._build_stage_user_context(state),
       instruction=enriched_instruction,
     )
+    if used_inline_tib_ack or state.get("inline_tib_ack_name"):
+      self._clear_inline_tib_ack(state)
     if used_resume_context or state.get("resume_context_active"):
       self._clear_resume_context(state)
     return utterance
@@ -1047,6 +1081,28 @@ class GraphSupportMixin:
     state["resume_context_from_stage"] = ""
     state["resume_context_reason"] = ""
     state["resume_context_subject"] = ""
+
+  def _remember_completed_address_tib(self, state: SessionState, route_bucket: TIBRouteBucket, tib_name: str) -> None:
+    normalized_tib_name = ensure_str(tib_name).strip().lower()
+    if route_bucket == "other" and normalized_tib_name and normalized_tib_name != "none":
+      state["last_completed_address_tib_name"] = normalized_tib_name
+      state["last_completed_address_tib_route_bucket"] = route_bucket
+      state["last_completed_address_tib_no_reroute_active"] = True
+      return
+    self._clear_completed_address_tib_memory(state)
+
+  def _clear_completed_address_tib_memory(self, state: SessionState) -> None:
+    state["last_completed_address_tib_name"] = ""
+    state["last_completed_address_tib_route_bucket"] = "none"
+    state["last_completed_address_tib_no_reroute_active"] = False
+
+  def _set_inline_tib_ack(self, state: SessionState, tib_name: str, tib_description: str) -> None:
+    state["inline_tib_ack_name"] = ensure_str(tib_name).strip().lower()
+    state["inline_tib_ack_description"] = ensure_str(tib_description).strip()
+
+  def _clear_inline_tib_ack(self, state: SessionState) -> None:
+    state["inline_tib_ack_name"] = ""
+    state["inline_tib_ack_description"] = ""
 
   def _clear_address_tib_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
     state["address_tib_route_bucket"] = "none"

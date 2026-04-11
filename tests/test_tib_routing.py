@@ -130,6 +130,16 @@ class TIBRoutingTest(unittest.TestCase):
     ]
     return builder._ensure_state_defaults(state)
 
+  def _arm_completed_address_tib_memory(
+    self,
+    state: dict,
+    *,
+    tib_name: str = "skepticism",
+  ) -> None:
+    state["last_completed_address_tib_name"] = tib_name
+    state["last_completed_address_tib_route_bucket"] = "other"
+    state["last_completed_address_tib_no_reroute_active"] = True
+
   def test_no_tib_keeps_current_flow(self) -> None:
     builder = self._make_builder(
       {
@@ -224,6 +234,177 @@ class TIBRoutingTest(unittest.TestCase):
     self.assertEqual(state["address_tib_reasoning"], "The patient doubts the usefulness of the current approach.")
     self.assertEqual(state["address_tib_resume_stage"], "cbt_technique")
     self.assertEqual(state["address_tib_resume_substage"], "cbt_deliver_current")
+
+  def test_completed_address_tib_resumes_after_one_exchange_and_skips_tib_reroute(self) -> None:
+    builder = self._make_builder()
+    builder._maybe_handle_tib = (
+      lambda state, traces:
+      (_ for _ in ()).throw(AssertionError("_maybe_handle_tib should be skipped right after one-turn address_tib"))
+    )
+    builder._run_resistance_prediction = lambda state, traces: None
+    builder._handle_pre_stage_routing = lambda state, traces: None
+    builder._handle_stage_dispatch = lambda state, traces: "Resumed stage utterance"
+
+    state = builder.initial_state(max_turns=12)
+    state["current_stage"] = "address_tib"
+    state["current_substage"] = "tib_deliver"
+    state["predicted_resistance"] = 0.2
+    state["address_tib_route_bucket"] = "other"
+    state["address_tib_name"] = "skepticism"
+    state["address_tib_description"] = "The patient says the exercise still feels pointless."
+    state["address_tib_reasoning"] = "The patient continues doubting the usefulness of the current approach."
+    state["address_tib_plan"] = "Acknowledge the skepticism and reconnect to the current exercise."
+    state["address_tib_resume_stage"] = "cbt_technique"
+    state["address_tib_resume_substage"] = "cbt_deliver_current"
+    state["messages"] = [
+      {
+        "utterance_index": 1,
+        "role": "therapist",
+        "content": "I hear the skepticism, and I want to connect this back to what we're testing here.",
+        "stage": "address_tib",
+        "substage": "tib_deliver",
+      },
+      {
+        "utterance_index": 2,
+        "role": "patient",
+        "content": "Okay, but I'm still not convinced.",
+        "stage": "address_tib",
+        "substage": "tib_deliver",
+      },
+    ]
+    state["exchange_counts"] = {"address_tib": [1]}
+    state = builder._ensure_state_defaults(state)
+
+    updated = builder.therapist_turn(state)
+
+    self.assertEqual(updated["current_stage"], "cbt_technique")
+    self.assertEqual(updated["current_substage"], "cbt_deliver_current")
+    self.assertEqual(updated["messages"][-1]["content"], "Resumed stage utterance")
+    self.assertEqual(updated["messages"][-1]["stage"], "cbt_technique")
+    self.assertEqual(updated["last_completed_address_tib_name"], "skepticism")
+    self.assertTrue(updated["last_completed_address_tib_no_reroute_active"])
+    self.assertEqual(updated["last_completed_address_tib_route_bucket"], "other")
+    self.assertEqual(updated["address_tib_name"], "")
+    self.assertEqual(updated["address_tib_description"], "")
+    self.assertEqual(updated["address_tib_plan"], "")
+    self.assertEqual(updated["reasoning_traces"][-1]["traces"][0]["step"], "address_tib_exit")
+
+  def test_same_tib_is_handled_inline_without_reroute(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": True,
+        "tib_name": "skepticism",
+        "tib_description": "The patient keeps saying the exercise feels pointless.",
+        "reasoning": "The patient is repeating the same skepticism TIB.",
+      }
+    )
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+    self._arm_completed_address_tib_memory(state)
+    traces: list[dict] = []
+
+    bucket = builder._maybe_handle_tib(state, traces)
+
+    self.assertEqual(bucket, "none")
+    self.assertEqual(state["current_stage"], "cbt_technique")
+    self.assertEqual(state["inline_tib_ack_name"], "skepticism")
+    self.assertEqual(
+      state["inline_tib_ack_description"],
+      "The patient keeps saying the exercise feels pointless.",
+    )
+    self.assertTrue(state["last_completed_address_tib_no_reroute_active"])
+    self.assertEqual(traces[-1]["step"], "address_tib_repeat_inline_suppressed")
+
+  def test_same_tib_stays_inline_until_no_tib_then_can_route_again(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": True,
+        "tib_name": "skepticism",
+        "tib_description": "The patient again doubts that the exercise will help.",
+        "reasoning": "The same skepticism TIB is still present.",
+      }
+    )
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+    self._arm_completed_address_tib_memory(state)
+
+    first_bucket = builder._maybe_handle_tib(state, [])
+    builder._clear_inline_tib_ack(state)
+    second_bucket = builder._maybe_handle_tib(state, [])
+
+    self.assertEqual(first_bucket, "none")
+    self.assertEqual(second_bucket, "none")
+    self.assertTrue(state["last_completed_address_tib_no_reroute_active"])
+
+    builder._run_therapist_structured = lambda state, traces, step_name, instruction: {
+      "has_tib": False,
+      "tib_name": "none",
+      "tib_description": None,
+      "reasoning": "The patient is no longer showing a TIB.",
+    }
+    cleared_bucket = builder._maybe_handle_tib(state, [])
+
+    self.assertEqual(cleared_bucket, "none")
+    self.assertFalse(state["last_completed_address_tib_no_reroute_active"])
+    self.assertEqual(state["last_completed_address_tib_name"], "")
+
+    builder._run_therapist_structured = lambda state, traces, step_name, instruction: {
+      "has_tib": True,
+      "tib_name": "skepticism",
+      "tib_description": "The patient returns to saying the exercise feels pointless.",
+      "reasoning": "The skepticism TIB has returned after a no-TIB turn.",
+    }
+    routed_bucket = builder._maybe_handle_tib(state, [])
+
+    self.assertEqual(routed_bucket, "other")
+    self.assertEqual(state["current_stage"], "address_tib")
+    self.assertEqual(state["address_tib_name"], "skepticism")
+
+  def test_different_other_tib_routes_normally_while_same_tib_memory_is_active(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": True,
+        "tib_name": "defensiveness",
+        "tib_description": "The patient pushes back against the therapist's framing.",
+        "reasoning": "This is a different TIB than the earlier skepticism.",
+      }
+    )
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+    self._arm_completed_address_tib_memory(state)
+
+    bucket = builder._maybe_handle_tib(state, [])
+
+    self.assertEqual(bucket, "other")
+    self.assertEqual(state["current_stage"], "address_tib")
+    self.assertEqual(state["address_tib_name"], "defensiveness")
+
+  def test_inline_tib_ack_suffix_is_added_once_and_cleared(self) -> None:
+    class _FakeTherapist:
+      def __init__(self) -> None:
+        self.last_instruction = ""
+
+      def build_utterance_messages(self, **kwargs):
+        return [{"role": "user", "content": kwargs["instruction"]}]
+
+      def generate_utterance(self, **kwargs):
+        self.last_instruction = kwargs["instruction"]
+        return "Therapist reply"
+
+    builder = self._make_builder()
+    builder.therapist = _FakeTherapist()
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+    state["inline_tib_ack_name"] = "skepticism"
+    state["inline_tib_ack_description"] = "The patient keeps doubting the value of the exercise."
+    state["resume_context_active"] = True
+    state["resume_context_from_stage"] = "address_tib"
+    state["resume_context_reason"] = "single_turn_complete"
+    state["resume_context_subject"] = "TIB name: skepticism"
+
+    utterance = builder._generate_therapist_utterance(state, "Continue the CBT exercise.")
+
+    self.assertEqual(utterance, "Therapist reply")
+    self.assertIn("Do not reroute or start a separate TIB detour.", builder.therapist.last_instruction)
+    self.assertIn("at most one sentence", builder.therapist.last_instruction)
+    self.assertEqual(state["inline_tib_ack_name"], "")
+    self.assertEqual(state["inline_tib_ack_description"], "")
 
   def test_resume_state_normalizes_legacy_patient_demand_shape(self) -> None:
     builder = self._make_builder()

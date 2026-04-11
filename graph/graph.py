@@ -202,6 +202,8 @@ class TherapyGraphBuilder(
         raise ConversationProcessingError(
           "tib_check.has_tib=false must be paired with tib_name='none'."
         )
+      self._clear_completed_address_tib_memory(state)
+      self._clear_inline_tib_ack(state)
       return "none"
 
     if route_bucket == "none":
@@ -212,6 +214,32 @@ class TherapyGraphBuilder(
       raise ConversationProcessingError("tib_check.tib_description must be a non-empty string when has_tib=true.")
 
     source_stage, source_substage = self._tib_route_source(state)
+    remembered_tib_name = ensure_str(state["last_completed_address_tib_name"]).strip().lower()
+    if (
+      route_bucket == "other"
+      and state["last_completed_address_tib_no_reroute_active"]
+      and state["last_completed_address_tib_route_bucket"] == "other"
+      and normalized_tib_name == remembered_tib_name
+    ):
+      self._set_inline_tib_ack(state, normalized_tib_name, tib_description)
+      traces.append(
+        {
+          "step": "address_tib_repeat_inline_suppressed",
+          "input": tib_description,
+          "output": json.dumps(
+            {
+              "tib_name": normalized_tib_name,
+              "current_stage": state["current_stage"],
+              "current_substage": state["current_substage"],
+              "remembered_tib_name": state["last_completed_address_tib_name"],
+              "remembered_tib_no_reroute_active": state["last_completed_address_tib_no_reroute_active"],
+            },
+            ensure_ascii=True,
+          ),
+        }
+      )
+      return "none"
+
     if route_bucket == "end_session":
       if state["current_stage"] == "meta_conversation":
         self._mark_tib_redirect(state, "yes", source_stage, source_substage, reasoning)
@@ -227,6 +255,7 @@ class TherapyGraphBuilder(
 
       if state["current_stage"] == "address_tib":
         self._clear_address_tib_state(state, clear_resume_cursor=True)
+        self._clear_inline_tib_ack(state)
         self._set_stage(state, source_stage, source_substage)
 
       self._mark_tib_redirect(state, "yes", source_stage, source_substage, reasoning)
@@ -249,6 +278,7 @@ class TherapyGraphBuilder(
     if route_bucket == "avoidance":
       if state["current_stage"] == "address_tib":
         self._clear_address_tib_state(state, clear_resume_cursor=True)
+        self._clear_inline_tib_ack(state)
         self._set_stage(state, source_stage, source_substage)
       self._mark_tib_redirect(state, "partial", source_stage, source_substage, reasoning)
       self._route_tib_redirect(state, traces, "partial", source_stage, source_substage)
@@ -280,7 +310,10 @@ class TherapyGraphBuilder(
       self._clear_tib_redirect(s)
       if not first_exchange:
         self._maybe_force_closing(s)
-        tib_route_bucket = self._maybe_handle_tib(s, traces)
+        completed_address_tib = self._maybe_complete_finished_address_tib(s, traces)
+        tib_route_bucket = "none"
+        if not completed_address_tib:
+          tib_route_bucket = self._maybe_handle_tib(s, traces)
         self._run_resistance_prediction(s, traces)
         if tib_route_bucket == "none":
           self._handle_pre_stage_routing(s, traces)

@@ -289,6 +289,11 @@ class SessionState(TypedDict):
   address_tib_plan: str
   address_tib_resume_stage: Stage | Literal[""]
   address_tib_resume_substage: SubStage | Literal[""]
+  last_completed_address_tib_name: str
+  last_completed_address_tib_route_bucket: TIBRouteBucket
+  last_completed_address_tib_no_reroute_active: bool
+  inline_tib_ack_name: str
+  inline_tib_ack_description: str
   resume_context_active: bool
   resume_context_from_stage: Stage | Literal[""]
   resume_context_reason: str
