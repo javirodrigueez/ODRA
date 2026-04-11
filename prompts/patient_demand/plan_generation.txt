@@ -1,4 +1,0 @@
-Create a brief therapist plan for addressing the patient's explicit demand before returning to the normal therapy flow.
-The active patient demand is available as 'patient_demand_text' within <session_context>.
-Make the plan concrete, therapeutically appropriate, and limited in scope so it can be covered within a short detour from the main session. The plan shouldn't introduce techniques, it is just a brief detour to engage the patient in the CBT flow. The plan should have a maximum of 200 words.
-Respond JSON: {{"demand_plan":"..."}}

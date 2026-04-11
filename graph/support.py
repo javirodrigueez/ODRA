@@ -22,13 +22,31 @@ from agents.therapist import TherapistAgent
 from .audit_tokens import count_text_tokens, record_large_prompt_request
 from .resistance import (
   HomeostaticResistanceUpdate,
+  PatientActionDistribution,
   TherapistResistanceUpdate,
   apply_homeostatic_resistance_update,
   apply_bayesian_predicted_resistance_update,
   normalize_predicted_resistance_state_fields,
   normalize_resistance_state_fields,
 )
-from .state import ALL_SUBSTAGES, CORE_BELIEF_KEYS, DEFAULT_SUBSTAGE_BY_STAGE, DISTORTION_KEYS, HomeworkTask, MIN_COGNITIVE_SET_EXCHANGES, CognitiveModelSet, ConversationMessage, ConversationRole, SelectedTechnique, SessionState, Stage, SubStage
+from .state import (
+  ALL_SUBSTAGES,
+  CORE_BELIEF_KEYS,
+  DEFAULT_SUBSTAGE_BY_STAGE,
+  DISTORTION_KEYS,
+  HomeworkTask,
+  MIN_COGNITIVE_SET_EXCHANGES,
+  CognitiveModelSet,
+  ConversationMessage,
+  ConversationRole,
+  SelectedTechnique,
+  SessionState,
+  Stage,
+  SubStage,
+  TIBRouteBucket,
+  normalize_stage_name,
+  normalize_substage_name,
+)
 
 
 class ConversationProcessingError(RuntimeError):
@@ -156,23 +174,23 @@ class GraphSupportMixin:
 
   def _ensure_state_defaults(self, state: dict[str, Any] | SessionState) -> SessionState:
     s = cast(SessionState, cast(object, dict(state)))
-    raw_stage = ensure_str(s.get("current_stage"), "opening")
-    stage: Stage = cast(Stage, raw_stage) if raw_stage in DEFAULT_SUBSTAGE_BY_STAGE else "opening"
+    raw_stage = normalize_stage_name(s.get("current_stage"))
+    stage: Stage = cast(Stage, raw_stage) if raw_stage else "opening"
     s["current_stage"] = stage
-    raw_substage = ensure_str(
-      s.get("current_substage"),
-      DEFAULT_SUBSTAGE_BY_STAGE[stage],
-    )
-    if raw_substage not in ALL_SUBSTAGES:
-      raw_substage = DEFAULT_SUBSTAGE_BY_STAGE[stage]
-    s["current_substage"] = cast(SubStage, raw_substage)
+    raw_substage = normalize_substage_name(s.get("current_substage"))
+    s["current_substage"] = cast(SubStage, raw_substage) if raw_substage else DEFAULT_SUBSTAGE_BY_STAGE[stage]
 
     raw_messages = s.get("messages")
-    s["messages"] = self._normalize_messages(raw_messages, stage, cast(SubStage, raw_substage))
+    s["messages"] = self._normalize_messages(raw_messages, stage, s["current_substage"])
 
     s = cast(SessionState, cast(object, normalize_resistance_state_fields(dict(s), deepcopy(self.profile))))
     s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(dict(s))))
 
+    s.setdefault("last_patient_resistance_update_reasoning", "")
+    s.setdefault("last_patient_action", "")
+    s.setdefault("last_patient_action_prior_distribution", cast(PatientActionDistribution, {}))
+    s.setdefault("last_patient_action_context_distribution", cast(PatientActionDistribution, {}))
+    s.setdefault("last_patient_action_distribution", cast(PatientActionDistribution, {}))
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
     s.setdefault("last_reasoning", "")
@@ -203,12 +221,11 @@ class GraphSupportMixin:
 
     s.setdefault("mi_active", False)
     raw_mi_context = s.get("mi_context")
-    s["mi_context"] = self._normalize_messages(raw_mi_context, stage, cast(SubStage, raw_substage))
+    s["mi_context"] = self._normalize_messages(raw_mi_context, stage, s["current_substage"])
     s.setdefault("cbt_flow_saved_state", "")
-    s.setdefault("cbt_resume_stage", "id_distortions")
-    raw_cbt_resume_substage = ensure_str(s.get("cbt_resume_substage"))
-    if raw_cbt_resume_substage not in ALL_SUBSTAGES:
-      raw_cbt_resume_substage = ""
+    raw_cbt_resume_stage = normalize_stage_name(s.get("cbt_resume_stage"))
+    s["cbt_resume_stage"] = cast(Stage, raw_cbt_resume_stage) if raw_cbt_resume_stage else "id_distortions"
+    raw_cbt_resume_substage = normalize_substage_name(s.get("cbt_resume_substage"))
     s["cbt_resume_substage"] = cast(SubStage, raw_cbt_resume_substage) if raw_cbt_resume_substage else ""
     raw_mi_topic_stack = s.get("mi_topic_stack")
     if isinstance(raw_mi_topic_stack, list):
@@ -234,20 +251,48 @@ class GraphSupportMixin:
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
     s.setdefault("last_mi_topic_action", "")
-    s.setdefault("mi_end_session_demand_redirect_used", False)
-    s.setdefault("patient_demand_text", "")
-    s.setdefault("patient_demand_plan", "")
-    s.setdefault("patient_demand_reasoning", "")
-    raw_demand_resume_stage = ensure_str(s.get("patient_demand_resume_stage"))
-    s["patient_demand_resume_stage"] = cast(Stage, raw_demand_resume_stage) if raw_demand_resume_stage in DEFAULT_SUBSTAGE_BY_STAGE else ""
-    raw_demand_resume_substage = ensure_str(s.get("patient_demand_resume_substage"))
-    if raw_demand_resume_substage not in ALL_SUBSTAGES:
-      raw_demand_resume_substage = ""
-    s["patient_demand_resume_substage"] = cast(SubStage, raw_demand_resume_substage) if raw_demand_resume_substage else ""
-    s.setdefault("patient_demand_end_session_attempt_active", False)
+    if "mi_end_session_tib_redirect_used" not in s and "mi_end_session_demand_redirect_used" in s:
+      s["mi_end_session_tib_redirect_used"] = bool(s.get("mi_end_session_demand_redirect_used"))
+    s.setdefault("mi_end_session_tib_redirect_used", False)
+
+    legacy_address_tib_description = ensure_str(s.get("patient_demand_text"))
+    legacy_address_tib_plan = ensure_str(s.get("patient_demand_plan"))
+    legacy_address_tib_reasoning = ensure_str(s.get("patient_demand_reasoning"))
+    if "address_tib_description" not in s and legacy_address_tib_description:
+      s["address_tib_description"] = legacy_address_tib_description
+    if "address_tib_plan" not in s and legacy_address_tib_plan:
+      s["address_tib_plan"] = legacy_address_tib_plan
+    if "address_tib_reasoning" not in s and legacy_address_tib_reasoning:
+      s["address_tib_reasoning"] = legacy_address_tib_reasoning
+
+    address_tib_name = ensure_str(s.get("address_tib_name"))
+    if not address_tib_name and legacy_address_tib_description:
+      address_tib_name = "legacy_patient_demand"
+    s["address_tib_name"] = address_tib_name
+    s["address_tib_description"] = ensure_str(s.get("address_tib_description"))
+    s["address_tib_reasoning"] = ensure_str(s.get("address_tib_reasoning"))
+    s["address_tib_plan"] = ensure_str(s.get("address_tib_plan"))
+
+    raw_address_tib_bucket = ensure_str(s.get("address_tib_route_bucket")).strip().lower()
+    if raw_address_tib_bucket not in {"none", "end_session", "avoidance", "other"}:
+      if s["address_tib_description"] or s["current_stage"] == "address_tib":
+        raw_address_tib_bucket = "other"
+      else:
+        raw_address_tib_bucket = "none"
+    s["address_tib_route_bucket"] = cast(TIBRouteBucket, raw_address_tib_bucket)
+
+    raw_address_tib_resume_stage = normalize_stage_name(
+      s.get("address_tib_resume_stage", s.get("patient_demand_resume_stage"))
+    )
+    s["address_tib_resume_stage"] = cast(Stage, raw_address_tib_resume_stage) if raw_address_tib_resume_stage else ""
+    raw_address_tib_resume_substage = normalize_substage_name(
+      s.get("address_tib_resume_substage", s.get("patient_demand_resume_substage"))
+    )
+    s["address_tib_resume_substage"] = cast(SubStage, raw_address_tib_resume_substage) if raw_address_tib_resume_substage else ""
+
     s.setdefault("resume_context_active", False)
-    raw_resume_from_stage = ensure_str(s.get("resume_context_from_stage"))
-    s["resume_context_from_stage"] = cast(Stage, raw_resume_from_stage) if raw_resume_from_stage in DEFAULT_SUBSTAGE_BY_STAGE else ""
+    raw_resume_from_stage = normalize_stage_name(s.get("resume_context_from_stage"))
+    s["resume_context_from_stage"] = cast(Stage, raw_resume_from_stage) if raw_resume_from_stage else ""
     s.setdefault("resume_context_reason", "")
     s.setdefault("resume_context_subject", "")
 
@@ -277,7 +322,7 @@ class GraphSupportMixin:
     normalized_exchange_counts: dict[str, list[int]] = {}
     if isinstance(raw_exchange_counts, dict):
       for key, value in raw_exchange_counts.items():
-        stage_name = ensure_str(key)
+        stage_name = normalize_stage_name(key)
         if not stage_name:
           continue
         if isinstance(value, list):
@@ -293,15 +338,31 @@ class GraphSupportMixin:
     legacy_mi_technique_turns = s.get("mi_technique_turns")
     if legacy_mi_technique_turns is not None and "mi_techniques" not in s["exchange_counts"]:
       s["exchange_counts"]["mi_techniques"] = [int(legacy_mi_technique_turns)]
-    s.setdefault("active_exchange_stage", "")
-    s.setdefault("active_exchange_substage", "")
+    raw_active_exchange_stage = normalize_stage_name(s.get("active_exchange_stage"))
+    s["active_exchange_stage"] = cast(Stage, raw_active_exchange_stage) if raw_active_exchange_stage else ""
+    raw_active_exchange_substage = normalize_substage_name(s.get("active_exchange_substage"))
+    s["active_exchange_substage"] = cast(SubStage, raw_active_exchange_substage) if raw_active_exchange_substage else ""
     # devlog end
 
-    s.setdefault("high_resistance_redirect_triggered", False)
-    s.setdefault("high_resistance_level", "")
-    s.setdefault("high_resistance_source_stage", "")
-    s.setdefault("high_resistance_source_substage", "")
-    s.setdefault("high_resistance_reasoning", "")
+    if "tib_redirect_triggered" not in s and "high_resistance_redirect_triggered" in s:
+      s["tib_redirect_triggered"] = bool(s.get("high_resistance_redirect_triggered"))
+    s.setdefault("tib_redirect_triggered", False)
+    if not s.get("tib_redirect_level") and s.get("high_resistance_level"):
+      s["tib_redirect_level"] = ensure_str(s.get("high_resistance_level"))
+    s.setdefault("tib_redirect_level", "")
+    raw_tib_redirect_source_stage = normalize_stage_name(
+      s.get("tib_redirect_source_stage", s.get("high_resistance_source_stage"))
+    )
+    s["tib_redirect_source_stage"] = cast(Stage, raw_tib_redirect_source_stage) if raw_tib_redirect_source_stage else ""
+    raw_tib_redirect_source_substage = normalize_substage_name(
+      s.get("tib_redirect_source_substage", s.get("high_resistance_source_substage"))
+    )
+    s["tib_redirect_source_substage"] = (
+      cast(SubStage, raw_tib_redirect_source_substage) if raw_tib_redirect_source_substage else ""
+    )
+    if not s.get("tib_redirect_reasoning") and s.get("high_resistance_reasoning"):
+      s["tib_redirect_reasoning"] = ensure_str(s.get("high_resistance_reasoning"))
+    s.setdefault("tib_redirect_reasoning", "")
     
     s.setdefault("final_patient_pending_end", False)
     s.setdefault("session_ended", False)
@@ -586,18 +647,19 @@ class GraphSupportMixin:
       "predicted_resistance": state["predicted_resistance"],
       #"stage_exchange_count": self._current_stage_exchange_count(state, stage),
       #"stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
-      # "high_resistance_redirect_triggered": state["high_resistance_redirect_triggered"],
-      # "high_resistance_level": state["high_resistance_level"],
-      # "high_resistance_source_stage": state["high_resistance_source_stage"],
-      # "high_resistance_source_substage": state["high_resistance_source_substage"],
-      # "high_resistance_reasoning": state["high_resistance_reasoning"],
-      # "patient_demand_text": state["patient_demand_text"],
-      # "patient_demand_plan": state["patient_demand_plan"],
-      # "patient_demand_reasoning": state["patient_demand_reasoning"],
-      # "patient_demand_resume_stage": state["patient_demand_resume_stage"],
-      # "patient_demand_resume_substage": state["patient_demand_resume_substage"],
-      # "patient_demand_end_session_attempt_active": state["patient_demand_end_session_attempt_active"],
-      # "mi_end_session_demand_redirect_used": state["mi_end_session_demand_redirect_used"],
+      # "tib_redirect_triggered": state["tib_redirect_triggered"],
+      # "tib_redirect_level": state["tib_redirect_level"],
+      # "tib_redirect_source_stage": state["tib_redirect_source_stage"],
+      # "tib_redirect_source_substage": state["tib_redirect_source_substage"],
+      # "tib_redirect_reasoning": state["tib_redirect_reasoning"],
+      # "address_tib_route_bucket": state["address_tib_route_bucket"],
+      # "address_tib_name": state["address_tib_name"],
+      # "address_tib_description": state["address_tib_description"],
+      # "address_tib_reasoning": state["address_tib_reasoning"],
+      # "address_tib_plan": state["address_tib_plan"],
+      # "address_tib_resume_stage": state["address_tib_resume_stage"],
+      # "address_tib_resume_substage": state["address_tib_resume_substage"],
+      # "mi_end_session_tib_redirect_used": state["mi_end_session_tib_redirect_used"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
 
@@ -667,10 +729,13 @@ class GraphSupportMixin:
           "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
           "technique_evaluations": state["technique_evaluations"],
           "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
-          #"session_summary": state["session_summary"],
-          #"next_session_plan": state["next_session_plan"],
+          "session_summary": state["session_summary"],
+          "next_session_plan": state["next_session_plan"],
           "agreed_tasks": self._format_tasks(state["agreed_tasks"]),
-          #"patient_feedback": state["patient_feedback"],
+          "tib_redirect_triggered": state["tib_redirect_triggered"],
+          "tib_redirect_level": state["tib_redirect_level"],
+          "tib_redirect_reasoning": state["tib_redirect_reasoning"],
+          "patient_feedback": state["patient_feedback"],
           #"closing_plan_refinements": state["closing_plan_refinements"],
         }
       )
@@ -717,7 +782,7 @@ class GraphSupportMixin:
           "cbt_resume_substage": state["cbt_resume_substage"],
         }
       )
-    elif stage == "patient_demand":
+    elif stage == "address_tib":
       context.update(
         {
           "opening_patient_mood": state["opening_patient_mood"],
@@ -726,12 +791,15 @@ class GraphSupportMixin:
           "cognitive_model_sets": self._format_cognitive_model_sets(state["cognitive_model_sets"]),
           "selected_techniques": self._format_selected_technique(state["selected_techniques"]),
           "current_technique_index": state["current_technique_index"],
-          "patient_demand_text": state["patient_demand_text"],
-          "patient_demand_plan": state["patient_demand_plan"],
-          #"patient_demand_resume_stage": state["patient_demand_resume_stage"],
-          #"patient_demand_resume_substage": state["patient_demand_resume_substage"],
-          #"patient_demand_turn_count": self._current_stage_exchange_count(state, "patient_demand"),
-          #"patient_demand_turn_cap": 5,
+          "address_tib_route_bucket": state["address_tib_route_bucket"],
+          "address_tib_name": state["address_tib_name"],
+          "address_tib_description": state["address_tib_description"],
+          "address_tib_reasoning": state["address_tib_reasoning"],
+          "address_tib_plan": state["address_tib_plan"],
+          #"address_tib_resume_stage": state["address_tib_resume_stage"],
+          #"address_tib_resume_substage": state["address_tib_resume_substage"],
+          #"address_tib_turn_count": self._current_stage_exchange_count(state, "address_tib"),
+          #"address_tib_turn_cap": 5,
         }
       )
     elif stage in {"anticipated_closing", "forced_closing"}:
@@ -758,16 +826,16 @@ class GraphSupportMixin:
     )
     return f"{text} {suffix}"
 
-  def _instruction_with_high_resistance_redirect(self, state: SessionState, instruction: str) -> str:
+  def _instruction_with_tib_redirect(self, state: SessionState, instruction: str) -> str:
     text = ensure_str(instruction)
-    if not state.get("high_resistance_redirect_triggered"):
+    if not state.get("tib_redirect_triggered"):
       return text
 
-    level = ensure_str(state.get("high_resistance_level"), "partial")
-    source_stage = ensure_str(state.get("high_resistance_source_stage"), "unknown stage")
+    level = ensure_str(state.get("tib_redirect_level"), "partial")
+    source_stage = ensure_str(state.get("tib_redirect_source_stage"), "unknown stage")
     suffix = (
       " Before moving forward, briefly acknowledge the patient's wish to stop, step back, or change focus "
-      f"in a natural therapist voice. This was a high-resistance reroute with level='{level}' from {source_stage}. "
+      f"in a natural therapist voice. This was a TIB reroute with level='{level}' from {source_stage}. "
       "Then continue with the current stage goal smoothly, without sounding abrupt, defensive, or scripted."
     )
     return f"{text} {suffix}"
@@ -811,7 +879,8 @@ class GraphSupportMixin:
     return f"{text}{suffix}", True
 
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
-    enriched_instruction, used_resume_context = self._instruction_with_resume_context(state, instruction)
+    tib_adjusted_instruction = self._instruction_with_tib_redirect(state, instruction)
+    enriched_instruction, used_resume_context = self._instruction_with_resume_context(state, tib_adjusted_instruction)
     record_large_prompt_request(
       state,
       self._build_therapist_request_messages(state, enriched_instruction, structured=False),
@@ -902,11 +971,10 @@ class GraphSupportMixin:
       if utterance_index <= 0:
         utterance_index = next_index
 
-      raw_stage = ensure_str(item.get("stage"), default_stage)
-      message_stage: Stage = cast(Stage, raw_stage) if raw_stage in DEFAULT_SUBSTAGE_BY_STAGE else default_stage
-      raw_substage = ensure_str(item.get("substage"), default_substage)
-      if raw_substage not in ALL_SUBSTAGES:
-        raw_substage = default_substage
+      raw_stage = normalize_stage_name(item.get("stage"))
+      message_stage: Stage = cast(Stage, raw_stage) if raw_stage else default_stage
+      raw_substage = normalize_substage_name(item.get("substage"))
+      message_substage = cast(SubStage, raw_substage) if raw_substage else default_substage
 
       normalized.append(
         {
@@ -914,7 +982,7 @@ class GraphSupportMixin:
           "role": cast(ConversationRole, role),
           "content": content,
           "stage": message_stage,
-          "substage": cast(SubStage, raw_substage),
+          "substage": message_substage,
         }
       )
       next_index = max(next_index + 1, utterance_index + 1)
@@ -941,7 +1009,7 @@ class GraphSupportMixin:
     history[-1] = int(history[-1]) + 1
     return history[-1]
 
-  def _mark_high_resistance_redirect(
+  def _mark_tib_redirect(
     self,
     state: SessionState,
     level: str,
@@ -949,18 +1017,18 @@ class GraphSupportMixin:
     source_substage: SubStage,
     reasoning: str,
   ) -> None:
-    state["high_resistance_redirect_triggered"] = True
-    state["high_resistance_level"] = level
-    state["high_resistance_source_stage"] = source_stage
-    state["high_resistance_source_substage"] = source_substage
-    state["high_resistance_reasoning"] = reasoning
+    state["tib_redirect_triggered"] = True
+    state["tib_redirect_level"] = level
+    state["tib_redirect_source_stage"] = source_stage
+    state["tib_redirect_source_substage"] = source_substage
+    state["tib_redirect_reasoning"] = reasoning
 
-  def _clear_high_resistance_redirect(self, state: SessionState) -> None:
-    state["high_resistance_redirect_triggered"] = False
-    state["high_resistance_level"] = ""
-    state["high_resistance_source_stage"] = ""
-    state["high_resistance_source_substage"] = ""
-    state["high_resistance_reasoning"] = ""
+  def _clear_tib_redirect(self, state: SessionState) -> None:
+    state["tib_redirect_triggered"] = False
+    state["tib_redirect_level"] = ""
+    state["tib_redirect_source_stage"] = ""
+    state["tib_redirect_source_substage"] = ""
+    state["tib_redirect_reasoning"] = ""
 
   def _set_resume_context(
     self,
@@ -980,14 +1048,15 @@ class GraphSupportMixin:
     state["resume_context_reason"] = ""
     state["resume_context_subject"] = ""
 
-  def _clear_patient_demand_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
-    state["patient_demand_text"] = ""
-    state["patient_demand_plan"] = ""
-    state["patient_demand_reasoning"] = ""
-    state["patient_demand_end_session_attempt_active"] = False
+  def _clear_address_tib_state(self, state: SessionState, clear_resume_cursor: bool = True) -> None:
+    state["address_tib_route_bucket"] = "none"
+    state["address_tib_name"] = ""
+    state["address_tib_description"] = ""
+    state["address_tib_reasoning"] = ""
+    state["address_tib_plan"] = ""
     if clear_resume_cursor:
-      state["patient_demand_resume_stage"] = ""
-      state["patient_demand_resume_substage"] = ""
+      state["address_tib_resume_stage"] = ""
+      state["address_tib_resume_substage"] = ""
 
   def _next_cognitive_set_id(self, state: SessionState) -> int:
     known_ids = [

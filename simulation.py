@@ -78,9 +78,11 @@ def run_simulation(
         r = chunk.get("resistance", "N/A")
         pred_r = chunk.get("predicted_resistance", "N/A")
         for msg in messages[last_msg_count:]:
-          if msg["role"] == "therapist":
-            #print(f"<MI-TECH-LOG>{chunk.get("mi_techniques_used")[-2:]}</MI-TECH-LOG>")
-            print(f"<STACK>{chunk.get("mi_topic_stack")}</STACK>")
+          # if msg["role"] == "therapist":
+          #   #print(f"<MI-TECH-LOG>{chunk.get("mi_techniques_used")[-2:]}</MI-TECH-LOG>")
+          #   print(f"<STACK>{chunk.get("mi_topic_stack")}</STACK>")
+          # elif msg["role"] == "patient":
+          #   print(f"<ACTION>{chunk.get("last_patient_action_distribution")}</ACTION>")
           r_print = pred_r if msg["role"] == "therapist" else r
           print(f'    {msg["role"].capitalize()} ({r_print}) [{current_stage}]: {msg["content"]}')
         last_msg_count = len(messages)

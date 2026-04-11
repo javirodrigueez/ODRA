@@ -22,4 +22,4 @@ env:
   min_turns: 60
   output_dir: out/deepseek_five
   verbose: true
-  resume_file: out/deepseek_five/negative_2_halved.json
+  resume_file:

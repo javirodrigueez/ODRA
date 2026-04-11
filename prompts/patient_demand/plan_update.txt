@@ -1,4 +1,0 @@
-Review whether the current therapist plan for addressing the patient's explicit demand should be updated before the next utterance.
-The active patient demand and the current demand plan are available as 'patient_demand_text' and 'patient_demand_plan' within <session_context>. Use the latest dialogue in <last_utterances> and prior reasoning to decide whether the current plan is still valid. 
-Set "updated" to true only if the plan itself needs adjustment. If the current plan is still appropriate, set "updated" to false and set "demand_plan" to "none". If "updated" is true, provide a revised "demand_plan" that is concrete, therapeutically appropriate, limited in scope, and no longer than 200 words. The plan shouldn't introduce techniques, it is just a brief detour to engage the patient in the CBT flow.
-Respond JSON: {{"updated": true or false, "demand_plan": "plan" or "none", "reasoning":"..."}}

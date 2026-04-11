@@ -1,0 +1,4 @@
+Generate the therapist's next utterance for the temporary address_tib stage.
+The active TIB name, description, and current plan are available as 'address_tib_name', 'address_tib_description', and 'address_tib_plan' within <session_context>.
+Address the active TIB directly and helpfully, following the TIB plan.
+Respond with plain text.

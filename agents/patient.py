@@ -6,7 +6,9 @@ from typing import Any
 
 from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
 
-from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
+from graph.resistance import resistance_prompt_name_for_level, scaled_resistance_value
+
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response, render_prompt
 
 class PatientAgent(Agent):
   def __init__(
@@ -57,25 +59,16 @@ class PatientAgent(Agent):
     return "\n".join(f"- {p}" for p in self.profile["patterns"])
 
   def _resistance_prompt_name(self, resistance_level: float) -> str:
-    if resistance_level < 0.20:
-      return "r_very_low"
-    if resistance_level < 0.40:
-      return "r_low"
-    if resistance_level < 0.60:
-      return "r_medium"
-    if resistance_level < 0.80:
-      return "r_high"
-    return "r_very_high"
+    return resistance_prompt_name_for_level(resistance_level)
 
   def _prompt_resistance_level(self, resistance_level: float) -> float:
-    return max(0, min(10, float(resistance_level) * 10))
+    return scaled_resistance_value(resistance_level)
 
   def _render_resistance_prompt(self, resistance_level: float) -> str:
     prompt_name = self._resistance_prompt_name(float(resistance_level))
-    template = load_prompt(f"patient_resistance/{prompt_name}.txt")
-    prompt_template = PromptTemplate.from_template(template)
-    return prompt_template.format(
-      resistance_level=self._prompt_resistance_level(round(resistance_level)),
+    return render_prompt(
+      f"patient_resistance/{prompt_name}.txt",
+      scaled_resistance=f"{self._prompt_resistance_level(resistance_level):.1f}",
     )
 
   def _build_user_prompt(

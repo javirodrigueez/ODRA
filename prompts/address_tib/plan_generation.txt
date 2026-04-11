@@ -1,0 +1,4 @@
+Create a brief therapist plan for addressing the active therapy-interfering behavior (TIB) or end-of-session signal.
+The active TIB bucket, name, and description are available as 'address_tib_route_bucket', 'address_tib_name', and 'address_tib_description' within <session_context>.
+Make the plan concrete, therapeutically appropriate, and limited in scope so it can be covered within a short detour from the main session. The plan shouldn't introduce exercises or reflective techniques; the therapist should acknowledge the TIB, address it with some explanations, and then gently steer the patient back to the main therapeutic work. The goal is to validate the patient's experience while also maintaining the structure and flow of the CBT session. The plan should have a maximum of 200 words.
+Respond JSON: {{"tib_plan":"..."}}

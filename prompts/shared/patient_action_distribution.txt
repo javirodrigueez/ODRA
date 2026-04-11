@@ -1,0 +1,22 @@
+Estimate how likely each utterance action is for your next reply.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Last resistance update
+Value={resistance}, Reasoning={resistance_update_reasoning}
+
+Use the recent conversation in <last_utterances>, especially the last therapist utterance, and your resistance level to estimate how likely each action is for the next patient reply.
+
+Action definitions
+* Acceptance: openly engage and collaborate with the therapist's proposed line.
+* Acceptance with hesitation: engage with the therapist's proposed line, but with mild doubts or caution.
+* Hesitation: stay in the exchange, but foreground meaningful doubts about the therapist's proposed line.
+* Mild rejection: do not engage with the therapist's proposed line yet, but stay recoverable.
+* Rejection: refuse the therapist's proposed line clearly.
+* Terminate: explicitly show your intent to end the session now. This should stay at 0 or near 0 if your resistance level is outside 0.66-1.0.
+
+Return valid JSON with exactly these keys:
+{{"Acceptance": 0, "Acceptance with hesitation": 0, "Hesitation": 0, "Mild rejection": 0, "Rejection": 0, "Terminate": 0}}
+
+Use non-negative numbers and make the total sum 100.

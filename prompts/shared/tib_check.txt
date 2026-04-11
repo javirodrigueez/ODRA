@@ -1,0 +1,71 @@
+Evaluate whether the patient's last utterance includes any therapy-interfering behavior (TIB) or end-of-session signal that the therapist should address before proceeding with the session.
+The patient's last response is available as 'last_patient_response' within <session_context>, and you also have the recent exchange in <last_utterances>.
+
+Here are some common categories of TIBs you might encounter. Note that this is NOT a limited list for the 'tib_name' field; you may identify and name other TIBs if they do not perfectly fit these examples:
+- "avoidance": Dodging a specific topic, giving overly brief answers, or explicitly asking to change the subject to avoid discomfort.
+- "skepticism": Doubting the efficacy of the therapy, a specific technique, or the therapist's approach.
+- "defensiveness": Reacting to feedback or exploration with immediate justification, denial, or counter-attacks.
+- "rumination": Getting stuck in a repetitive loop of negative thoughts, past events, or complaints without moving toward insight or resolution.
+- "premature_solution_seeking": The patient interrupts the exploration phase to urgently ask for solutions before the current thought has been fully assessed.
+Although not TIBs, you also have to pay special attention to this session signal that can appear:
+- "end_session": The patient explicitly wants to stop, leave, end, or not continue the session right now.
+
+Return a JSON object with the following fields:
+- "has_tib": true or false.
+- "tib_name": A concise name for the identified TIB/signal (e.g., "end_session", "avoidance", "skepticism", or a custom name if needed).
+- "tib_description": A concise description of how the behavior or demand is manifesting.
+- "reasoning": A brief explanation of why this classification was made.
+
+Respond JSON: {"has_tib": false, "tib_name": "none", "tib_description": null, "reasoning": "..."}
+
+## Examples
+
+Example 1:
+Input: "Look, I see you are trying to help, but I need to go home. I can't do this anymore today."
+Output:
+{
+  "has_tib": true,
+  "tib_name": "end_session",
+  "tib_description": "The patient explicitly states they cannot continue today and need to leave.",
+  "reasoning": "The patient explicitly says they want to stop for today and go home, which is a direct request to end the session prematurely."
+}
+
+Example 2:
+Input: "I felt... really angry. And I just don't know how to deal with it when it happens. What can I do right now to stop feeling like this?"
+Output:
+{
+  "has_tib": true,
+  "tib_name": "premature_solution_seeking",
+  "tib_description": "The patient interrupts the exploration of their emotion to urgently ask for immediate coping strategies.",
+  "reasoning": "While not a negative behavior, the patient's urgent request for solutions interrupts the necessary assessment phase. The therapist must address this eagerness to keep the structural integrity of the CBT process intact."
+}
+
+Example 3:
+Input: "I know we're supposed to be talking about my childhood, but I really just can't get into that right now. It's too much. Can we talk about something else?"
+Output:
+{
+  "has_tib": true,
+  "tib_name": "avoidance",
+  "tib_description": "The patient explicitly asks to move on from discussing their childhood due to emotional overwhelm.",
+  "reasoning": "The patient explicitly asks to move on from the current therapeutic topic, interfering with the planned exposure or exploration, but without asking to end the full session."
+}
+
+Example 4:
+Input: "Honestly, I don't see how this is going to help me with my thoughts. It just feels like we're going in circles, writing stuff down that doesn't change how I actually feel."
+Output:
+{
+  "has_tib": true,
+  "tib_name": "skepticism",
+  "tib_description": "The patient explicitly doubts the efficacy of the current cognitive technique and expresses feeling that the process is futile.",
+  "reasoning": "The patient explicitly voices doubt about how the current method will help them, representing a skeptical barrier to engaging with the homework or in-session intervention."
+}
+
+Example 5:
+Input: "It's... all of those, I think. But the strongest one is probably loneliness."
+Output:
+{
+  "has_tib": false,
+  "tib_name": "none",
+  "tib_description": null,
+  "reasoning": "The patient is successfully engaging with the therapeutic process by identifying and describing their feelings. No interfering behavior is present."
+}

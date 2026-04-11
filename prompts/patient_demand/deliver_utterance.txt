@@ -1,4 +1,0 @@
-Generate the therapist's next utterance for the temporary patient-demand stage.
-The active patient demand and the current demand plan are available as 'patient_demand_text' and 'patient_demand_plan' within <session_context>.
-Address the patient's explicit request directly and helpfully, following the demand plan.
-Respond with plain text.

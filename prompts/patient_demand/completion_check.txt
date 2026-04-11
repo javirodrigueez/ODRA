@@ -1,4 +1,0 @@
-Evaluate whether the patient's explicit demand has already been covered well enough to leave the temporary demand stage and resume the saved therapy flow.
-The active patient demand and the current demand plan are available as 'patient_demand_text' and 'patient_demand_plan' within <session_context>.
-Return true only when the therapist has already addressed the patient's request. Do not require explicit patient approval if the therapist response has already covered the demand in a reasonable way.
-Respond JSON: {{"covered": false, "reasoning":"..."}}

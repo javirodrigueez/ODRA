@@ -1,0 +1,15 @@
+Generate your next utterance using the next information and guidelines.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Last resistance update reasoning
+The last therapist utterance affected you in this way: {resistance_update_reasoning}
+
+Selected utterance action
+Action: {selected_action}
+Definition: {selected_action_definition}
+
+Guidelines:
+* Let the selected action strongly shape your tone, willingness to engage, and whether you accept, hesitate, or refuse the therapist's proposed line.
+* Your utterance should be influenced by how the last therapist utterance affected you, which is refected in the last resistance update reasoning.

@@ -1,20 +1,33 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+import json
+from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
 
-from agents.interfaces import ensure_str
+from agents.interfaces import StructuredOutputError, ensure_str
 from runtime_config import load_runtime_config
 
+from .address_tib import AddressTIBStageMixin
 from .audit_tokens import record_large_prompt_request
 from .closing import ClosingStageMixin
 from .cognitive import CognitiveStageMixin
-from .demand import PatientDemandStageMixin
 from .homework import HomeworkStageMixin
 from .mi import MIStageMixin
 from .opening import OpeningStageMixin
-from .state import DEFAULT_SUBSTAGE_BY_STAGE, MI_STAGES, SessionState, Stage, SubStage
+from .resistance import (
+  PatientAction,
+  PatientActionDistribution,
+  action_definition_for_action,
+  action_prior_for_resistance,
+  fallback_action_distribution_for_resistance,
+  merge_action_distributions,
+  normalize_patient_action,
+  sample_patient_action,
+  should_select_patient_action,
+  validate_action_distribution,
+)
+from .state import DEFAULT_SUBSTAGE_BY_STAGE, MI_STAGES, SessionState, Stage, SubStage, TIBRouteBucket
 from .support import ConversationProcessingError
 from .techniques import TechniqueStageMixin
 
@@ -22,13 +35,13 @@ from .techniques import TechniqueStageMixin
 class TherapyGraphBuilder(
   OpeningStageMixin,
   MIStageMixin,
-  PatientDemandStageMixin,
+  AddressTIBStageMixin,
   CognitiveStageMixin,
   TechniqueStageMixin,
   HomeworkStageMixin,
   ClosingStageMixin,
 ):
-  MI_END_SESSION_DEMAND_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
+  MI_END_SESSION_TIB_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
 
   def __init__(self, config_path: str, profile: dict[str, Any]):
     self.cfg = load_runtime_config(config_path)
@@ -55,8 +68,8 @@ class TherapyGraphBuilder(
       return self._handle_mi_techniques(state, traces)
     if stage == "meta_conversation":
       return self._handle_meta_conversation(state, traces)
-    if stage == "patient_demand":
-      return self._handle_patient_demand(state, traces)
+    if stage == "address_tib":
+      return self._handle_address_tib(state, traces)
     if stage == "anticipated_closing":
       return self._handle_anticipated_closing(state, traces)
     if stage == "forced_closing":
@@ -64,7 +77,7 @@ class TherapyGraphBuilder(
     self._set_stage(state, "opening")
     return self._handle_opening(state, traces)
 
-  def _route_high_resistance(
+  def _route_tib_redirect(
     self,
     state: SessionState,
     traces: list[dict[str, Any]],
@@ -80,12 +93,12 @@ class TherapyGraphBuilder(
           "mi_topic_exploration",
           resume_stage,
           DEFAULT_SUBSTAGE_BY_STAGE[resume_stage],
-          f"High-resistance request to stop detected during {source_stage}.",
+          f"End-session signal detected during {source_stage}.",
         )
         return
-      if source_stage in self.MI_END_SESSION_DEMAND_REDIRECT_STAGES:
+      if source_stage in self.MI_END_SESSION_TIB_REDIRECT_STAGES:
         state["mi_active"] = False
-        if state["mi_end_session_demand_redirect_used"]:
+        if state["mi_end_session_tib_redirect_used"]:
           self._set_stage(state, "closing", "closing_fallback")
           return
         self._set_stage(state, "closing", "closing_fallback")
@@ -109,8 +122,8 @@ class TherapyGraphBuilder(
       self._shelve_current_cognitive_set_and_begin_new(state)
       traces.append(
         {
-          "step": "high_resistance_new_cognitive_set",
-          "input": "Patient pushed back against the current cognitive topic.",
+          "step": "tib_avoidance_new_cognitive_set",
+          "input": "Avoidance TIB detected against the current cognitive topic.",
           "output": "Shelved the current working set and began a new one.",
         }
       )
@@ -120,8 +133,8 @@ class TherapyGraphBuilder(
       self._replace_current_technique_due_to_resistance(state, traces)
       traces.append(
         {
-          "step": "high_resistance_new_technique",
-          "input": "Patient pushed back against the current CBT technique.",
+          "step": "tib_avoidance_new_technique",
+          "input": "Avoidance TIB detected against the current CBT technique.",
           "output": "Selected a different CBT technique and reset the active plan.",
         }
       )
@@ -145,100 +158,116 @@ class TherapyGraphBuilder(
     if source_stage == "mi_techniques":
       self._set_substage(state, "mi_choose_technique")
 
-  def _high_resistance_route_source(self, state: SessionState) -> tuple[Stage, SubStage]:
-    if state["current_stage"] == "patient_demand" and state["patient_demand_resume_stage"]:
-      source_stage = state["patient_demand_resume_stage"]
-      source_substage = state["patient_demand_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[source_stage]
+  def _tib_route_source(self, state: SessionState) -> tuple[Stage, SubStage]:
+    if state["current_stage"] == "address_tib" and state["address_tib_resume_stage"]:
+      source_stage = state["address_tib_resume_stage"]
+      source_substage = state["address_tib_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[source_stage]
       return source_stage, source_substage
     return state["current_stage"], state["current_substage"]
 
-  def _maybe_handle_high_resistance(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+  def _route_bucket_for_tib_name(self, tib_name: str) -> TIBRouteBucket:
+    normalized_tib_name = ensure_str(tib_name).strip().lower()
+    if not normalized_tib_name or normalized_tib_name == "none":
+      return "none"
+    if normalized_tib_name == "end_session":
+      return "end_session"
+    if "avoidance" in normalized_tib_name:
+      return "avoidance"
+    return "other"
+
+  def _maybe_handle_tib(self, state: SessionState, traces: list[dict[str, Any]]) -> TIBRouteBucket:
     if state["session_ended"] or state["final_patient_pending_end"]:
       return "none"
     if state["current_stage"] in {"anticipated_closing", "forced_closing"}:
       return "none"
 
-    instruction = self._load_stage_prompt("shared", "high_resistance_check")
-    parsed = self._run_therapist_structured(state, traces, "high_resistance_check", instruction)
-    payload = self._require_dict(parsed, "high_resistance_check")
-    has_demand = self._require_bool(payload, "has_demand", "high_resistance_check")
-    demand_kind = ensure_str(payload.get("demand_kind")).strip().lower()
-    if demand_kind not in {"none", "end_session", "item_move", "other"}:
-      raise ConversationProcessingError(
-        "high_resistance_check.demand_kind must be one of none, end_session, item_move, or other, "
-        f"got {demand_kind!r}."
-      )
-    demand = ensure_str(payload.get("demand")).strip()
+    instruction = self._load_stage_prompt("shared", "tib_check")
+    parsed = self._run_therapist_structured(state, traces, "tib_check", instruction)
+    payload = self._require_dict(parsed, "tib_check")
+    has_tib = self._require_bool(payload, "has_tib", "tib_check")
+    tib_name = ensure_str(payload.get("tib_name")).strip()
+    normalized_tib_name = tib_name.lower() if tib_name else "none"
+    route_bucket = self._route_bucket_for_tib_name(normalized_tib_name)
+    tib_description = ensure_str(payload.get("tib_description")).strip()
     reasoning = ensure_str(payload.get("reasoning"))
     normalized_payload = dict(payload)
-    normalized_payload["has_demand"] = has_demand
-    normalized_payload["demand_kind"] = demand_kind
-    normalized_payload["demand"] = demand or None
-    self._set_last_trace_output(traces, "high_resistance_check", normalized_payload)
+    normalized_payload["has_tib"] = has_tib
+    normalized_payload["tib_name"] = normalized_tib_name
+    normalized_payload["tib_description"] = tib_description or None
+    normalized_payload["route_bucket"] = route_bucket
+    self._set_last_trace_output(traces, "tib_check", normalized_payload)
 
-    if not has_demand:
-      if demand_kind != "none":
+    if not has_tib:
+      if normalized_tib_name != "none":
         raise ConversationProcessingError(
-          "high_resistance_check.has_demand=false must be paired with demand_kind='none'."
+          "tib_check.has_tib=false must be paired with tib_name='none'."
         )
       return "none"
 
-    if demand_kind == "none":
+    if route_bucket == "none":
       raise ConversationProcessingError(
-        "high_resistance_check.has_demand=true must not be paired with demand_kind='none'."
+        "tib_check.has_tib=true must not be paired with tib_name='none'."
       )
-    if not demand:
-      raise ConversationProcessingError("high_resistance_check.demand must be a non-empty string when has_demand=true.")
+    if not tib_description:
+      raise ConversationProcessingError("tib_check.tib_description must be a non-empty string when has_tib=true.")
 
-    source_stage, source_substage = self._high_resistance_route_source(state)
-    if demand_kind == "end_session":
+    source_stage, source_substage = self._tib_route_source(state)
+    if route_bucket == "end_session":
       if state["current_stage"] == "meta_conversation":
-        self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+        self._mark_tib_redirect(state, "yes", source_stage, source_substage, reasoning)
         self._set_stage(state, "closing", "closing_fallback")
         traces.append(
           {
             "step": "meta_conversation_end_session_repeat",
-            "input": demand,
+            "input": tib_description,
             "output": "Repeated end-session demand during meta-conversation. Routing directly to closing fallback.",
           }
         )
-        return demand_kind
+        return route_bucket
 
-      if state["current_stage"] == "patient_demand":
-        self._clear_patient_demand_state(state, clear_resume_cursor=True)
+      if state["current_stage"] == "address_tib":
+        self._clear_address_tib_state(state, clear_resume_cursor=True)
         self._set_stage(state, source_stage, source_substage)
 
-      self._mark_high_resistance_redirect(state, "yes", source_stage, source_substage, reasoning)
+      self._mark_tib_redirect(state, "yes", source_stage, source_substage, reasoning)
       self._enter_mi(
         state,
         "meta_conversation",
         source_stage,
         source_substage,
-        f"Explicit request to end the session: {demand}",
+        f"Explicit request to end the session: {tib_description}",
       )
-      state["mi_end_session_demand_redirect_used"] = True
+      state["mi_end_session_tib_redirect_used"] = True
       traces.append(
         {
           "step": "meta_conversation_end_session_redirect",
-          "input": demand,
+          "input": tib_description,
           "output": f"Routing to meta-conversation before resuming {source_stage}.",
         }
       )
-      return demand_kind
-    if demand_kind in {"end_session", "item_move"}: # TODO: end_session is handled above. This conditions is redundant.
-      level = "yes" if demand_kind == "end_session" else "partial"
-      if state["current_stage"] == "patient_demand":
-        self._clear_patient_demand_state(state, clear_resume_cursor=True)
+      return route_bucket
+    if route_bucket == "avoidance":
+      if state["current_stage"] == "address_tib":
+        self._clear_address_tib_state(state, clear_resume_cursor=True)
         self._set_stage(state, source_stage, source_substage)
-      self._mark_high_resistance_redirect(state, level, source_stage, source_substage, reasoning)
-      self._route_high_resistance(state, traces, level, source_stage, source_substage)
-      return demand_kind
+      self._mark_tib_redirect(state, "partial", source_stage, source_substage, reasoning)
+      self._route_tib_redirect(state, traces, "partial", source_stage, source_substage)
+      return route_bucket
 
-    if state["current_stage"] == "patient_demand":
-      self._replace_active_patient_demand(state, traces, demand, reasoning)
+    if state["current_stage"] == "address_tib":
+      self._replace_active_address_tib(state, traces, route_bucket, normalized_tib_name, tib_description, reasoning)
     else:
-      self._enter_patient_demand(state, traces, demand, reasoning, source_stage, source_substage)
-    return "other"
+      self._enter_address_tib(
+        state,
+        traces,
+        route_bucket,
+        normalized_tib_name,
+        tib_description,
+        reasoning,
+        source_stage,
+        source_substage,
+      )
+    return route_bucket
 
   def therapist_turn(self, state: SessionState) -> SessionState:
     s = self._ensure_state_defaults(state)
@@ -248,13 +277,12 @@ class TherapyGraphBuilder(
 
     traces: list[dict[str, Any]] = []
     try:
-      self._clear_high_resistance_redirect(s)
+      self._clear_tib_redirect(s)
       if not first_exchange:
         self._maybe_force_closing(s)
-        #high_resistance_level = self._maybe_handle_high_resistance(s, traces)
-        high_resistance_level = 'none'
-        #self._run_resistance_prediction(s, traces)
-        if high_resistance_level == "none":
+        tib_route_bucket = self._maybe_handle_tib(s, traces)
+        self._run_resistance_prediction(s, traces)
+        if tib_route_bucket == "none":
           self._handle_pre_stage_routing(s, traces)
       utterance = self._handle_stage_dispatch(s, traces)
 
@@ -277,9 +305,9 @@ class TherapyGraphBuilder(
           s["active_exchange_substage"],
         )
       self._append_trace(s, idx, "therapist", traces)
-      self._clear_high_resistance_redirect(s)
+      self._clear_tib_redirect(s)
     except ConversationProcessingError as exc:
-      self._clear_high_resistance_redirect(s)
+      self._clear_tib_redirect(s)
       self._end_session_with_error(s, traces, exc)
     return s
 
@@ -296,8 +324,8 @@ class TherapyGraphBuilder(
       return "Respond to the CBT exercise with realistic engagement for your current resistance level."
     if stage == "homework":
       return "Respond honestly about whether the proposed homework feels feasible depending on your current resistance level."
-    if stage == "patient_demand":
-      return "Respond to the therapist's attempt to address your concern according to your resistance level."
+    if stage == "address_tib":
+      return "Respond to the therapist's attempt to address the current therapy-interfering behavior according to your resistance level."
     if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
@@ -305,6 +333,121 @@ class TherapyGraphBuilder(
     if stage == "closing":
       return "Respond to the therapist's closing prompts without closing the conversation."
     return "Respond naturally."
+
+  def _last_therapist_utterance(self, state: SessionState) -> str:
+    for message in reversed(state["messages"]):
+      if message["role"] == "therapist":
+        return message["content"]
+    return "(no therapist utterance yet)"
+
+  def _patient_reasoning_for_prompt(self, reasoning: str) -> str:
+    text = ensure_str(reasoning)
+    if text:
+      return text
+    return "No explicit resistance-update reasoning was generated. Infer the impact from the last therapist utterance."
+
+  def _reset_patient_action_state(self, state: SessionState) -> None:
+    state["last_patient_action"] = ""
+    state["last_patient_action_prior_distribution"] = cast(PatientActionDistribution, {})
+    state["last_patient_action_context_distribution"] = cast(PatientActionDistribution, {})
+    state["last_patient_action_distribution"] = cast(PatientActionDistribution, {})
+
+  def _build_patient_utterance_core_instruction(
+    self,
+    state: SessionState,
+    resistance_update_reasoning: str,
+    selected_action: PatientAction | None = None,
+  ) -> str:
+    action = normalize_patient_action(selected_action)
+    action_definition = action_definition_for_action(action)
+    return self._load_stage_prompt(
+      "shared",
+      "patient_utterance_core",
+      patient_utterance_instruction=self._patient_utterance_instruction(state),
+      resistance_update_reasoning=self._patient_reasoning_for_prompt(resistance_update_reasoning),
+      selected_action=action or "No action override",
+      selected_action_definition=action_definition,
+    )
+
+  def _build_patient_action_distribution_instruction(
+    self,
+    state: SessionState,
+    resistance_value: float,
+    resistance_update_reasoning: str,
+  ) -> str:
+    return self._load_stage_prompt(
+      "shared",
+      "patient_action_distribution",
+      patient_utterance_instruction=self._patient_utterance_instruction(state),
+      resistance=f"{resistance_value:.2f}",
+      resistance_update_reasoning=self._patient_reasoning_for_prompt(resistance_update_reasoning),
+    )
+
+  def _select_patient_action(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    resistance_value: float,
+    resistance_update_reasoning: str,
+  ) -> PatientAction:
+    instruction = self._build_patient_action_distribution_instruction(state, resistance_value, resistance_update_reasoning)
+    record_large_prompt_request(
+      state,
+      self._build_patient_request_messages(state, instruction, structured=True),
+      "patient",
+      "patient_action_selection",
+    )
+
+    context_distribution: PatientActionDistribution | None = None
+    fallback_reason = ""
+    try:
+      parsed, _meta = self.patient.generate_structured(
+        full_conversation=self._full_conversation_for_prompt(state),
+        last_utterances=self._format_last_utterances(state["messages"]),
+        resistance_level=state["resistance"],
+        instruction=instruction,
+        expected_type=dict,
+      )
+      context_distribution = validate_action_distribution(parsed)
+      if context_distribution is None:
+        fallback_reason = "invalid_action_distribution_payload"
+    except StructuredOutputError as exc:
+      fallback_reason = f"structured_generation_failed: {exc}"
+
+    if context_distribution is None:
+      context_distribution = fallback_action_distribution_for_resistance(state["resistance"])
+
+    prior_distribution = action_prior_for_resistance(state["resistance"])
+    merged_distribution = merge_action_distributions(prior_distribution, context_distribution)
+    selected_action = sample_patient_action(merged_distribution)
+
+    state["last_patient_action"] = selected_action
+    state["last_patient_action_prior_distribution"] = {
+      action: float(weight) for action, weight in prior_distribution.items()
+    }
+    state["last_patient_action_context_distribution"] = {
+      action: float(weight) for action, weight in context_distribution.items()
+    }
+    state["last_patient_action_distribution"] = {
+      action: float(weight) for action, weight in merged_distribution.items()
+    }
+
+    trace_payload: dict[str, Any] = {
+      "prior_distribution": prior_distribution,
+      "context_distribution": context_distribution,
+      "action_distribution": merged_distribution,
+      "selected_action": selected_action,
+    }
+    if fallback_reason:
+      trace_payload["fallback_reason"] = fallback_reason
+    traces.append(
+      {
+        "step": "patient_action_selection",
+        "input": instruction,
+        "output": json.dumps(trace_payload, ensure_ascii=True),
+      }
+    )
+    return selected_action
 
   def patient_turn(self, state: SessionState) -> SessionState:
     s = self._ensure_state_defaults(state)
@@ -317,6 +460,9 @@ class TherapyGraphBuilder(
         "shared",
         "patient_resistance_update",
         resistance=f"{s['resistance']:.2f}",
+        presenting_problem=ensure_str(s["patient_profile"].get("presenting_problem")),
+        reason_for_seeking_counseling=ensure_str(s["patient_profile"].get("reason_seeking_counseling")),
+        last_utterance=self._last_therapist_utterance(s),
       )
       update = self._run_patient_structured(
         s,
@@ -333,13 +479,31 @@ class TherapyGraphBuilder(
         alpha=s["resistance_recovery_rate"],
       )
       s["resistance"] = resistance_update["new_r"]
+      s["last_patient_resistance_update_reasoning"] = ensure_str(payload.get("reasoning"))
       trace_payload = dict(payload)
       trace_payload.update(resistance_update)
       self._set_last_trace_output(traces, "resistance_update", trace_payload)
 
+      selected_action: PatientAction | None = None
+      if should_select_patient_action(s["final_patient_pending_end"]):
+        selected_action = self._select_patient_action(
+          s,
+          traces,
+          resistance_update["new_r"],
+          s["last_patient_resistance_update_reasoning"],
+        )
+      else:
+        self._reset_patient_action_state(s)
+
+      print(f"<DEBUG>Selected patient action: {selected_action}</DEBUG>") #devlog
+      utterance_instruction = self._build_patient_utterance_core_instruction(
+        s,
+        s["last_patient_resistance_update_reasoning"],
+        selected_action=selected_action,
+      )
       record_large_prompt_request(
         s,
-        self._build_patient_request_messages(s, self._patient_utterance_instruction(s), structured=False),
+        self._build_patient_request_messages(s, utterance_instruction, structured=False),
         "patient",
         "patient_utterance",
       )
@@ -347,7 +511,7 @@ class TherapyGraphBuilder(
         full_conversation=self._full_conversation_for_prompt(s),
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
-        instruction=self._patient_utterance_instruction(s),
+        instruction=utterance_instruction,
       )
 
       if s["final_patient_pending_end"]:

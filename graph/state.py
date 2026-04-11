@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
+
+from .resistance import PatientAction, PatientActionDistribution
 
 Stage = Literal[
   "opening",
   "mi_topic_exploration",
   "mi_techniques",
   "meta_conversation",
-  "patient_demand",
+  "address_tib",
   "id_distortions",
   "cbt_technique",
   "homework",
@@ -32,10 +34,10 @@ SubStage = Literal[
   "mi_meta_adjust",
   "mi_meta_close",
   "mi_end_session",
-  "demand_plan",
-  "demand_deliver",
-  "demand_check",
-  "demand_resume",
+  "tib_plan",
+  "tib_deliver",
+  "tib_check",
+  "tib_resume",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
   "cognitive_refinement",
@@ -79,10 +81,10 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "mi_meta_adjust",
   "mi_meta_close",
   "mi_end_session",
-  "demand_plan",
-  "demand_deliver",
-  "demand_check",
-  "demand_resume",
+  "tib_plan",
+  "tib_deliver",
+  "tib_check",
+  "tib_resume",
   "cognitive_bootstrap",
   "cognitive_review_active_question",
   "cognitive_refinement",
@@ -133,7 +135,7 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "mi_topic_exploration": "mi_choose_topic",
   "mi_techniques": "mi_choose_technique",
   "meta_conversation": "mi_meta_open",
-  "patient_demand": "demand_plan",
+  "address_tib": "tib_plan",
   "id_distortions": "cognitive_review_active_question",
   "cbt_technique": "cbt_select_techniques",
   "homework": "homework_check_existing",
@@ -141,6 +143,39 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "anticipated_closing": "mi_end_session",
   "forced_closing": "forced_closing_end",
 }
+
+LEGACY_STAGE_ALIASES: dict[str, Stage] = {
+  "patient_demand": "address_tib",
+}
+
+LEGACY_SUBSTAGE_ALIASES: dict[str, SubStage] = {
+  "demand_plan": "tib_plan",
+  "demand_deliver": "tib_deliver",
+  "demand_check": "tib_check",
+  "demand_resume": "tib_resume",
+}
+
+TIBRouteBucket = Literal["none", "end_session", "avoidance", "other"]
+
+
+def normalize_stage_name(value: Any) -> Stage | Literal[""]:
+  raw_value = str(value or "").strip()
+  if not raw_value:
+    return ""
+  canonical = LEGACY_STAGE_ALIASES.get(raw_value, raw_value)
+  if canonical in DEFAULT_SUBSTAGE_BY_STAGE:
+    return cast(Stage, canonical)
+  return ""
+
+
+def normalize_substage_name(value: Any) -> SubStage | Literal[""]:
+  raw_value = str(value or "").strip()
+  if not raw_value:
+    return ""
+  canonical = LEGACY_SUBSTAGE_ALIASES.get(raw_value, raw_value)
+  if canonical in ALL_SUBSTAGES:
+    return cast(SubStage, canonical)
+  return ""
 
 
 class ConversationMessage(TypedDict):
@@ -201,6 +236,11 @@ class SessionState(TypedDict):
   resistance_recovery_rate: float
   resistance: float
   predicted_resistance: float | None
+  last_patient_resistance_update_reasoning: str
+  last_patient_action: PatientAction | Literal[""]
+  last_patient_action_prior_distribution: PatientActionDistribution
+  last_patient_action_context_distribution: PatientActionDistribution
+  last_patient_action_distribution: PatientActionDistribution
 
   opening_patient_mood: str
   opening_patient_problem: str
@@ -241,13 +281,14 @@ class SessionState(TypedDict):
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
   last_mi_topic_action: str
-  mi_end_session_demand_redirect_used: bool
-  patient_demand_text: str
-  patient_demand_plan: str
-  patient_demand_reasoning: str
-  patient_demand_resume_stage: Stage | Literal[""]
-  patient_demand_resume_substage: SubStage | Literal[""]
-  patient_demand_end_session_attempt_active: bool
+  mi_end_session_tib_redirect_used: bool
+  address_tib_route_bucket: TIBRouteBucket
+  address_tib_name: str
+  address_tib_description: str
+  address_tib_reasoning: str
+  address_tib_plan: str
+  address_tib_resume_stage: Stage | Literal[""]
+  address_tib_resume_substage: SubStage | Literal[""]
   resume_context_active: bool
   resume_context_from_stage: Stage | Literal[""]
   resume_context_reason: str
@@ -272,11 +313,11 @@ class SessionState(TypedDict):
   exchange_counts: dict[str, list[int]]
   active_exchange_stage: Stage | Literal[""]
   active_exchange_substage: SubStage | Literal[""]
-  high_resistance_redirect_triggered: bool
-  high_resistance_level: str
-  high_resistance_source_stage: Stage | Literal[""]
-  high_resistance_source_substage: SubStage | Literal[""]
-  high_resistance_reasoning: str
+  tib_redirect_triggered: bool
+  tib_redirect_level: str
+  tib_redirect_source_stage: Stage | Literal[""]
+  tib_redirect_source_substage: SubStage | Literal[""]
+  tib_redirect_reasoning: str
 
   final_patient_pending_end: bool
   session_ended: bool

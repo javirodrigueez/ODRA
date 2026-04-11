@@ -1,0 +1,4 @@
+Evaluate whether the active therapy-interfering behavior (TIB) has already been covered well enough to leave the temporary address_tib stage and resume the saved therapy flow.
+The active TIB name, description, and current plan are available as 'address_tib_name', 'address_tib_description', and 'address_tib_plan' within <session_context>.
+Return true only when the therapist has already addressed the TIB in a reasonable way. Do not require explicit patient approval if the therapist response has already covered the issue sufficiently.
+Respond JSON: {{"covered": false, "reasoning":"..."}}
