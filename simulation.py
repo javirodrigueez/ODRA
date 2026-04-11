@@ -81,7 +81,7 @@ def run_simulation(
           if msg["role"] == "therapist":
             #print(f"<MI-TECH-LOG>{chunk.get("mi_techniques_used")[-2:]}</MI-TECH-LOG>")
             #print(f"<STACK>{chunk.get("mi_topic_stack")}</STACK>")
-            print(f"<TIB>Name: {chunk.get("address_tib_name")}, Plan: {chunk.get("address_tib_plan")}</TIB>")
+            print(f"<TIB>Name: {chunk.get("address_tib_name")}</TIB>")
           # elif msg["role"] == "patient":
           #   print(f"<ACTION>{chunk.get("last_patient_action_distribution")}</ACTION>")
           r_print = pred_r if msg["role"] == "therapist" else r

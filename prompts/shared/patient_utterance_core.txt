@@ -11,5 +11,5 @@ Action: {selected_action}
 Definition: {selected_action_definition}
 
 Guidelines:
-* Let the selected action strongly shape your tone, willingness to engage, and whether you accept, hesitate, or refuse the therapist's proposed line.
-* Your utterance should be influenced by how the last therapist utterance affected you, which is refected in the last resistance update reasoning.
+* The selected action is the main factor that determines whether you accept, hesitate, or refuse the therapist's proposed line.
+* Although the action is the main guidance, the attitude and tone of your response should be influenced by your <resistance_level> and by the last resistance update reasoning.
