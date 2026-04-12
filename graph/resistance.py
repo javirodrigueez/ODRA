@@ -8,13 +8,13 @@ EmotionalRecovery = Literal["high", "moderate", "low"]
 ResistanceInterval = Literal["positive", "neutral", "negative"]
 PatientAction = Literal[
   "Acceptance",
-  "Acceptance with hesitation",
   "Hesitation",
   "Mild rejection",
   "Rejection",
   "Terminate",
 ]
 PatientActionDistribution: TypeAlias = dict[PatientAction, float]
+TERMINATE_ACTION_MIN_UTTERANCE_INDEX = 30
 
 RESISTANCE_BASELINE_BY_ATTITUDE: dict[str, float] = {
   "very_negative": 1.0,
@@ -30,22 +30,19 @@ RESISTANCE_PROMPT_NAME_BY_INTERVAL: dict[ResistanceInterval, str] = {
 }
 PATIENT_NON_TERMINATE_ACTIONS: tuple[PatientAction, ...] = (
   "Acceptance",
-  "Acceptance with hesitation",
   "Hesitation",
   "Mild rejection",
   "Rejection",
 )
 PATIENT_ACTIONS: tuple[PatientAction, ...] = (
   "Acceptance",
-  "Acceptance with hesitation",
   "Hesitation",
   "Mild rejection",
   "Rejection",
   "Terminate",
 )
 PATIENT_ACTION_DEFINITIONS: dict[PatientAction, str] = {
-  "Acceptance": "Openly engage and collaborate with the therapist's proposed line.",
-  "Acceptance with hesitation": "Engage with the therapist's proposed line, but let mild doubts or caution remain visible.",
+  "Acceptance": "Openly engage and collaborate with the therapist's proposed line. Don't express any hesitations, just cooperate.",
   "Hesitation": "Stay in the exchange, but foreground meaningful doubts about the therapist's proposed line.",
   "Mild rejection": "Do not engage with the therapist's proposed line yet, but stay recoverable and open to further clarification.",
   "Rejection": "Refuse the therapist's proposed line clearly.",
@@ -53,37 +50,47 @@ PATIENT_ACTION_DEFINITIONS: dict[PatientAction, str] = {
 }
 PATIENT_ACTION_PRIORS_BY_INTERVAL: dict[ResistanceInterval, PatientActionDistribution] = {
   "positive": {
-    "Acceptance": 45.0,
-    "Acceptance with hesitation": 30.0,
-    "Hesitation": 15.0,
+    "Acceptance": 60.0,
+    "Hesitation": 30.0,
     "Mild rejection": 7.0,
     "Rejection": 3.0,
     "Terminate": 0.0,
   },
   "neutral": {
-    "Acceptance": 12.0,
-    "Acceptance with hesitation": 23.0,
-    "Hesitation": 30.0,
-    "Mild rejection": 23.0,
-    "Rejection": 12.0,
+    "Acceptance": 30.0,
+    "Hesitation": 40.0,
+    "Mild rejection": 20.0,
+    "Rejection": 10.0,
     "Terminate": 0.0,
   },
   "negative": {
-    "Acceptance": 2.0,
-    "Acceptance with hesitation": 6.0,
-    "Hesitation": 12.0,
-    "Mild rejection": 25.0,
+    "Acceptance": 10.0,
+    "Hesitation": 30.0,
+    "Mild rejection": 20.0,
     "Rejection": 40.0,
-    "Terminate": 15.0,
+    "Terminate": 0.0,
   },
 }
 PATIENT_HIGH_NEGATIVE_ACTION_PRIOR: PatientActionDistribution = {
-  "Acceptance": 0.0,
-  "Acceptance with hesitation": 2.0,
-  "Hesitation": 5.0,
-  "Mild rejection": 10.0,
-  "Rejection": 33.0,
-  "Terminate": 50.0,
+  "Acceptance": 5.0,
+  "Hesitation": 15.0,
+  "Mild rejection": 30.0,
+  "Rejection": 50.0,
+  "Terminate": 0.0,
+}
+PATIENT_NEGATIVE_ACTION_PRIOR_AFTER_TERMINATE_THRESHOLD: PatientActionDistribution = {
+  "Acceptance": 10.0,
+  "Hesitation": 30.0,
+  "Mild rejection": 15.0,
+  "Rejection": 35.0,
+  "Terminate": 10.0,
+}
+PATIENT_HIGH_NEGATIVE_ACTION_PRIOR_AFTER_TERMINATE_THRESHOLD: PatientActionDistribution = {
+  "Acceptance": 5.0,
+  "Hesitation": 25.0,
+  "Mild rejection": 15.0,
+  "Rejection": 35.0,
+  "Terminate": 20.0,
 }
 
 RESISTANCE_RECOVERY_RATE_BY_EMOTIONAL_RECOVERY: dict[EmotionalRecovery, float] = {
@@ -175,10 +182,62 @@ def is_highest_negative_calibration_interval(resistance_level: float) -> bool:
   return scaled_resistance_value(resistance_level) >= 8.8
 
 
-def action_prior_for_resistance(resistance_level: float) -> PatientActionDistribution:
+def can_select_terminate_action(utterance_index: Any) -> bool:
+  try:
+    normalized_utterance_index = int(utterance_index)
+  except (TypeError, ValueError):
+    normalized_utterance_index = 0
+  return normalized_utterance_index >= TERMINATE_ACTION_MIN_UTTERANCE_INDEX
+
+
+def constrain_action_distribution_for_utterance(
+  action_distribution: Mapping[PatientAction, float],
+  utterance_index: Any,
+  *,
+  normalize: bool = False,
+) -> PatientActionDistribution:
+  constrained: PatientActionDistribution = {
+    action: max(0.0, float(action_distribution.get(action, 0.0)))
+    for action in PATIENT_ACTIONS
+  }
+  if not can_select_terminate_action(utterance_index):
+    constrained["Terminate"] = 0.0
+
+  if not normalize:
+    return constrained
+
+  total = sum(constrained.values())
+  if total <= 0.0:
+    fallback = uniform_action_distribution(
+      include_terminate=can_select_terminate_action(utterance_index)
+    )
+    total = sum(fallback.values())
+    return {
+      action: round(fallback[action] / total, 6)
+      for action in PATIENT_ACTIONS
+    }
+
+  return {
+    action: round(constrained[action] / total, 6)
+    for action in PATIENT_ACTIONS
+  }
+
+
+def action_prior_for_resistance(
+  resistance_level: float,
+  utterance_index: Any = 0,
+) -> PatientActionDistribution:
   interval = resistance_interval_for_level(resistance_level)
-  if interval == "negative" and is_highest_negative_calibration_interval(resistance_level):
+  if interval != "negative":
+    return dict(PATIENT_ACTION_PRIORS_BY_INTERVAL[interval])
+
+  if is_highest_negative_calibration_interval(resistance_level):
+    if can_select_terminate_action(utterance_index):
+      return dict(PATIENT_HIGH_NEGATIVE_ACTION_PRIOR_AFTER_TERMINATE_THRESHOLD)
     return dict(PATIENT_HIGH_NEGATIVE_ACTION_PRIOR)
+
+  if can_select_terminate_action(utterance_index):
+    return dict(PATIENT_NEGATIVE_ACTION_PRIOR_AFTER_TERMINATE_THRESHOLD)
   return dict(PATIENT_ACTION_PRIORS_BY_INTERVAL[interval])
 
 
@@ -192,15 +251,20 @@ def uniform_action_distribution(include_terminate: bool = False) -> PatientActio
     return distribution
 
   distribution = {
-    action: 20.0 for action in PATIENT_NON_TERMINATE_ACTIONS
+    action: 25.0 for action in PATIENT_NON_TERMINATE_ACTIONS
   }
   distribution["Terminate"] = 0.0
   return distribution
 
 
-def fallback_action_distribution_for_resistance(resistance_level: float) -> PatientActionDistribution:
-  include_terminate = resistance_interval_for_level(resistance_level) == "negative"
-  return uniform_action_distribution(include_terminate=include_terminate)
+def fallback_action_distribution_for_resistance(
+  resistance_level: float,
+  utterance_index: Any = 0,
+) -> PatientActionDistribution:
+  interval = resistance_interval_for_level(resistance_level)
+  if interval != "negative":
+    return uniform_action_distribution(include_terminate=False)
+  return action_prior_for_resistance(resistance_level, utterance_index)
 
 
 def should_select_patient_action(final_patient_pending_end: bool) -> bool:
@@ -267,10 +331,17 @@ def merge_action_distributions(
 def sample_patient_action(
   action_distribution: Mapping[PatientAction, float],
   rng: random.Random | None = None,
+  utterance_index: Any = 0,
 ) -> PatientAction:
-  weights = [max(0.0, float(action_distribution.get(action, 0.0))) for action in PATIENT_ACTIONS]
+  constrained_distribution = constrain_action_distribution_for_utterance(
+    action_distribution,
+    utterance_index,
+  )
+  weights = [constrained_distribution[action] for action in PATIENT_ACTIONS]
   if sum(weights) <= 0.0:
-    fallback = uniform_action_distribution()
+    fallback = uniform_action_distribution(
+      include_terminate=can_select_terminate_action(utterance_index)
+    )
     weights = [fallback[action] for action in PATIENT_ACTIONS]
   chooser = rng or random
   sampled = chooser.choices(PATIENT_ACTIONS, weights=weights, k=1)[0]

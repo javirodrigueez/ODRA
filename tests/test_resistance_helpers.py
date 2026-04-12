@@ -3,6 +3,8 @@ import unittest
 
 from graph.resistance import (
   action_prior_for_resistance,
+  can_select_terminate_action,
+  constrain_action_distribution_for_utterance,
   fallback_action_distribution_for_resistance,
   is_highest_negative_calibration_interval,
   merge_action_distributions,
@@ -50,9 +52,8 @@ class ResistanceHelpersTest(unittest.TestCase):
     self.assertEqual(
       action_prior_for_resistance(0.10),
       {
-        "Acceptance": 45.0,
-        "Acceptance with hesitation": 30.0,
-        "Hesitation": 15.0,
+        "Acceptance": 60.0,
+        "Hesitation": 30.0,
         "Mild rejection": 7.0,
         "Rejection": 3.0,
         "Terminate": 0.0,
@@ -61,34 +62,51 @@ class ResistanceHelpersTest(unittest.TestCase):
     self.assertEqual(
       action_prior_for_resistance(0.50),
       {
-        "Acceptance": 12.0,
-        "Acceptance with hesitation": 23.0,
-        "Hesitation": 30.0,
-        "Mild rejection": 23.0,
-        "Rejection": 12.0,
+        "Acceptance": 30.0,
+        "Hesitation": 40.0,
+        "Mild rejection": 20.0,
+        "Rejection": 10.0,
         "Terminate": 0.0,
       },
     )
     self.assertEqual(
       action_prior_for_resistance(0.70),
       {
-        "Acceptance": 2.0,
-        "Acceptance with hesitation": 6.0,
-        "Hesitation": 12.0,
-        "Mild rejection": 25.0,
+        "Acceptance": 10.0,
+        "Hesitation": 30.0,
+        "Mild rejection": 20.0,
         "Rejection": 40.0,
-        "Terminate": 15.0,
+        "Terminate": 0.0,
       },
     )
     self.assertEqual(
       action_prior_for_resistance(0.90),
       {
-        "Acceptance": 0.0,
-        "Acceptance with hesitation": 2.0,
-        "Hesitation": 5.0,
-        "Mild rejection": 10.0,
-        "Rejection": 33.0,
-        "Terminate": 50.0,
+        "Acceptance": 5.0,
+        "Hesitation": 15.0,
+        "Mild rejection": 30.0,
+        "Rejection": 50.0,
+        "Terminate": 0.0,
+      },
+    )
+    self.assertEqual(
+      action_prior_for_resistance(0.70, utterance_index=30),
+      {
+        "Acceptance": 10.0,
+        "Hesitation": 30.0,
+        "Mild rejection": 15.0,
+        "Rejection": 35.0,
+        "Terminate": 10.0,
+      },
+    )
+    self.assertEqual(
+      action_prior_for_resistance(0.90, utterance_index=30),
+      {
+        "Acceptance": 5.0,
+        "Hesitation": 25.0,
+        "Mild rejection": 15.0,
+        "Rejection": 35.0,
+        "Terminate": 20.0,
       },
     )
 
@@ -96,7 +114,6 @@ class ResistanceHelpersTest(unittest.TestCase):
     valid = validate_action_distribution(
       {
         "Acceptance": 40,
-        "Acceptance with hesitation": "30",
         "Hesitation": 20,
         "Mild rejection": 10,
         "Rejection": -5,
@@ -107,7 +124,6 @@ class ResistanceHelpersTest(unittest.TestCase):
       valid,
       {
         "Acceptance": 40.0,
-        "Acceptance with hesitation": 30.0,
         "Hesitation": 20.0,
         "Mild rejection": 10.0,
         "Rejection": 0.0,
@@ -118,7 +134,6 @@ class ResistanceHelpersTest(unittest.TestCase):
       validate_action_distribution(
         {
           "Acceptance": 50,
-          "Acceptance with hesitation": 20,
           "Hesitation": 20,
           "Mild rejection": 10,
           "Rejection": 0,
@@ -129,16 +144,14 @@ class ResistanceHelpersTest(unittest.TestCase):
   def test_merge_action_distributions_normalizes(self) -> None:
     merged = merge_action_distributions(
       {
-        "Acceptance": 45.0,
-        "Acceptance with hesitation": 30.0,
-        "Hesitation": 15.0,
+        "Acceptance": 60.0,
+        "Hesitation": 30.0,
         "Mild rejection": 7.0,
         "Rejection": 3.0,
         "Terminate": 0.0,
       },
       {
         "Acceptance": 20.0,
-        "Acceptance with hesitation": 20.0,
         "Hesitation": 20.0,
         "Mild rejection": 20.0,
         "Rejection": 20.0,
@@ -146,23 +159,37 @@ class ResistanceHelpersTest(unittest.TestCase):
       },
     )
     self.assertAlmostEqual(sum(merged.values()), 1.0, places=6)
-    self.assertAlmostEqual(merged["Acceptance"], 0.325, places=6)
-    self.assertAlmostEqual(merged["Rejection"], 0.115, places=6)
+    self.assertAlmostEqual(merged["Acceptance"], 0.444444, places=6)
+    self.assertAlmostEqual(merged["Rejection"], 0.127778, places=6)
     self.assertEqual(merged["Terminate"], 0.0)
 
   def test_sample_patient_action_respects_deterministic_weights(self) -> None:
     sampled = sample_patient_action(
       {
         "Acceptance": 0.0,
-        "Acceptance with hesitation": 0.0,
         "Hesitation": 0.0,
         "Mild rejection": 0.0,
         "Rejection": 0.0,
         "Terminate": 1.0,
       },
       rng=random.Random(7),
+      utterance_index=30,
     )
     self.assertEqual(sampled, "Terminate")
+
+  def test_sample_patient_action_hard_blocks_terminate_before_safe_threshold(self) -> None:
+    sampled = sample_patient_action(
+      {
+        "Acceptance": 0.0,
+        "Hesitation": 0.0,
+        "Mild rejection": 0.0,
+        "Rejection": 0.0,
+        "Terminate": 1.0,
+      },
+      rng=random.Random(7),
+      utterance_index=29,
+    )
+    self.assertNotEqual(sampled, "Terminate")
 
   def test_negative_high_interval_detection(self) -> None:
     self.assertFalse(is_highest_negative_calibration_interval(0.87))
@@ -172,8 +199,33 @@ class ResistanceHelpersTest(unittest.TestCase):
   def test_fallback_action_distribution_respects_negative_interval(self) -> None:
     positive_fallback = fallback_action_distribution_for_resistance(0.20)
     negative_fallback = fallback_action_distribution_for_resistance(0.70)
+    negative_post_threshold_fallback = fallback_action_distribution_for_resistance(0.70, utterance_index=30)
+    high_negative_post_threshold_fallback = fallback_action_distribution_for_resistance(0.90, utterance_index=30)
     self.assertEqual(positive_fallback["Terminate"], 0.0)
-    self.assertGreater(negative_fallback["Terminate"], 0.0)
+    self.assertEqual(positive_fallback["Acceptance"], 25.0)
+    self.assertEqual(positive_fallback["Hesitation"], 25.0)
+    self.assertEqual(negative_fallback["Terminate"], 0.0)
+    self.assertEqual(negative_fallback["Acceptance"], 10.0)
+    self.assertEqual(negative_post_threshold_fallback["Terminate"], 10.0)
+    self.assertEqual(high_negative_post_threshold_fallback["Terminate"], 20.0)
+
+  def test_constrain_action_distribution_for_utterance_strips_terminate_when_blocked(self) -> None:
+    constrained = constrain_action_distribution_for_utterance(
+      {
+        "Acceptance": 40.0,
+        "Hesitation": 20.0,
+        "Mild rejection": 10.0,
+        "Rejection": 5.0,
+        "Terminate": 25.0,
+      },
+      utterance_index=29,
+    )
+    self.assertEqual(constrained["Terminate"], 0.0)
+    self.assertEqual(constrained["Acceptance"], 40.0)
+
+  def test_can_select_terminate_action_uses_safe_threshold(self) -> None:
+    self.assertFalse(can_select_terminate_action(29))
+    self.assertTrue(can_select_terminate_action(30))
 
 
 if __name__ == "__main__":

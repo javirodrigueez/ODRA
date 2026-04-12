@@ -245,7 +245,7 @@ class DeepseekLLM(LLM):
       if key in kwargs and kwargs[key] is not None:
         create_kwargs[key] = kwargs[key]
     response = self.chat_model.chat.completions.create(**create_kwargs)
-    return str(response.choices[0].message.content).replace('\n', '')
+    return str(response.choices[0].message.content).replace('\n', '').removeprefix('```json').removesuffix('```')
 
 class LLMFactory:
     @staticmethod

@@ -55,13 +55,13 @@ class PatientPromptTest(unittest.TestCase):
       "shared/patient_utterance_core.txt",
       patient_utterance_instruction="Respond to the CBT exercise with realistic engagement.",
       resistance_update_reasoning="The therapist felt aligned with what I came here for, so I softened slightly.",
-      selected_action="Acceptance with hesitation",
-      selected_action_definition="Engage, but with mild doubts or caution.",
+      selected_action="Hesitation",
+      selected_action_definition="Stay in the exchange, but foreground meaningful doubts about the therapist's proposed line.",
     )
     self.assertIn("Respond to the CBT exercise with realistic engagement.", rendered)
     self.assertIn("The therapist felt aligned with what I came here for", rendered)
-    self.assertIn("Acceptance with hesitation", rendered)
-    self.assertIn("Engage, but with mild doubts or caution.", rendered)
+    self.assertIn("Hesitation", rendered)
+    self.assertIn("foreground meaningful doubts", rendered)
 
   def test_patient_action_distribution_prompt_lists_all_actions(self) -> None:
     rendered = render_prompt_text(
@@ -70,7 +70,6 @@ class PatientPromptTest(unittest.TestCase):
       resistance_update_reasoning="The therapist's line did not help much.",
     )
     self.assertIn('"Acceptance": 0', rendered)
-    self.assertIn('"Acceptance with hesitation": 0', rendered)
     self.assertIn('"Hesitation": 0', rendered)
     self.assertIn('"Mild rejection": 0', rendered)
     self.assertIn('"Rejection": 0', rendered)

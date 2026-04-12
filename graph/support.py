@@ -1357,12 +1357,14 @@ class GraphSupportMixin:
     instruction = self._load_stage_prompt(
       "shared",
       "resistance_prediction",
+      current_utterance=self._extract_last_patient_message(state),
       old_r="none yet" if previous_p is None else f"{previous_p:.2f}",
     )
     parsed = self._run_therapist_structured(state, traces, "resistance_prediction", instruction)
     payload = self._require_dict(parsed, "resistance_prediction")
     p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0)
     signal_clarity = self._require_bounded_float(payload, "signal_clarity", "resistance_prediction", 0.0, 1.0)
+    print(f"    <PRED-R>Target: {p_target}, Clarity: {signal_clarity}</PRED-R>") #devlog
     prediction_update = self._apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
     state["predicted_resistance"] = prediction_update["new_p"]
     trace_payload = dict(payload)

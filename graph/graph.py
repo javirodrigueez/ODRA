@@ -20,6 +20,7 @@ from .resistance import (
   PatientActionDistribution,
   action_definition_for_action,
   action_prior_for_resistance,
+  constrain_action_distribution_for_utterance,
   fallback_action_distribution_for_resistance,
   merge_action_distributions,
   normalize_patient_action,
@@ -448,11 +449,30 @@ class TherapyGraphBuilder(
       fallback_reason = f"structured_generation_failed: {exc}"
 
     if context_distribution is None:
-      context_distribution = fallback_action_distribution_for_resistance(state["resistance"])
+      context_distribution = fallback_action_distribution_for_resistance(
+        state["resistance"],
+        state["utterance_index"],
+      )
+    else:
+      context_distribution = constrain_action_distribution_for_utterance(
+        context_distribution,
+        state["utterance_index"],
+      )
 
-    prior_distribution = action_prior_for_resistance(state["resistance"])
+    prior_distribution = action_prior_for_resistance(
+      state["resistance"],
+      state["utterance_index"],
+    )
     merged_distribution = merge_action_distributions(prior_distribution, context_distribution)
-    selected_action = sample_patient_action(merged_distribution)
+    merged_distribution = constrain_action_distribution_for_utterance(
+      merged_distribution,
+      state["utterance_index"],
+      normalize=True,
+    )
+    selected_action = sample_patient_action(
+      merged_distribution,
+      utterance_index=state["utterance_index"],
+    )
 
     state["last_patient_action"] = selected_action
     state["last_patient_action_prior_distribution"] = {
@@ -528,7 +548,7 @@ class TherapyGraphBuilder(
       else:
         self._reset_patient_action_state(s)
 
-      print(f"<DEBUG>Selected patient action: {selected_action}</DEBUG>") #devlog
+      print(f"    <DEBUG>Selected patient action: {selected_action}</DEBUG>") #devlog
       utterance_instruction = self._build_patient_utterance_core_instruction(
         s,
         s["last_patient_resistance_update_reasoning"],
