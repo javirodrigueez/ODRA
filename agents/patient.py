@@ -78,13 +78,18 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     suffix: str,
+    engagement_block: str | None = None,
     structured: bool = False,
   ) -> str:
     resistance_prompt = self._render_resistance_prompt(resistance_level) if structured == False else f"Your resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}"
+    engagement_section = ""
+    if engagement_block:
+      engagement_section = f"<engagement>\n{engagement_block}\n</engagement>\n\n"
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
       f"<resistance_level>\n{resistance_prompt}\n</resistance_level>\n\n"
+      f"{engagement_section}"
       f"Instruction: {instruction}\n"
       f"{suffix}"
     )
@@ -95,6 +100,7 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
+    engagement_block: str | None = None,
   ) -> list[ChatMessage]:
     suffix = load_prompt("shared/patient_utterance_suffix.txt")
     user_prompt = self._build_user_prompt(
@@ -103,6 +109,7 @@ class PatientAgent(Agent):
       last_utterances=last_utterances,
       resistance_level=resistance_level,
       suffix=suffix,
+      engagement_block=engagement_block,
     )
     return [
       {"role": "system", "content": self.system_prompt},
@@ -115,6 +122,7 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
+    engagement_block: str | None = None,
   ) -> list[ChatMessage]:
     suffix = load_prompt("shared/patient_structured_suffix.txt")
     user_prompt = self._build_user_prompt(
@@ -123,6 +131,7 @@ class PatientAgent(Agent):
       last_utterances=last_utterances,
       resistance_level=resistance_level,
       suffix=suffix,
+      engagement_block=engagement_block,
       structured=True,
     )
     return [
@@ -136,6 +145,7 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
+    engagement_block: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -150,6 +160,7 @@ class PatientAgent(Agent):
       last_utterances=last_utterances,
       resistance_level=resistance_level,
       instruction=instruction,
+      engagement_block=engagement_block,
     )
     generation_kwargs = self._build_generation_kwargs(
       default_values={"max_tokens": 5000, "temperature": 0.8},
@@ -172,6 +183,7 @@ class PatientAgent(Agent):
     last_utterances: str,
     resistance_level: float,
     instruction: str,
+    engagement_block: str | None = None,
     max_retries: int = 2,
     expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
     max_tokens: int | None = None,
@@ -189,6 +201,7 @@ class PatientAgent(Agent):
       last_utterances=last_utterances,
       resistance_level=resistance_level,
       instruction=instruction,
+      engagement_block=engagement_block,
     )
 
     attempts = 0
@@ -237,6 +250,7 @@ class PatientAgent(Agent):
             last_utterances=last_utterances,
             resistance_level=resistance_level,
             suffix=retry_suffix,
+            engagement_block=engagement_block,
             structured=True,
           ),
         }

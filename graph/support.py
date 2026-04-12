@@ -191,6 +191,26 @@ class GraphSupportMixin:
     s.setdefault("last_patient_action_prior_distribution", cast(PatientActionDistribution, {}))
     s.setdefault("last_patient_action_context_distribution", cast(PatientActionDistribution, {}))
     s.setdefault("last_patient_action_distribution", cast(PatientActionDistribution, {}))
+    s.setdefault("last_patient_perceived_topic", "")
+    raw_topic_distance = s.get("last_patient_topic_distance")
+    if raw_topic_distance is None:
+      s["last_patient_topic_distance"] = None
+    else:
+      try:
+        s["last_patient_topic_distance"] = int(raw_topic_distance)
+      except (TypeError, ValueError):
+        s["last_patient_topic_distance"] = None
+    raw_engagement_level = s.get("last_patient_engagement_level")
+    if raw_engagement_level is None:
+      s["last_patient_engagement_level"] = None
+    else:
+      try:
+        parsed_engagement_level = int(raw_engagement_level)
+      except (TypeError, ValueError):
+        parsed_engagement_level = 0
+      s["last_patient_engagement_level"] = parsed_engagement_level if 1 <= parsed_engagement_level <= 4 else None
+    s.setdefault("last_patient_engagement_analysis", "")
+    s.setdefault("last_patient_engagement_instruction", "")
     s.setdefault("opening_patient_mood", "")
     s.setdefault("opening_patient_problem", "")
     s.setdefault("last_reasoning", "")
@@ -458,6 +478,7 @@ class GraphSupportMixin:
     *,
     structured: bool,
     full_conversation: str | None = None,
+    engagement_block: str | None = None,
   ) -> list[ChatMessage]:
     conversation_text = full_conversation if full_conversation is not None else self._current_prompt_conversation_text(state)
     if structured:
@@ -466,12 +487,14 @@ class GraphSupportMixin:
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,
+        engagement_block=engagement_block,
       )
     return self.patient.build_utterance_messages(
       full_conversation=conversation_text,
       last_utterances=self._format_last_utterances(state["messages"]),
       resistance_level=state["resistance"],
       instruction=instruction,
+      engagement_block=engagement_block,
     )
 
   def _trim_words(self, text: str, limit: int) -> str:
@@ -1037,6 +1060,12 @@ class GraphSupportMixin:
       return 0
     return int(history[-1])
 
+  def _total_stage_exchange_count(self, state: SessionState, stage: Stage) -> int:
+    history = state["exchange_counts"].get(stage, [])
+    if not history:
+      return 0
+    return sum(int(item) for item in history)
+
   def _increment_stage_exchange_count(self, state: SessionState, stage: Stage) -> int:
     self._ensure_stage_exchange_counter(state, stage)
     history = state["exchange_counts"][stage]
@@ -1326,10 +1355,16 @@ class GraphSupportMixin:
     step_name: str,
     instruction: str,
     expected_type: Optional[type | tuple[type, ...]] = dict,
+    engagement_block: str | None = None,
   ) -> Any:
     record_large_prompt_request(
       state,
-      self._build_patient_request_messages(state, instruction, structured=True),
+      self._build_patient_request_messages(
+        state,
+        instruction,
+        structured=True,
+        engagement_block=engagement_block,
+      ),
       "patient",
       step_name,
     )
@@ -1339,6 +1374,7 @@ class GraphSupportMixin:
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,
+        engagement_block=engagement_block,
         expected_type=expected_type,
       )
     except StructuredOutputError as exc:
@@ -1364,7 +1400,6 @@ class GraphSupportMixin:
     payload = self._require_dict(parsed, "resistance_prediction")
     p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0)
     signal_clarity = self._require_bounded_float(payload, "signal_clarity", "resistance_prediction", 0.0, 1.0)
-    print(f"    <PRED-R>Target: {p_target}, Clarity: {signal_clarity}</PRED-R>") #devlog
     prediction_update = self._apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
     state["predicted_resistance"] = prediction_update["new_p"]
     trace_payload = dict(payload)

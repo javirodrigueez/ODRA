@@ -24,7 +24,8 @@
       "academic_occupational_functioning": "My job performance has not been affected significantly, but my social interactions at work have been challenging.\nInterpersonal relationships: My dating life and friendships have been impacted due to my beliefs of being boring.\nDaily life: My self-esteem issues have affected my social activities and hobbies.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about general issues, but I have not discussed my feelings of inadequacy with them."
     },
-    "motivation_topic": "Workplace Relationships"
+    "motivation_topic": "Workplace Relationships",
+    "motivation_text": "Improving my social confidence could help me build better connections at work, making projects more collaborative and enjoyable, which matters because it directly impacts my professional satisfaction and career growth as an architect."
   },
   {
     "idx": 1134,
@@ -52,7 +53,8 @@
       "academic_occupational_functioning": "My self-esteem issues have started affecting my academic performance.\nInterpersonal relationships: I struggle to accept compliments or praise from others due to my negative self-perception.\nDaily life: My self-esteem issues have caused disruptions in my daily routine and activities.",
       "social_support_system": "I have friends and family members I can talk to when I encounter difficulties, but I have not discussed these specific feelings of incompetence with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care about doing well in school because it's important for my future, but my negative thoughts are starting to hurt my grades. Improving my self-esteem could help me focus better and succeed academically."
   },
   {
     "idx": 4265,
@@ -79,7 +81,8 @@
       "academic_occupational_functioning": "My job performance has not been affected significantly, but my social interactions at work have been challenging.\nInterpersonal relationships: My dating life and friendships have been impacted due to my beliefs of being boring.\nDaily life: My self-esteem issues have affected my social activities and hobbies.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about general issues, but I have not discussed my feelings of inadequacy with them."
     },
-    "motivation_topic": "Workplace Relationships"
+    "motivation_topic": "Workplace Relationships",
+    "motivation_text": "Improving my social confidence could help me build better connections at work, making projects more collaborative and enjoyable, which matters because it directly impacts my professional satisfaction and career growth as an architect."
   },
   {
     "idx": 17471,
@@ -106,7 +109,8 @@
       "academic_occupational_functioning": "My academic performance and job satisfaction have been affected by these negative beliefs.\nInterpersonal relationships: My relationship with my partner has been strained due to my self-doubt and lack of confidence.\nDaily life: My negative thoughts have disrupted my sleep patterns and appetite.",
       "social_support_system": "I have a supportive partner and friends I can talk to, but I have not discussed these specific feelings with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about succeeding in my Business Administration major and proving to myself that I can achieve something significant, which could help me overcome my feelings of inadequacy from working at the daycare."
   },
   {
     "idx": 13072,
@@ -133,7 +137,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: My relationships with family members have been strained due to misunderstandings about driving.\nDaily life: The tension with my family has affected my mood and overall well-being.",
       "social_support_system": "I have a close friend who I can talk to about personal issues, but I have not discussed this specific problem with them."
     },
-    "motivation_topic": "Family Estrangement"
+    "motivation_topic": "Family Estrangement",
+    "motivation_text": "I value my family relationships deeply, and the ongoing tension over driving is pushing us apart. If I don't address this, I risk losing the connection with my family, which matters more to me than avoiding the discomfort of learning to drive. Changing my behavior could help mend these misunderstandings and restore our closeness."
   },
   {
     "idx": 9624,
@@ -160,7 +165,8 @@
       "academic_occupational_functioning": "My fear of not graduating has impacted my academic performance and motivation.\nInterpersonal relationships: My relationships with classmates and instructors have been strained due to my increased anxiety and doubt.\nDaily life: The fear of not graduating has affected my sleep patterns and appetite.",
       "social_support_system": "I have a few supportive friends I can confide in, but I have not discussed this fear with anyone close to me."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "Graduating from college matters to me because it represents achieving a long-held personal goal and securing better job opportunities, especially at my smoothie shop where advancement is limited without a degree. Focusing on this achievement could motivate me to overcome my fears and persist in my studies."
   },
   {
     "idx": 5057,
@@ -192,7 +198,8 @@
       "academic_occupational_functioning": "My weightlifting performance has been affected by these thought patterns, causing increased stress during competitions.\nInterpersonal relationships: My relationships with friends have been strained as I often label situations negatively.\nDaily life: My self-esteem has been affected by these negative thought patterns, impacting my self-care routines.",
       "social_support_system": "I have a supportive group of weightlifting friends, but I have not shared these negative thought patterns with them."
     },
-    "motivation_topic": "Physical Fitness"
+    "motivation_topic": "Physical Fitness",
+    "motivation_text": "As a competitive weightlifter, my performance and progress in the gym are central to my identity and goals. These negative thought patterns are holding me back from reaching my full potential and enjoying my sport, which I deeply care about. Focusing on improving my mental approach could directly enhance my physical fitness and success in competitions."
   },
   {
     "idx": 17471,
@@ -219,7 +226,8 @@
       "academic_occupational_functioning": "My academic performance and job satisfaction have been affected by these negative beliefs.\nInterpersonal relationships: My relationship with my partner has been strained due to my self-doubt and lack of confidence.\nDaily life: My negative thoughts have disrupted my sleep patterns and appetite.",
       "social_support_system": "I have a supportive partner and friends I can talk to, but I have not discussed these specific feelings with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about succeeding in my Business Administration major and proving to myself that I can achieve something significant, which could help me overcome my feelings of inadequacy from working at the daycare."
   },
   {
     "idx": 9624,
@@ -246,7 +254,8 @@
       "academic_occupational_functioning": "My fear of not graduating has impacted my academic performance and motivation.\nInterpersonal relationships: My relationships with classmates and instructors have been strained due to my increased anxiety and doubt.\nDaily life: The fear of not graduating has affected my sleep patterns and appetite.",
       "social_support_system": "I have a few supportive friends I can confide in, but I have not discussed this fear with anyone close to me."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "Graduating from college matters to me because it represents achieving a long-held personal goal and securing better job opportunities, especially at my smoothie shop where advancement is limited without a degree. Focusing on this achievement could motivate me to overcome my fears and persist in my studies."
   },
   {
     "idx": 25857,
@@ -274,7 +283,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Not specified\nDaily life: My daily life is affected by feelings of dissatisfaction and hopelessness due to my housing situation.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about everyday struggles, but I haven't discussed this specific issue with them."
     },
-    "motivation_topic": "Personal Budget"
+    "motivation_topic": "Cost of Living",
+    "motivation_text": "I feel stuck in my current suburb because I think I can't afford better housing, but focusing on managing the cost of living could help me see practical steps to improve my situation and reduce the hopelessness I feel about my future."
   },
   {
     "idx": 9226,
@@ -304,7 +314,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Struggle with forming romantic relationships due to feelings of inadequacy.\nDaily life: Negative thoughts about being single impact my mood and motivation in daily activities.",
       "social_support_system": "I have friends and family members I can talk to, but I have not shared these feelings of unworthiness with them."
     },
-    "motivation_topic": "Role Model"
+    "motivation_topic": "Role Model",
+    "motivation_text": "As a parent, I want to show my children how to build healthy relationships and handle setbacks with resilience, so they don't inherit my feelings of inadequacy. Changing my self-perception can help me be a better role model for them."
   },
   {
     "idx": 25857,
@@ -332,7 +343,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Not specified\nDaily life: My daily life is affected by feelings of dissatisfaction and hopelessness due to my housing situation.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about everyday struggles, but I haven't discussed this specific issue with them."
     },
-    "motivation_topic": "Personal Budget"
+    "motivation_topic": "Cost of Living",
+    "motivation_text": "I feel stuck in my current suburb because I think I can't afford better housing, but focusing on managing the cost of living could help me see practical steps to improve my situation and reduce the hopelessness I feel about my future."
   },
   {
     "idx": 13072,
@@ -359,7 +371,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: My relationships with family members have been strained due to misunderstandings about driving.\nDaily life: The tension with my family has affected my mood and overall well-being.",
       "social_support_system": "I have a close friend who I can talk to about personal issues, but I have not discussed this specific problem with them."
     },
-    "motivation_topic": "Family Estrangement"
+    "motivation_topic": "Family Estrangement",
+    "motivation_text": "I value my family relationships deeply, and the ongoing tension over driving is pushing us apart. If I don't address this, I risk losing the connection with my family, which matters more to me than avoiding the discomfort of learning to drive. Changing my behavior could help mend these misunderstandings and restore our closeness."
   },
   {
     "idx": 1134,
@@ -387,7 +400,8 @@
       "academic_occupational_functioning": "My self-esteem issues have started affecting my academic performance.\nInterpersonal relationships: I struggle to accept compliments or praise from others due to my negative self-perception.\nDaily life: My self-esteem issues have caused disruptions in my daily routine and activities.",
       "social_support_system": "I have friends and family members I can talk to when I encounter difficulties, but I have not discussed these specific feelings of incompetence with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care about doing well in school because it's important for my future, but my negative thoughts are starting to hurt my grades. Improving my self-esteem could help me focus better and succeed academically."
   },
   {
     "idx": 5057,
@@ -419,7 +433,8 @@
       "academic_occupational_functioning": "My weightlifting performance has been affected by these thought patterns, causing increased stress during competitions.\nInterpersonal relationships: My relationships with friends have been strained as I often label situations negatively.\nDaily life: My self-esteem has been affected by these negative thought patterns, impacting my self-care routines.",
       "social_support_system": "I have a supportive group of weightlifting friends, but I have not shared these negative thought patterns with them."
     },
-    "motivation_topic": "Physical Fitness"
+    "motivation_topic": "Physical Fitness",
+    "motivation_text": "As a competitive weightlifter, my performance and progress in the gym are central to my identity and goals. These negative thought patterns are holding me back from reaching my full potential and enjoying my sport, which I deeply care about. Focusing on improving my mental approach could directly enhance my physical fitness and success in competitions."
   },
   {
     "idx": 10885,
@@ -446,7 +461,8 @@
       "academic_occupational_functioning": "My business performance has been affected by my increased anxiety levels and preoccupation with marital issues.\nInterpersonal relationships: My relationship with my spouse has become strained due to my constant anticipation of divorce.\nDaily life: My anxiety has caused disruptions in my sleep patterns and appetite.",
       "social_support_system": "I have a few close friends I can confide in, but I feel hesitant to share my marital concerns with them."
     },
-    "motivation_topic": "Divorce"
+    "motivation_topic": "Productivity",
+    "motivation_text": "My business is suffering because my anxiety about divorce distracts me and lowers my performance. Improving my mental health could help me focus better and succeed professionally, which matters to me as an entrepreneur."
   },
   {
     "idx": 9226,
@@ -476,7 +492,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Struggle with forming romantic relationships due to feelings of inadequacy.\nDaily life: Negative thoughts about being single impact my mood and motivation in daily activities.",
       "social_support_system": "I have friends and family members I can talk to, but I have not shared these feelings of unworthiness with them."
     },
-    "motivation_topic": "Role Model"
+    "motivation_topic": "Role Model",
+    "motivation_text": "As a parent, I want to show my children how to build healthy relationships and handle setbacks with resilience, so they don't inherit my feelings of inadequacy. Changing my self-perception can help me be a better role model for them."
   },
   {
     "idx": 1134,
@@ -504,7 +521,8 @@
       "academic_occupational_functioning": "My self-esteem issues have started affecting my academic performance.\nInterpersonal relationships: I struggle to accept compliments or praise from others due to my negative self-perception.\nDaily life: My self-esteem issues have caused disruptions in my daily routine and activities.",
       "social_support_system": "I have friends and family members I can talk to when I encounter difficulties, but I have not discussed these specific feelings of incompetence with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care about doing well in school because it's important for my future, but my negative thoughts are starting to hurt my grades. Improving my self-esteem could help me focus better and succeed academically."
   },
   {
     "idx": 9624,
@@ -531,7 +549,8 @@
       "academic_occupational_functioning": "My fear of not graduating has impacted my academic performance and motivation.\nInterpersonal relationships: My relationships with classmates and instructors have been strained due to my increased anxiety and doubt.\nDaily life: The fear of not graduating has affected my sleep patterns and appetite.",
       "social_support_system": "I have a few supportive friends I can confide in, but I have not discussed this fear with anyone close to me."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "Graduating from college matters to me because it represents achieving a long-held personal goal and securing better job opportunities, especially at my smoothie shop where advancement is limited without a degree. Focusing on this achievement could motivate me to overcome my fears and persist in my studies."
   },
   {
     "idx": 10885,
@@ -558,7 +577,8 @@
       "academic_occupational_functioning": "My business performance has been affected by my increased anxiety levels and preoccupation with marital issues.\nInterpersonal relationships: My relationship with my spouse has become strained due to my constant anticipation of divorce.\nDaily life: My anxiety has caused disruptions in my sleep patterns and appetite.",
       "social_support_system": "I have a few close friends I can confide in, but I feel hesitant to share my marital concerns with them."
     },
-    "motivation_topic": "Divorce"
+    "motivation_topic": "Productivity",
+    "motivation_text": "My business is suffering because my anxiety about divorce distracts me and lowers my performance. Improving my mental health could help me focus better and succeed professionally, which matters to me as an entrepreneur."
   },
   {
     "idx": 9226,
@@ -588,7 +608,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Struggle with forming romantic relationships due to feelings of inadequacy.\nDaily life: Negative thoughts about being single impact my mood and motivation in daily activities.",
       "social_support_system": "I have friends and family members I can talk to, but I have not shared these feelings of unworthiness with them."
     },
-    "motivation_topic": "Role Model"
+    "motivation_topic": "Role Model",
+    "motivation_text": "As a parent, I want to show my children how to build healthy relationships and handle setbacks with resilience, so they don't inherit my feelings of inadequacy. Changing my self-perception can help me be a better role model for them."
   },
   {
     "idx": 4265,
@@ -615,7 +636,8 @@
       "academic_occupational_functioning": "My job performance has not been affected significantly, but my social interactions at work have been challenging.\nInterpersonal relationships: My dating life and friendships have been impacted due to my beliefs of being boring.\nDaily life: My self-esteem issues have affected my social activities and hobbies.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about general issues, but I have not discussed my feelings of inadequacy with them."
     },
-    "motivation_topic": "Workplace Relationships"
+    "motivation_topic": "Workplace Relationships",
+    "motivation_text": "Improving my social confidence could help me build better connections at work, making projects more collaborative and enjoyable, which matters because it directly impacts my professional satisfaction and career growth as an architect."
   },
   {
     "idx": 5057,
@@ -647,7 +669,8 @@
       "academic_occupational_functioning": "My weightlifting performance has been affected by these thought patterns, causing increased stress during competitions.\nInterpersonal relationships: My relationships with friends have been strained as I often label situations negatively.\nDaily life: My self-esteem has been affected by these negative thought patterns, impacting my self-care routines.",
       "social_support_system": "I have a supportive group of weightlifting friends, but I have not shared these negative thought patterns with them."
     },
-    "motivation_topic": "Physical Fitness"
+    "motivation_topic": "Physical Fitness",
+    "motivation_text": "As a competitive weightlifter, my performance and progress in the gym are central to my identity and goals. These negative thought patterns are holding me back from reaching my full potential and enjoying my sport, which I deeply care about. Focusing on improving my mental approach could directly enhance my physical fitness and success in competitions."
   },
   {
     "idx": 13072,
@@ -674,7 +697,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: My relationships with family members have been strained due to misunderstandings about driving.\nDaily life: The tension with my family has affected my mood and overall well-being.",
       "social_support_system": "I have a close friend who I can talk to about personal issues, but I have not discussed this specific problem with them."
     },
-    "motivation_topic": "Family Estrangement"
+    "motivation_topic": "Family Estrangement",
+    "motivation_text": "I value my family relationships deeply, and the ongoing tension over driving is pushing us apart. If I don't address this, I risk losing the connection with my family, which matters more to me than avoiding the discomfort of learning to drive. Changing my behavior could help mend these misunderstandings and restore our closeness."
   },
   {
     "idx": 10885,
@@ -701,7 +725,8 @@
       "academic_occupational_functioning": "My business performance has been affected by my increased anxiety levels and preoccupation with marital issues.\nInterpersonal relationships: My relationship with my spouse has become strained due to my constant anticipation of divorce.\nDaily life: My anxiety has caused disruptions in my sleep patterns and appetite.",
       "social_support_system": "I have a few close friends I can confide in, but I feel hesitant to share my marital concerns with them."
     },
-    "motivation_topic": "Divorce"
+    "motivation_topic": "Productivity",
+    "motivation_text": "My business is suffering because my anxiety about divorce distracts me and lowers my performance. Improving my mental health could help me focus better and succeed professionally, which matters to me as an entrepreneur."
   },
   {
     "idx": 25857,
@@ -729,7 +754,8 @@
       "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Not specified\nDaily life: My daily life is affected by feelings of dissatisfaction and hopelessness due to my housing situation.",
       "social_support_system": "I have a supportive group of friends whom I can talk to about everyday struggles, but I haven't discussed this specific issue with them."
     },
-    "motivation_topic": "Personal Budget"
+    "motivation_topic": "Cost of Living",
+    "motivation_text": "I feel stuck in my current suburb because I think I can't afford better housing, but focusing on managing the cost of living could help me see practical steps to improve my situation and reduce the hopelessness I feel about my future."
   },
   {
     "idx": 17471,
@@ -756,7 +782,8 @@
       "academic_occupational_functioning": "My academic performance and job satisfaction have been affected by these negative beliefs.\nInterpersonal relationships: My relationship with my partner has been strained due to my self-doubt and lack of confidence.\nDaily life: My negative thoughts have disrupted my sleep patterns and appetite.",
       "social_support_system": "I have a supportive partner and friends I can talk to, but I have not discussed these specific feelings with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about succeeding in my Business Administration major and proving to myself that I can achieve something significant, which could help me overcome my feelings of inadequacy from working at the daycare."
   },
   {
     "idx": 15384,
@@ -782,7 +809,8 @@
       "academic_occupational_functioning": "Since the financial issues arose, I have found it challenging to focus on my teaching and connect with students effectively.\nInterpersonal relationships: My relationships with colleagues have been strained due to my self-blame and feelings of inadequacy.\nDaily life: My self-blame has impacted my overall mood and motivation in daily activities.",
       "social_support_system": "I have a supportive group of friends and family who I can talk to, but I have not shared these specific feelings of responsibility and inadequacy with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about my students' learning and success, and I want to be the best teacher I can be for them. By addressing my self-blame and focusing on my teaching, I can help improve their academic outcomes and feel more fulfilled in my role."
   },
   {
     "idx": 15384,
@@ -808,7 +836,8 @@
       "academic_occupational_functioning": "Since the financial issues arose, I have found it challenging to focus on my teaching and connect with students effectively.\nInterpersonal relationships: My relationships with colleagues have been strained due to my self-blame and feelings of inadequacy.\nDaily life: My self-blame has impacted my overall mood and motivation in daily activities.",
       "social_support_system": "I have a supportive group of friends and family who I can talk to, but I have not shared these specific feelings of responsibility and inadequacy with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about my students' learning and success, and I want to be the best teacher I can be for them. By addressing my self-blame and focusing on my teaching, I can help improve their academic outcomes and feel more fulfilled in my role."
   },
   {
     "idx": 15384,
@@ -834,6 +863,7 @@
       "academic_occupational_functioning": "Since the financial issues arose, I have found it challenging to focus on my teaching and connect with students effectively.\nInterpersonal relationships: My relationships with colleagues have been strained due to my self-blame and feelings of inadequacy.\nDaily life: My self-blame has impacted my overall mood and motivation in daily activities.",
       "social_support_system": "I have a supportive group of friends and family who I can talk to, but I have not shared these specific feelings of responsibility and inadequacy with them."
     },
-    "motivation_topic": "Academic Achievement"
+    "motivation_topic": "Academic Achievement",
+    "motivation_text": "I care deeply about my students' learning and success, and I want to be the best teacher I can be for them. By addressing my self-blame and focusing on my teaching, I can help improve their academic outcomes and feel more fulfilled in my role."
   }
 ]

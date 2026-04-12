@@ -11,15 +11,19 @@ patient:
   type: deepseek
   base_url: https://openrouter.ai/api/v1
   model_id: deepseek/deepseek-v3.2
-  profiles: ./data/isolated/negative.json
+  profiles: ./data/isolated/negative_with_mi.json
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5
   # frequency_penalty: 1.0
+
+topic_exploration:
+  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_wikipedia_dir: data/wikipedias
 
 env:
   max_turns: 100
   min_turns: 60
   output_dir: out/deepseek_five
   verbose: true
-  resume_file:
+  resume_file: out/deepseek_five/simulation_10816.json

@@ -9,6 +9,8 @@ from .state import SessionState
 
 
 class OpeningStageMixin(GraphSupportMixin):
+  OPENING_MAX_EXCHANGES = 5
+
   def _check_readiness(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:
     instruction = self._load_stage_prompt(
       "opening",
@@ -38,8 +40,39 @@ class OpeningStageMixin(GraphSupportMixin):
       state["current_substage"] = "open_mood"
     return ready
 
+  def _route_after_opening(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    *,
+    reason: str,
+  ) -> str:
+    band = self._current_band(state["predicted_resistance"], state)
+    if band == "action":
+      self._set_stage(state, "id_distortions")
+    elif band == "contemplation":
+      state["cbt_resume_stage"] = "id_distortions"
+      self._enter_mi(
+        state,
+        "mi_techniques",
+        "id_distortions",
+        None,
+        reason,
+      )
+    else:
+      state["cbt_resume_stage"] = "id_distortions"
+      self._enter_mi(
+        state,
+        "mi_topic_exploration",
+        "id_distortions",
+        None,
+        reason,
+      )
+    return self._handle_stage_dispatch(state, traces)
+
   def _handle_opening(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
     opening_exchanges = self._current_stage_exchange_count(state, "opening")
+    opening_total_exchanges = self._total_stage_exchange_count(state, "opening")
     if opening_exchanges == 0:
       self._set_substage(state, "open_initial")
 
@@ -53,20 +86,16 @@ class OpeningStageMixin(GraphSupportMixin):
 
     ready = self._check_readiness(state, traces)
     current_substage = state["current_substage"]
-    force_mi = opening_exchanges >= 10 and not ready
+    reached_opening_cap = opening_total_exchanges >= self.OPENING_MAX_EXCHANGES and not ready
 
-    # Patient doesn't cooperates, force MI
-    if force_mi:
+    # Opening cap reached. Move on using the same downstream routing as a natural opening completion.
+    if reached_opening_cap:
       state["opening_fallback_triggered"] = True
-      state["cbt_resume_stage"] = "id_distortions"
-      self._enter_mi(
+      return self._route_after_opening(
         state,
-        "mi_topic_exploration",
-        "id_distortions",
-        None,
-        "Opening fallback after 10 exchanges",
+        traces,
+        reason=f"Opening fallback after {self.OPENING_MAX_EXCHANGES} exchanges",
       )
-      return self._handle_stage_dispatch(state, traces)
 
     # Not ready to continue to id_distortions
     if not ready:
@@ -79,27 +108,10 @@ class OpeningStageMixin(GraphSupportMixin):
 
     # Ready to move on to id_distortions
     if ready:
-      band = self._current_band(state["predicted_resistance"], state)
-      if band == "action":
-        self._set_stage(state, "id_distortions")
-      elif band == "contemplation":
-        state["cbt_resume_stage"] = "id_distortions"
-        self._enter_mi(
-          state,
-          "mi_techniques",
-          "id_distortions",
-          None,
-          "Opening completed with contemplation",
-        )
-      else:
-        state["cbt_resume_stage"] = "id_distortions"
-        self._enter_mi(
-          state,
-          "mi_topic_exploration",
-          "id_distortions",
-          None,
-          "Opening completed with precontemplation",
-        )
-      return self._handle_stage_dispatch(state, traces)
+      return self._route_after_opening(
+        state,
+        traces,
+        reason="Opening completed",
+      )
 
     raise ConversationProcessingError("Opening stage reached an unexpected state.")

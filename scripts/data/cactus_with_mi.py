@@ -105,9 +105,18 @@ def generate_motivation_prompt(patient_data_str: str) -> str:
 {json.dumps(FINE_GRAINED_TOPICS, indent=2)}
 </topics>
 
-You are CBT patient which persona is defined in <persona>. You may have resistance or rejection to therapy. Based on the patient's profile, identify the single most effective motivation topic that a counselor could use to bypass this resistance and encourage your behavioral change. You MUST select exactly ONE topic from the fine-grained topics list defined in <topics>.
+You are CBT patient which persona is defined in <persona>. You may have resistance or rejection to therapy. Based on the patient's profile:
+1. identify the single most effective motivation topic that a counselor could use to bypass this resistance and encourage behavioral change
+2. write a short motivation_text explaining what specifically matters to the patient about that topic and why it could motivate change
 
-Output your response strictly as a JSON object with a single key "motivation_topic". Do not include markdown formatting or extra text.
+You MUST select exactly ONE topic from the fine-grained topics list defined in <topics>. motivation_text must be concise, concrete, and written in plain language from the patient's perspective.
+
+Output your response strictly as a JSON object with exactly these keys:
+{{
+  "motivation_topic": "...",
+  "motivation_text": "..."
+}}
+Do not include markdown formatting or extra text.
 """
 
 def process_patient_seeds(input_path: str, output_path: str):
@@ -130,7 +139,7 @@ def process_patient_seeds(input_path: str, output_path: str):
 
     print(f"Loaded {len(seeds)} patient seeds. Beginning LLM motivation topic assignment...")
 
-    found_names = dict()  # Cache to reuse motivation topics for identical names
+    found_names = dict()  # Cache to reuse motivation assignments for identical names
   
     for i, seed in enumerate(tqdm(seeds)):
         patient_str = json.dumps(seed, indent=2)
@@ -138,7 +147,8 @@ def process_patient_seeds(input_path: str, output_path: str):
 
         # Reuse topic from previous identical name
         if name in found_names:
-            seed["motivation_topic"] = found_names[name]  
+            seed["motivation_topic"] = found_names[name]["motivation_topic"]
+            seed["motivation_text"] = found_names[name]["motivation_text"]
             continue
         
         prompt = generate_motivation_prompt(patient_str)
@@ -164,15 +174,23 @@ def process_patient_seeds(input_path: str, output_path: str):
             
             # Basic validation
             assigned_topic = result.get("motivation_topic")
+            motivation_text = result.get("motivation_text")
             if assigned_topic not in FINE_GRAINED_TOPICS:
                 print(f"Warning: Model output '{assigned_topic}' for seed idx {i} is not in the fine-grained list. Proceeding with fallback.")
+            if not isinstance(motivation_text, str) or not motivation_text.strip():
+                print(f"Warning: Model output is missing motivation_text for seed idx {i}. Proceeding with fallback.")
             
             seed["motivation_topic"] = assigned_topic
-            found_names[name] = assigned_topic
+            seed["motivation_text"] = motivation_text
+            found_names[name] = {
+                "motivation_topic": assigned_topic,
+                "motivation_text": motivation_text,
+            }
 
         except Exception as e:
             print(f"API Error processing seed idx {i}: {e}")
             seed["motivation_topic"] = None
+            seed["motivation_text"] = None
 
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(seeds, f, indent=2)

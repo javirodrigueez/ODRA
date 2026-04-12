@@ -75,12 +75,19 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")
 
+  topic_exploration = _to_plain_container(raw_cfg.get("topic_exploration")) or {}
+  if not isinstance(topic_exploration, dict):
+    raise ValueError("Config block 'topic_exploration' must be a mapping.")
+  topic_exploration.setdefault("patient_classifier_path", "")
+  topic_exploration.setdefault("patient_wikipedia_dir", "")
+
   return OmegaConf.create(
     {
       "therapist": therapist,
       "therapist_struct": therapist_struct,
       "patient": patient,
       "patient_struct": patient_struct,
+      "topic_exploration": topic_exploration,
       "env": env,
     }
   )

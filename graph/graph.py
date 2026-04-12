@@ -153,6 +153,7 @@ class TherapyGraphBuilder(
 
     if source_stage == "mi_topic_exploration":
       self._reset_mi_topic_exploration_state(state)
+      self._reset_patient_topic_exploration_state(state)
       self._set_substage(state, "mi_choose_topic")
       return
 
@@ -391,16 +392,49 @@ class TherapyGraphBuilder(
     state: SessionState,
     resistance_update_reasoning: str,
     selected_action: PatientAction | None = None,
+    *,
+    prompt_stage: str = "shared",
   ) -> str:
     action = normalize_patient_action(selected_action)
     action_definition = action_definition_for_action(action)
     return self._load_stage_prompt(
-      "shared",
+      prompt_stage,
       "patient_utterance_core",
       patient_utterance_instruction=self._patient_utterance_instruction(state),
       resistance_update_reasoning=self._patient_reasoning_for_prompt(resistance_update_reasoning),
       selected_action=action or "No action override",
       selected_action_definition=action_definition,
+    )
+
+  def _build_patient_resistance_update_instruction(
+    self,
+    state: SessionState,
+    *,
+    prompt_stage: str = "shared",
+  ) -> str:
+    base_values = {
+      "resistance": f"{state['resistance']:.2f}",
+      "presenting_problem": ensure_str(state["patient_profile"].get("presenting_problem")),
+      "reason_for_seeking_counseling": ensure_str(state["patient_profile"].get("reason_seeking_counseling")),
+      "last_utterance": self._last_therapist_utterance(state),
+    }
+    if prompt_stage != "mi_topic_exploration":
+      return self._load_stage_prompt(
+        prompt_stage,
+        "patient_resistance_update",
+        **base_values,
+      )
+    return self._load_stage_prompt(
+      prompt_stage,
+      "patient_resistance_update",
+      **base_values,
+      perceived_topic=ensure_str(state.get("last_patient_perceived_topic")) or "(unknown)",
+      motivation_topic=ensure_str(state["patient_profile"].get("motivation_topic")) or "(unknown)",
+      engagement_level=(
+        str(state["last_patient_engagement_level"])
+        if state.get("last_patient_engagement_level") is not None
+        else "(unknown)"
+      ),
     )
 
   def _build_patient_action_distribution_instruction(
@@ -509,19 +543,27 @@ class TherapyGraphBuilder(
 
     traces: list[dict[str, Any]] = []
     try:
-      update_instruction = self._load_stage_prompt(
-        "shared",
-        "patient_resistance_update",
-        resistance=f"{s['resistance']:.2f}",
-        presenting_problem=ensure_str(s["patient_profile"].get("presenting_problem")),
-        reason_for_seeking_counseling=ensure_str(s["patient_profile"].get("reason_seeking_counseling")),
-        last_utterance=self._last_therapist_utterance(s),
+      resistance_prompt_stage = "shared"
+      resistance_engagement_block: str | None = None
+      utterance_prompt_stage = "shared"
+      utterance_engagement_block: str | None = None
+      if s["current_stage"] == "mi_topic_exploration":
+        topic_engagement = self._run_patient_topic_exploration_engagement(s, traces)
+        resistance_prompt_stage = "mi_topic_exploration"
+        resistance_engagement_block = topic_engagement["engagement_analysis"]
+        utterance_prompt_stage = "mi_topic_exploration"
+        utterance_engagement_block = topic_engagement["engagement_instruction"]
+
+      update_instruction = self._build_patient_resistance_update_instruction(
+        s,
+        prompt_stage=resistance_prompt_stage,
       )
       update = self._run_patient_structured(
         s,
         traces,
         "resistance_update",
         update_instruction,
+        engagement_block=resistance_engagement_block,
       )
       payload = self._require_dict(update, "resistance_update")
       delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
@@ -553,10 +595,16 @@ class TherapyGraphBuilder(
         s,
         s["last_patient_resistance_update_reasoning"],
         selected_action=selected_action,
+        prompt_stage=utterance_prompt_stage,
       )
       record_large_prompt_request(
         s,
-        self._build_patient_request_messages(s, utterance_instruction, structured=False),
+        self._build_patient_request_messages(
+          s,
+          utterance_instruction,
+          structured=False,
+          engagement_block=utterance_engagement_block,
+        ),
         "patient",
         "patient_utterance",
       )
@@ -565,6 +613,7 @@ class TherapyGraphBuilder(
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
         instruction=utterance_instruction,
+        engagement_block=utterance_engagement_block,
       )
 
       if s["final_patient_pending_end"]:

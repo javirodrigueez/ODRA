@@ -4,12 +4,13 @@ from typing import Any
 
 from agents.interfaces import ensure_str
 
+from .patient_topic_exploration import PatientTopicExplorationMixin
 from .state import CBT_STAGES, DEFAULT_SUBSTAGE_BY_STAGE, SessionState, Stage, SubStage
 from .support import ConversationProcessingError
 from .topic_exploration import TopicExplorationMixin
 
 
-class MIStageMixin(TopicExplorationMixin):
+class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
   META_CONVERSATION_TURN_CAP = 5
 
   def _parse_selected_mi_techniques(
@@ -71,6 +72,7 @@ class MIStageMixin(TopicExplorationMixin):
       state["cbt_resume_substage"] = resume_substage or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
     if target_stage == "mi_topic_exploration":
       self._reset_mi_topic_exploration_state(state)
+      self._reset_patient_topic_exploration_state(state)
     state["mi_active"] = True
     if not state["cbt_flow_saved_state"] and resume_stage:
       state["cbt_flow_saved_state"] = (

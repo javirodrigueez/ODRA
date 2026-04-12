@@ -19,6 +19,10 @@ patient:
   max_tokens:
   profiles:
 
+topic_exploration:
+  patient_classifier_path:
+  patient_wikipedia_dir:
+
 env:
   max_turns:
   min_turns:

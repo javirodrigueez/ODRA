@@ -241,6 +241,11 @@ class SessionState(TypedDict):
   last_patient_action_prior_distribution: PatientActionDistribution
   last_patient_action_context_distribution: PatientActionDistribution
   last_patient_action_distribution: PatientActionDistribution
+  last_patient_perceived_topic: str
+  last_patient_topic_distance: int | None
+  last_patient_engagement_level: int | None
+  last_patient_engagement_analysis: str
+  last_patient_engagement_instruction: str
 
   opening_patient_mood: str
   opening_patient_problem: str

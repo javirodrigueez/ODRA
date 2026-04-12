@@ -17,6 +17,7 @@ The patient should not:
 * Become cooperative or easy to guide like the positive interval
 * Settle into merely hesitant engagement like the neutral interval
 * Accept the therapist's proposed line too easily
+* Request ending the session unless "Terminate" action is selected
 
 Calibration rules
 Calibrate the utterance to the exact sub-interval that contains {scaled_resistance}:

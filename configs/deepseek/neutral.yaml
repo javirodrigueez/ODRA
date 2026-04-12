@@ -17,6 +17,10 @@ patient:
   # presence_penalty: 1.5
   # frequency_penalty: 1.0
 
+topic_exploration:
+  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_wikipedia_dir: data/wikipedias
+
 env:
   max_turns: 100
   min_turns: 60

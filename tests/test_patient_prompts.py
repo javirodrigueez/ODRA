@@ -86,6 +86,32 @@ class PatientPromptTest(unittest.TestCase):
     self.assertIn("Action: Terminate", rendered)
     self.assertIn("Definition: Explicitly request ending the session now.", rendered)
 
+  def test_topic_exploration_patient_resistance_update_prompt_mentions_engagement_alignment(self) -> None:
+    rendered = render_prompt_text(
+      "mi_topic_exploration/patient_resistance_update.txt",
+      resistance="0.42",
+      presenting_problem=TEST_PROFILE["presenting_problem"],
+      reason_for_seeking_counseling=TEST_PROFILE["reason_seeking_counseling"],
+      last_utterance="How is this affecting the way you relate to coworkers?",
+      perceived_topic="Workplace Relationships",
+      motivation_topic="Workplace Relationships",
+      engagement_level="4",
+    )
+    self.assertIn("Workplace Relationships", rendered)
+    self.assertIn("Use the <engagement> block", rendered)
+    self.assertIn("engagement level", rendered)
+
+  def test_topic_exploration_patient_utterance_core_prompt_mentions_engagement_block(self) -> None:
+    rendered = render_prompt_text(
+      "mi_topic_exploration/patient_utterance_core.txt",
+      patient_utterance_instruction="Respond to the motivational discussion in line with your current resistance level.",
+      resistance_update_reasoning="The therapist is finally speaking to what matters at work.",
+      selected_action="Acceptance",
+      selected_action_definition="Openly engage and collaborate with the therapist's proposed line.",
+    )
+    self.assertIn("Use the <engagement> block", rendered)
+    self.assertIn("Acceptance", rendered)
+
 
 if __name__ == "__main__":
   unittest.main()
