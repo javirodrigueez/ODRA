@@ -900,7 +900,7 @@ class GraphSupportMixin:
       suffix += f" It is showing up now as: {tib_description!r}."
     suffix += (
       " Do not reroute or start a separate TIB detour."
-      " Address it inline very briefly in at most one sentence, connect it back to the current stage goal, and continue the current stage task in the same utterance."
+      " Address it inline very briefly in at most one sentence without naming the TIB name, connect it back to the current stage goal, and continue the current stage task in the same utterance."
     )
     if state.get("resume_context_active"):
       suffix += " If you are also resuming after a detour, combine that with this acknowledgment instead of creating separate transitions."
