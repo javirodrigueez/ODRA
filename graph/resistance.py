@@ -44,8 +44,8 @@ PATIENT_ACTIONS: tuple[PatientAction, ...] = (
 PATIENT_ACTION_DEFINITIONS: dict[PatientAction, str] = {
   "Acceptance": "Openly engage and collaborate with the therapist's proposed line. Don't express any hesitations, just cooperate.",
   "Hesitation": "Stay in the exchange, but foreground meaningful doubts about the therapist's proposed line.",
-  "Mild rejection": "Do not engage with the therapist's proposed line yet, but stay recoverable and open to further clarification.",
-  "Rejection": "Refuse the therapist's proposed line clearly.",
+  "Mild rejection": "Do not engage with the therapist's proposed line yet, but stay recoverable and open to further clarification. Don't suggest ending the session.",
+  "Rejection": "Refuse the therapist's proposed line clearly without suggesting ending the session.",
   "Terminate": "Explicitly request ending the session now. If resistance is at the interval 0.88-1.0, the request should be more forceful, frustrated, or critical.",
 }
 PATIENT_ACTION_PRIORS_BY_INTERVAL: dict[ResistanceInterval, PatientActionDistribution] = {
