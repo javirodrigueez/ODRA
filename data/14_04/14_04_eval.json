@@ -1,0 +1,395 @@
+[
+  {
+    "idx": 28410,
+    "personal_info": {
+      "name": "Gwendolyn Parker",
+      "age": "38",
+      "gender": "female",
+      "occupation": "Not currently employed, soon to finish degree",
+      "education": "Pursuing a degree",
+      "marital_status": "Single",
+      "family_details": "Lives with mother and father, has one sister, niece, and nephew"
+    },
+    "presenting_problem": "I have been experiencing anxiety and distress about my future job prospects after completing my degree. These feelings started to arise as I am nearing the end of my degree program.\nThe stress level increased significantly as I started to think about not being able to find a job and potentially becoming homeless.\nOver time, these feelings of anxiety have worsened, especially as the completion of my degree approaches. I constantly worry about my future.\nI experience these thoughts almost daily, particularly when thinking about job applications and interviews.\nI have tried distracting myself with activities I enjoy, but the anxiety persists.",
+    "reason_seeking_counseling": "The fear of joblessness and homelessness has become overwhelming, impacting my daily functioning and mental well-being, leading me to seek counseling.",
+    "patterns": [
+      "catastrophizing",
+      "discounting the positive",
+      "mental filtering",
+      "jumping to conclusions: fortune-telling"
+    ],
+    "attitude": "negative",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological issues in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "I am worried about not being able to secure a job after completing my degree, impacting my academic performance.\nInterpersonal relationships: I have not opened up to my family about my fears, leading to increased isolation.\nDaily life: My anxiety about the future has caused disruptions in my sleep and eating patterns.",
+      "social_support_system": "I have a supportive family, including my sister, who I can talk to about personal issues."
+    }
+  },
+  {
+    "idx": 27594,
+    "personal_info": {
+      "name": "Spencer Parker",
+      "age": "28",
+      "gender": "male",
+      "occupation": "Farmer",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone with two pet dogs"
+    },
+    "presenting_problem": "I have been experiencing negative thoughts about my photography hobby due to recent weather conditions. I feel discouraged and believe that I should stop taking photos for the rest of the week. These feelings started a few weeks ago when the weather affected my photography sessions. The stress level was moderate at the beginning, but it has increased as I continue to struggle with these thoughts. Currently, I experience these negative thoughts every time the weather is unfavorable, which has become a pattern. I have tried to push through and continue taking photos, but the thoughts persist.",
+    "reason_seeking_counseling": "The decisive factor that made me seek counseling was realizing that these negative thoughts were preventing me from enjoying my hobby and affecting my overall mood and motivation.",
+    "patterns": [
+      "catastrophizing",
+      "labeling and mislabeling",
+      "overgeneralization",
+      "should statements"
+    ],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for other psychological problems.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance on the farm has been impacted by these negative thoughts.\nInterpersonal relationships: My relationships with friends who share my hobby have been affected, as I have been avoiding photography outings.\nDaily life: My daily routine and enjoyment of hobbies like hiking have been affected by these negative thoughts.",
+      "social_support_system": "I have a close friend who I can talk to, but I have not discussed these negative thoughts with them."
+    }
+  },
+  {
+    "idx": 27594,
+    "personal_info": {
+      "name": "Spencer Parker",
+      "age": "28",
+      "gender": "male",
+      "occupation": "Farmer",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone with two pet dogs"
+    },
+    "presenting_problem": "I have been experiencing negative thoughts about my photography hobby due to recent weather conditions. I feel discouraged and believe that I should stop taking photos for the rest of the week. These feelings started a few weeks ago when the weather affected my photography sessions. The stress level was moderate at the beginning, but it has increased as I continue to struggle with these thoughts. Currently, I experience these negative thoughts every time the weather is unfavorable, which has become a pattern. I have tried to push through and continue taking photos, but the thoughts persist.",
+    "reason_seeking_counseling": "The decisive factor that made me seek counseling was realizing that these negative thoughts were preventing me from enjoying my hobby and affecting my overall mood and motivation.",
+    "patterns": [
+      "catastrophizing",
+      "labeling and mislabeling",
+      "overgeneralization",
+      "should statements"
+    ],
+    "attitude": "positive",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for other psychological problems.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance on the farm has been impacted by these negative thoughts.\nInterpersonal relationships: My relationships with friends who share my hobby have been affected, as I have been avoiding photography outings.\nDaily life: My daily routine and enjoyment of hobbies like hiking have been affected by these negative thoughts.",
+      "social_support_system": "I have a close friend who I can talk to, but I have not discussed these negative thoughts with them."
+    }
+  },
+  {
+    "idx": 27594,
+    "personal_info": {
+      "name": "Spencer Parker",
+      "age": "28",
+      "gender": "male",
+      "occupation": "Farmer",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone with two pet dogs"
+    },
+    "presenting_problem": "I have been experiencing negative thoughts about my photography hobby due to recent weather conditions. I feel discouraged and believe that I should stop taking photos for the rest of the week. These feelings started a few weeks ago when the weather affected my photography sessions. The stress level was moderate at the beginning, but it has increased as I continue to struggle with these thoughts. Currently, I experience these negative thoughts every time the weather is unfavorable, which has become a pattern. I have tried to push through and continue taking photos, but the thoughts persist.",
+    "reason_seeking_counseling": "The decisive factor that made me seek counseling was realizing that these negative thoughts were preventing me from enjoying my hobby and affecting my overall mood and motivation.",
+    "patterns": [
+      "catastrophizing",
+      "labeling and mislabeling",
+      "overgeneralization",
+      "should statements"
+    ],
+    "attitude": "negative",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for other psychological problems.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance on the farm has been impacted by these negative thoughts.\nInterpersonal relationships: My relationships with friends who share my hobby have been affected, as I have been avoiding photography outings.\nDaily life: My daily routine and enjoyment of hobbies like hiking have been affected by these negative thoughts.",
+      "social_support_system": "I have a close friend who I can talk to, but I have not discussed these negative thoughts with them."
+    }
+  },
+  {
+    "idx": 28410,
+    "personal_info": {
+      "name": "Gwendolyn Parker",
+      "age": "38",
+      "gender": "female",
+      "occupation": "Not currently employed, soon to finish degree",
+      "education": "Pursuing a degree",
+      "marital_status": "Single",
+      "family_details": "Lives with mother and father, has one sister, niece, and nephew"
+    },
+    "presenting_problem": "I have been experiencing anxiety and distress about my future job prospects after completing my degree. These feelings started to arise as I am nearing the end of my degree program.\nThe stress level increased significantly as I started to think about not being able to find a job and potentially becoming homeless.\nOver time, these feelings of anxiety have worsened, especially as the completion of my degree approaches. I constantly worry about my future.\nI experience these thoughts almost daily, particularly when thinking about job applications and interviews.\nI have tried distracting myself with activities I enjoy, but the anxiety persists.",
+    "reason_seeking_counseling": "The fear of joblessness and homelessness has become overwhelming, impacting my daily functioning and mental well-being, leading me to seek counseling.",
+    "patterns": [
+      "catastrophizing",
+      "discounting the positive",
+      "mental filtering",
+      "jumping to conclusions: fortune-telling"
+    ],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological issues in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "I am worried about not being able to secure a job after completing my degree, impacting my academic performance.\nInterpersonal relationships: I have not opened up to my family about my fears, leading to increased isolation.\nDaily life: My anxiety about the future has caused disruptions in my sleep and eating patterns.",
+      "social_support_system": "I have a supportive family, including my sister, who I can talk to about personal issues."
+    }
+  },
+  {
+    "idx": 11542,
+    "personal_info": {
+      "name": "Lawrence Newman",
+      "age": "56",
+      "gender": "male",
+      "occupation": "Diner Worker, Cupcake Business Owner",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone"
+    },
+    "presenting_problem": "I have been experiencing intense worry and fear that my cupcake business will go out of business due to a slight decrease in sales since the pandemic.\nThese thoughts of going out of business started about 6 months ago when I noticed a decline in customer orders.\nThe stress level when these thoughts first occurred was high, as I rely on the business for my income.\nThe problem has progressed with increased anxiety and panic about the future of my business. I find myself constantly thinking about worst-case scenarios and catastrophizing.\nI experience these thoughts daily, especially when I see a decrease in sales or new COVID-19 restrictions are announced.\nI have tried to boost marketing and offer promotions to increase sales, but the fear persists.",
+    "reason_seeking_counseling": "The fear of my business failing has become overwhelming and is affecting my daily life and mental well-being, prompting me to seek counseling for support and coping strategies.",
+    "patterns": [
+      "catastrophizing",
+      "jumping to conclusions: fortune-telling",
+      "black-and-white or polarized thinking / all or nothing thinking"
+    ],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have no previous history of treatment or counseling for psychological issues.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance at the diner has also been impacted by these thoughts.\nInterpersonal relationships: I have been isolating myself from friends and family due to the fear of discussing my business concerns with them.\nDaily life: My eating and sleeping habits have been irregular due to the constant worry.",
+      "social_support_system": "I have a few friends I can talk to, but I have not shared the extent of my fears about my business with them."
+    }
+  },
+  {
+    "idx": 26781,
+    "personal_info": {
+      "name": "Samantha Ryder",
+      "age": "13",
+      "gender": "female",
+      "occupation": "Power Plant Worker",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone, no siblings"
+    },
+    "presenting_problem": "I feel conflicted about my job at the power plant. While I find it tough and challenging, I also feel pressured to be grateful for the level of income and benefits it provides.\nThese conflicting feelings started around six months ago when I had to take on more responsibilities at work.\nI believe the stress of the job and the pressure to be grateful have worsened over time, leading to feelings of resentment and discontent.\nI experience these conflicted feelings daily, especially when faced with challenging tasks or when comparing my job to others.\nI have tried to rationalize my thoughts and practice gratitude, but the negative feelings persist.",
+    "reason_seeking_counseling": "I realized that my negative feelings towards my job were affecting my overall well-being and wanted to address them to improve my mental health.",
+    "patterns": [
+      "black-and-white or polarized thinking / all or nothing thinking",
+      "should statements"
+    ],
+    "attitude": "negative",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "",
+      "social_support_system": "I have a friend I can talk to, but I have not shared my job-related struggles with them."
+    }
+  },
+  {
+    "idx": 26781,
+    "personal_info": {
+      "name": "Samantha Ryder",
+      "age": "13",
+      "gender": "female",
+      "occupation": "Power Plant Worker",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone, no siblings"
+    },
+    "presenting_problem": "I feel conflicted about my job at the power plant. While I find it tough and challenging, I also feel pressured to be grateful for the level of income and benefits it provides.\nThese conflicting feelings started around six months ago when I had to take on more responsibilities at work.\nI believe the stress of the job and the pressure to be grateful have worsened over time, leading to feelings of resentment and discontent.\nI experience these conflicted feelings daily, especially when faced with challenging tasks or when comparing my job to others.\nI have tried to rationalize my thoughts and practice gratitude, but the negative feelings persist.",
+    "reason_seeking_counseling": "I realized that my negative feelings towards my job were affecting my overall well-being and wanted to address them to improve my mental health.",
+    "patterns": [
+      "black-and-white or polarized thinking / all or nothing thinking",
+      "should statements"
+    ],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "",
+      "social_support_system": "I have a friend I can talk to, but I have not shared my job-related struggles with them."
+    }
+  },
+  {
+    "idx": 26781,
+    "personal_info": {
+      "name": "Samantha Ryder",
+      "age": "13",
+      "gender": "female",
+      "occupation": "Power Plant Worker",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone, no siblings"
+    },
+    "presenting_problem": "I feel conflicted about my job at the power plant. While I find it tough and challenging, I also feel pressured to be grateful for the level of income and benefits it provides.\nThese conflicting feelings started around six months ago when I had to take on more responsibilities at work.\nI believe the stress of the job and the pressure to be grateful have worsened over time, leading to feelings of resentment and discontent.\nI experience these conflicted feelings daily, especially when faced with challenging tasks or when comparing my job to others.\nI have tried to rationalize my thoughts and practice gratitude, but the negative feelings persist.",
+    "reason_seeking_counseling": "I realized that my negative feelings towards my job were affecting my overall well-being and wanted to address them to improve my mental health.",
+    "patterns": [
+      "black-and-white or polarized thinking / all or nothing thinking",
+      "should statements"
+    ],
+    "attitude": "positive",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "",
+      "social_support_system": "I have a friend I can talk to, but I have not shared my job-related struggles with them."
+    }
+  },
+  {
+    "idx": 28410,
+    "personal_info": {
+      "name": "Gwendolyn Parker",
+      "age": "38",
+      "gender": "female",
+      "occupation": "Not currently employed, soon to finish degree",
+      "education": "Pursuing a degree",
+      "marital_status": "Single",
+      "family_details": "Lives with mother and father, has one sister, niece, and nephew"
+    },
+    "presenting_problem": "I have been experiencing anxiety and distress about my future job prospects after completing my degree. These feelings started to arise as I am nearing the end of my degree program.\nThe stress level increased significantly as I started to think about not being able to find a job and potentially becoming homeless.\nOver time, these feelings of anxiety have worsened, especially as the completion of my degree approaches. I constantly worry about my future.\nI experience these thoughts almost daily, particularly when thinking about job applications and interviews.\nI have tried distracting myself with activities I enjoy, but the anxiety persists.",
+    "reason_seeking_counseling": "The fear of joblessness and homelessness has become overwhelming, impacting my daily functioning and mental well-being, leading me to seek counseling.",
+    "patterns": [
+      "catastrophizing",
+      "discounting the positive",
+      "mental filtering",
+      "jumping to conclusions: fortune-telling"
+    ],
+    "attitude": "positive",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological issues in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "I am worried about not being able to secure a job after completing my degree, impacting my academic performance.\nInterpersonal relationships: I have not opened up to my family about my fears, leading to increased isolation.\nDaily life: My anxiety about the future has caused disruptions in my sleep and eating patterns.",
+      "social_support_system": "I have a supportive family, including my sister, who I can talk to about personal issues."
+    }
+  },
+  {
+    "idx": 26740,
+    "personal_info": {
+      "name": "Brian Daniels",
+      "age": "44",
+      "gender": "male",
+      "occupation": "Petsitter",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Father is a college professor, mother has passed away"
+    },
+    "presenting_problem": "I have been experiencing feelings of incompetence and self-doubt related to my job as a petsitter. These feelings started after a recent incident where a dog I was petsitting got loose, even though I managed to retrieve the dog quickly. This incident triggered thoughts of inadequacy in my abilities as a petsitter.\nThe problem started after the incident with the dog, which happened about two weeks ago. The stress level was moderate at the time, as I felt responsible for the dog's safety.\nSince the incident, my feelings of incompetence have worsened. I now constantly worry about making mistakes while petsitting, which affects my overall confidence in my abilities.\nI experience these feelings of self-doubt mostly during petsitting jobs, where I tend to focus on any small errors I make.\nI have tried to reassure myself that the incident was a one-time mistake and have also sought validation from friends, but these efforts have not relieved my feelings of incompetence.",
+    "reason_seeking_counseling": "I decided to seek counseling because these feelings of inadequacy and self-doubt are starting to impact my job performance and overall well-being.",
+    "patterns": [
+      "labeling and mislabeling",
+      "mental filtering",
+      "overgeneralization"
+    ],
+    "attitude": "positive",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance as a petsitter has been affected by these feelings of incompetence.\nInterpersonal relationships: I have not noticed any significant impact on my relationships with others.\nDaily life: My self-doubt has caused some disruptions in my daily routine and activities related to petsitting.",
+      "social_support_system": "I have a few close friends whom I can talk to about personal issues, but I have not discussed these feelings of incompetence with them."
+    }
+  },
+  {
+    "idx": 11542,
+    "personal_info": {
+      "name": "Lawrence Newman",
+      "age": "56",
+      "gender": "male",
+      "occupation": "Diner Worker, Cupcake Business Owner",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone"
+    },
+    "presenting_problem": "I have been experiencing intense worry and fear that my cupcake business will go out of business due to a slight decrease in sales since the pandemic.\nThese thoughts of going out of business started about 6 months ago when I noticed a decline in customer orders.\nThe stress level when these thoughts first occurred was high, as I rely on the business for my income.\nThe problem has progressed with increased anxiety and panic about the future of my business. I find myself constantly thinking about worst-case scenarios and catastrophizing.\nI experience these thoughts daily, especially when I see a decrease in sales or new COVID-19 restrictions are announced.\nI have tried to boost marketing and offer promotions to increase sales, but the fear persists.",
+    "reason_seeking_counseling": "The fear of my business failing has become overwhelming and is affecting my daily life and mental well-being, prompting me to seek counseling for support and coping strategies.",
+    "patterns": [
+      "catastrophizing",
+      "jumping to conclusions: fortune-telling",
+      "black-and-white or polarized thinking / all or nothing thinking"
+    ],
+    "attitude": "positive",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have no previous history of treatment or counseling for psychological issues.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance at the diner has also been impacted by these thoughts.\nInterpersonal relationships: I have been isolating myself from friends and family due to the fear of discussing my business concerns with them.\nDaily life: My eating and sleeping habits have been irregular due to the constant worry.",
+      "social_support_system": "I have a few friends I can talk to, but I have not shared the extent of my fears about my business with them."
+    }
+  },
+  {
+    "idx": 11542,
+    "personal_info": {
+      "name": "Lawrence Newman",
+      "age": "56",
+      "gender": "male",
+      "occupation": "Diner Worker, Cupcake Business Owner",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives alone"
+    },
+    "presenting_problem": "I have been experiencing intense worry and fear that my cupcake business will go out of business due to a slight decrease in sales since the pandemic.\nThese thoughts of going out of business started about 6 months ago when I noticed a decline in customer orders.\nThe stress level when these thoughts first occurred was high, as I rely on the business for my income.\nThe problem has progressed with increased anxiety and panic about the future of my business. I find myself constantly thinking about worst-case scenarios and catastrophizing.\nI experience these thoughts daily, especially when I see a decrease in sales or new COVID-19 restrictions are announced.\nI have tried to boost marketing and offer promotions to increase sales, but the fear persists.",
+    "reason_seeking_counseling": "The fear of my business failing has become overwhelming and is affecting my daily life and mental well-being, prompting me to seek counseling for support and coping strategies.",
+    "patterns": [
+      "catastrophizing",
+      "jumping to conclusions: fortune-telling",
+      "black-and-white or polarized thinking / all or nothing thinking"
+    ],
+    "attitude": "negative",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have no previous history of treatment or counseling for psychological issues.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance at the diner has also been impacted by these thoughts.\nInterpersonal relationships: I have been isolating myself from friends and family due to the fear of discussing my business concerns with them.\nDaily life: My eating and sleeping habits have been irregular due to the constant worry.",
+      "social_support_system": "I have a few friends I can talk to, but I have not shared the extent of my fears about my business with them."
+    }
+  },
+  {
+    "idx": 26740,
+    "personal_info": {
+      "name": "Brian Daniels",
+      "age": "44",
+      "gender": "male",
+      "occupation": "Petsitter",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Father is a college professor, mother has passed away"
+    },
+    "presenting_problem": "I have been experiencing feelings of incompetence and self-doubt related to my job as a petsitter. These feelings started after a recent incident where a dog I was petsitting got loose, even though I managed to retrieve the dog quickly. This incident triggered thoughts of inadequacy in my abilities as a petsitter.\nThe problem started after the incident with the dog, which happened about two weeks ago. The stress level was moderate at the time, as I felt responsible for the dog's safety.\nSince the incident, my feelings of incompetence have worsened. I now constantly worry about making mistakes while petsitting, which affects my overall confidence in my abilities.\nI experience these feelings of self-doubt mostly during petsitting jobs, where I tend to focus on any small errors I make.\nI have tried to reassure myself that the incident was a one-time mistake and have also sought validation from friends, but these efforts have not relieved my feelings of incompetence.",
+    "reason_seeking_counseling": "I decided to seek counseling because these feelings of inadequacy and self-doubt are starting to impact my job performance and overall well-being.",
+    "patterns": [
+      "labeling and mislabeling",
+      "mental filtering",
+      "overgeneralization"
+    ],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance as a petsitter has been affected by these feelings of incompetence.\nInterpersonal relationships: I have not noticed any significant impact on my relationships with others.\nDaily life: My self-doubt has caused some disruptions in my daily routine and activities related to petsitting.",
+      "social_support_system": "I have a few close friends whom I can talk to about personal issues, but I have not discussed these feelings of incompetence with them."
+    }
+  },
+  {
+    "idx": 26740,
+    "personal_info": {
+      "name": "Brian Daniels",
+      "age": "44",
+      "gender": "male",
+      "occupation": "Petsitter",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Father is a college professor, mother has passed away"
+    },
+    "presenting_problem": "I have been experiencing feelings of incompetence and self-doubt related to my job as a petsitter. These feelings started after a recent incident where a dog I was petsitting got loose, even though I managed to retrieve the dog quickly. This incident triggered thoughts of inadequacy in my abilities as a petsitter.\nThe problem started after the incident with the dog, which happened about two weeks ago. The stress level was moderate at the time, as I felt responsible for the dog's safety.\nSince the incident, my feelings of incompetence have worsened. I now constantly worry about making mistakes while petsitting, which affects my overall confidence in my abilities.\nI experience these feelings of self-doubt mostly during petsitting jobs, where I tend to focus on any small errors I make.\nI have tried to reassure myself that the incident was a one-time mistake and have also sought validation from friends, but these efforts have not relieved my feelings of incompetence.",
+    "reason_seeking_counseling": "I decided to seek counseling because these feelings of inadequacy and self-doubt are starting to impact my job performance and overall well-being.",
+    "patterns": [
+      "labeling and mislabeling",
+      "mental filtering",
+      "overgeneralization"
+    ],
+    "attitude": "negative",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance as a petsitter has been affected by these feelings of incompetence.\nInterpersonal relationships: I have not noticed any significant impact on my relationships with others.\nDaily life: My self-doubt has caused some disruptions in my daily routine and activities related to petsitting.",
+      "social_support_system": "I have a few close friends whom I can talk to about personal issues, but I have not discussed these feelings of incompetence with them."
+    }
+  }
+]

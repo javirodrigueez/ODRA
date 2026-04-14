@@ -1165,20 +1165,20 @@ class GraphSupportMixin:
     # between MI and CBT on minor prediction fluctuations near the thresholds.
     if current_stage in {"mi_topic_exploration", "meta_conversation"}:
       if value >= 0.85:
-        return "precontemplation"
+        return "contemplation" #devlog: era precontemplation
       if value >= 0.70:
         return "contemplation"
       return "action"
 
     if current_stage == "mi_techniques":
       if value >= 0.90:
-        return "precontemplation"
+        return "contemplation" #devlog: era precontemplation
       if value >= 0.65:
         return "contemplation"
       return "action"
 
     if value >= 0.90:
-      return "precontemplation"
+      return "contemplation" #devlog: era precontemplation
     if value >= 0.70:
       return "contemplation"
     return "action"
