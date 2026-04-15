@@ -42,7 +42,7 @@ class TherapyGraphBuilder(
   HomeworkStageMixin,
   ClosingStageMixin,
 ):
-  MI_END_SESSION_TIB_REDIRECT_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
+  MI_END_SESSION_TIB_REDIRECT_STAGES = {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}
 
   def __init__(self, config_path: str, profile: dict[str, Any]):
     self.cfg = load_runtime_config(config_path)
@@ -63,8 +63,8 @@ class TherapyGraphBuilder(
       return self._handle_homework(state, traces)
     if stage == "closing":
       return self._handle_closing(state, traces)
-    if stage == "mi_topic_exploration":
-      return self._handle_mi_topic_exploration(state, traces)
+    if stage == "mi_techniques_with_te":
+      return self._handle_mi_techniques_with_te(state, traces)
     if stage == "mi_techniques":
       return self._handle_mi_techniques(state, traces)
     if stage == "meta_conversation":
@@ -91,7 +91,7 @@ class TherapyGraphBuilder(
         resume_stage: Stage = "id_distortions" if source_stage == "opening" else source_stage
         self._enter_mi(
           state,
-          "mi_topic_exploration",
+          "meta_conversation",
           resume_stage,
           DEFAULT_SUBSTAGE_BY_STAGE[resume_stage],
           f"End-session signal detected during {source_stage}.",
@@ -151,7 +151,7 @@ class TherapyGraphBuilder(
       self._set_substage(state, "closing_fallback")
       return
 
-    if source_stage == "mi_topic_exploration":
+    if source_stage == "mi_techniques_with_te":
       self._reset_mi_topic_exploration_state(state)
       self._reset_patient_topic_exploration_state(state)
       self._set_substage(state, "mi_choose_topic")
@@ -361,7 +361,7 @@ class TherapyGraphBuilder(
       return "Respond honestly about whether the proposed homework feels feasible depending on your current resistance level."
     if stage == "address_tib":
       return "Respond to the therapist's attempt to address the current therapy-interfering behavior according to your resistance level."
-    if stage in {"mi_topic_exploration", "mi_techniques", "meta_conversation"}:
+    if stage in {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
       return "Respond briefly to close the session."
@@ -418,7 +418,7 @@ class TherapyGraphBuilder(
       "reason_for_seeking_counseling": ensure_str(state["patient_profile"].get("reason_seeking_counseling")),
       "last_utterance": self._last_therapist_utterance(state),
     }
-    if prompt_stage != "mi_topic_exploration":
+    if prompt_stage != "mi_techniques_with_te":
       return self._load_stage_prompt(
         prompt_stage,
         "patient_resistance_update",
@@ -547,11 +547,11 @@ class TherapyGraphBuilder(
       resistance_engagement_block: str | None = None
       utterance_prompt_stage = "shared"
       utterance_engagement_block: str | None = None
-      if s["current_stage"] == "mi_topic_exploration":
+      if s["current_stage"] == "mi_techniques_with_te":
         topic_engagement = self._run_patient_topic_exploration_engagement(s, traces)
-        resistance_prompt_stage = "mi_topic_exploration"
+        resistance_prompt_stage = "mi_techniques_with_te"
         resistance_engagement_block = topic_engagement["engagement_analysis"]
-        utterance_prompt_stage = "mi_topic_exploration"
+        utterance_prompt_stage = "mi_techniques_with_te"
         utterance_engagement_block = topic_engagement["engagement_instruction"]
 
       update_instruction = self._build_patient_resistance_update_instruction(

@@ -135,10 +135,10 @@ class PatientTopicExplorationTest(unittest.TestCase):
     builder._load_stage_prompt = lambda stage, name, **values: f"{stage}/{name}|{values}"
     return builder
 
-  def _make_state(self, builder: TherapyGraphBuilder, *, stage: str = "mi_topic_exploration") -> dict:
+  def _make_state(self, builder: TherapyGraphBuilder, *, stage: str = "mi_techniques_with_te") -> dict:
     state = builder.initial_state(max_turns=12)
     state["current_stage"] = stage
-    state["current_substage"] = "mi_raise_topic" if stage == "mi_topic_exploration" else "open_problem"
+    state["current_substage"] = "mi_raise_cami_utterance" if stage == "mi_techniques_with_te" else "open_problem"
     state["messages"] = [
       {
         "utterance_index": 1,
@@ -209,7 +209,7 @@ class PatientTopicExplorationTest(unittest.TestCase):
     self.assertIn("Stay broad and avoid the current topic.", with_block[1]["content"])
     self.assertNotIn("<engagement>", without_block[1]["content"])
 
-  def test_patient_turn_uses_engagement_blocks_during_topic_exploration(self) -> None:
+  def test_patient_turn_uses_engagement_blocks_during_cami_stage(self) -> None:
     builder = self._make_builder()
     state = self._make_state(builder)
     captured: dict[str, object] = {}

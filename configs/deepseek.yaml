@@ -23,3 +23,4 @@ env:
   output_dir: out/deepseek_five
   verbose: true
   resume_file:
+  resistance_handling: mi_techniques

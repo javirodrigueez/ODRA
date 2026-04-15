@@ -89,10 +89,10 @@ from graph.state import DEFAULT_SUBSTAGE_BY_STAGE
 
 
 class OpeningStageTest(unittest.TestCase):
-  def _make_builder(self) -> TherapyGraphBuilder:
+  def _make_builder(self, *, resistance_handling: str = "mi_techniques") -> TherapyGraphBuilder:
     builder = TherapyGraphBuilder.__new__(TherapyGraphBuilder)
     builder.profile = {}
-    builder.cfg = SimpleNamespace(env=SimpleNamespace(max_turns=12, min_turns=0))
+    builder.cfg = SimpleNamespace(env=SimpleNamespace(max_turns=12, min_turns=0, resistance_handling=resistance_handling))
     builder._load_stage_prompt = lambda stage, name, **values: f"{stage}/{name}"
     builder._generate_therapist_utterance = lambda state, instruction: f"utterance:{instruction}"
     builder._handle_stage_dispatch = lambda state, traces: f"dispatch:{state['current_stage']}"
@@ -102,11 +102,19 @@ class OpeningStageTest(unittest.TestCase):
     )
     return builder
 
-  def _make_state(self, builder: TherapyGraphBuilder, opening_exchanges: int, predicted_resistance: float) -> dict:
+  def _make_state(
+    self,
+    builder: TherapyGraphBuilder,
+    opening_exchanges: int,
+    predicted_resistance: float,
+    *,
+    preconsecutive_turns: int = 0,
+  ) -> dict:
     state = builder.initial_state(max_turns=12)
     state["current_stage"] = "opening"
     state["current_substage"] = "open_problem"
     state["predicted_resistance"] = predicted_resistance
+    state["preconsecutive_turns"] = preconsecutive_turns
     state["exchange_counts"]["opening"] = [opening_exchanges]
     return builder._ensure_state_defaults(state)
 
@@ -121,10 +129,10 @@ class OpeningStageTest(unittest.TestCase):
     self.assertEqual(state["current_stage"], "opening")
     self.assertFalse(state["opening_fallback_triggered"])
 
-  def test_opening_cap_routes_to_id_distortions_for_action_band(self) -> None:
+  def test_opening_cap_routes_to_id_distortions_without_resistance_gate(self) -> None:
     builder = self._make_builder()
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.60)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=4)
 
     result = builder._handle_opening(state, [])
 
@@ -132,10 +140,10 @@ class OpeningStageTest(unittest.TestCase):
     self.assertEqual(state["current_stage"], "id_distortions")
     self.assertTrue(state["opening_fallback_triggered"])
 
-  def test_opening_cap_routes_to_mi_techniques_for_contemplation_band(self) -> None:
-    builder = self._make_builder()
+  def test_opening_cap_routes_to_mi_techniques_after_precon_streak_in_legacy_mode(self) -> None:
+    builder = self._make_builder(resistance_handling="mi_techniques")
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.80)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
 
     result = builder._handle_opening(state, [])
 
@@ -143,15 +151,26 @@ class OpeningStageTest(unittest.TestCase):
     self.assertEqual(state["current_stage"], "mi_techniques")
     self.assertTrue(state["opening_fallback_triggered"])
 
-  def test_opening_cap_routes_to_mi_topic_exploration_for_precontemplation_band(self) -> None:
-    builder = self._make_builder()
+  def test_opening_cap_routes_to_cami_stage_after_precon_streak(self) -> None:
+    builder = self._make_builder(resistance_handling="cami")
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
 
     result = builder._handle_opening(state, [])
 
-    self.assertEqual(result, "dispatch:mi_topic_exploration")
-    self.assertEqual(state["current_stage"], "mi_topic_exploration")
+    self.assertEqual(result, "dispatch:mi_techniques_with_te")
+    self.assertEqual(state["current_stage"], "mi_techniques_with_te")
+    self.assertTrue(state["opening_fallback_triggered"])
+
+  def test_opening_cap_ignores_precon_streak_when_resistance_handling_is_none(self) -> None:
+    builder = self._make_builder(resistance_handling="none")
+    builder._check_readiness = lambda state, traces: False
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
+
+    result = builder._handle_opening(state, [])
+
+    self.assertEqual(result, "dispatch:id_distortions")
+    self.assertEqual(state["current_stage"], "id_distortions")
     self.assertTrue(state["opening_fallback_triggered"])
 
   def test_opening_cap_uses_total_session_opening_turns_not_only_current_stint(self) -> None:

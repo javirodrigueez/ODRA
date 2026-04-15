@@ -74,6 +74,10 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("output_dir", "")
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")
+  resistance_handling = str(env.get("resistance_handling", "mi_techniques") or "mi_techniques").strip().lower()
+  if resistance_handling not in {"none", "mi_techniques", "cami"}:
+    resistance_handling = "mi_techniques"
+  env["resistance_handling"] = resistance_handling
 
   topic_exploration = _to_plain_container(raw_cfg.get("topic_exploration")) or {}
   if not isinstance(topic_exploration, dict):

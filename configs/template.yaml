@@ -29,3 +29,4 @@ env:
   output_dir:
   verbose:
   resume_file:
+  resistance_handling:

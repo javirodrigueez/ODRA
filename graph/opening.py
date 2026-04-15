@@ -47,27 +47,8 @@ class OpeningStageMixin(GraphSupportMixin):
     *,
     reason: str,
   ) -> str:
-    band = self._current_band(state["predicted_resistance"], state)
-    if band == "action":
-      self._set_stage(state, "id_distortions")
-    elif band == "contemplation":
-      state["cbt_resume_stage"] = "id_distortions"
-      self._enter_mi(
-        state,
-        "mi_techniques",
-        "id_distortions",
-        None,
-        reason,
-      )
-    else:
-      state["cbt_resume_stage"] = "id_distortions"
-      self._enter_mi(
-        state,
-        "mi_topic_exploration",
-        "id_distortions",
-        None,
-        reason,
-      )
+    self._set_stage(state, "id_distortions")
+    self._maybe_enter_resistance_handling_from_cbt(state, traces, reason)
     return self._handle_stage_dispatch(state, traces)
 
   def _handle_opening(self, state: SessionState, traces: list[dict[str, Any]]) -> str:

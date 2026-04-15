@@ -83,6 +83,8 @@ class GraphSupportMixin:
     )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
+    if stage == "mi_topic_exploration":
+      stage = "mi_techniques_with_te"
     filename = f"{stage}/{name}.txt"
     if values:
       return render_prompt(filename, **values)
@@ -271,6 +273,8 @@ class GraphSupportMixin:
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
     s.setdefault("last_mi_topic_action", "")
+    s.setdefault("preconsecutive_turns", 0)
+    s.setdefault("cami_recovery_turns", 0)
     if "mi_end_session_tib_redirect_used" not in s and "mi_end_session_demand_redirect_used" in s:
       s["mi_end_session_tib_redirect_used"] = bool(s.get("mi_end_session_demand_redirect_used"))
     s.setdefault("mi_end_session_tib_redirect_used", False)
@@ -770,19 +774,14 @@ class GraphSupportMixin:
           #"closing_plan_refinements": state["closing_plan_refinements"],
         }
       )
-    elif stage == "mi_topic_exploration":
+    elif stage == "mi_techniques_with_te":
       context.update(
         {
           "opening_patient_mood": state["opening_patient_mood"],
           "opening_patient_problem": state["opening_patient_problem"],
           "conversation_rollup_summary": state["conversation_rollup_summary"],
-          #"current_mi_topic": state["current_mi_topic"],
-          #"mi_topic_stack": state["mi_topic_stack"],
-          #"mi_topic_probabilities": state["mi_topic_probabilities"],
-          #"mi_topics_tried": state["mi_topics_tried"],
-          #"last_mi_topic_action": state["last_mi_topic_action"],
-          #"mi_context": state["mi_context"],
-          #"last_mi_predicted_resistance": state["last_mi_predicted_resistance"],
+          "current_mi_topic": state["current_mi_topic"],
+          "mi_techniques_used": state["mi_techniques_used"][-5:],
           "cbt_resume_stage": state["cbt_resume_stage"],
           "cbt_resume_substage": state["cbt_resume_substage"],
         }
@@ -882,8 +881,8 @@ class GraphSupportMixin:
       return substage in {"cognitive_review_active_question", "cognitive_refinement"}
     if stage == "cbt_technique":
       return substage == "cbt_deliver_current"
-    if stage == "mi_topic_exploration":
-      return substage == "mi_raise_topic"
+    if stage == "mi_techniques_with_te":
+      return substage == "mi_raise_cami_utterance"
     if stage == "mi_techniques":
       return substage == "mi_raise_technique"
     return False
@@ -1151,6 +1150,13 @@ class GraphSupportMixin:
     ]
     return max(known_ids, default=0) + 1
 
+  def _resistance_handling_mode(self) -> Literal["none", "mi_techniques", "cami"]:
+    raw_mode = ensure_str(getattr(self.cfg.env, "resistance_handling", "mi_techniques"))
+    normalized = raw_mode.strip().lower()
+    if normalized in {"none", "mi_techniques", "cami"}:
+      return cast(Literal["none", "mi_techniques", "cami"], normalized)
+    return "mi_techniques"
+
   def _current_band(
     self,
     value: float | None,
@@ -1159,27 +1165,9 @@ class GraphSupportMixin:
     if value is None:
       return "contemplation"
 
-    current_stage = state["current_stage"] if state is not None else ""
-
-    # Apply a small hysteresis while MI is active so the flow does not bounce
-    # between MI and CBT on minor prediction fluctuations near the thresholds.
-    if current_stage in {"mi_topic_exploration", "meta_conversation"}:
-      if value >= 0.85:
-        return "contemplation" #devlog: era precontemplation
-      if value >= 0.70:
-        return "contemplation"
-      return "action"
-
-    if current_stage == "mi_techniques":
-      if value >= 0.90:
-        return "contemplation" #devlog: era precontemplation
-      if value >= 0.65:
-        return "contemplation"
-      return "action"
-
-    if value >= 0.90:
-      return "contemplation" #devlog: era precontemplation
-    if value >= 0.70:
+    if value >= 0.66:
+      return "precontemplation"
+    if value > 0.33:
       return "contemplation"
     return "action"
 

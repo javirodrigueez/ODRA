@@ -50,30 +50,16 @@ class AddressTIBStageMixin(GraphSupportMixin):
 
     routed_stage = resume_stage
     routed_substage = resume_substage
-    if band == "contemplation":
-      self._enter_mi(
-        state,
-        "mi_techniques",
-        resume_stage,
-        resume_substage,
-        "Resuming through MI after the address_tib detour due to contemplation-level resistance.",
-      )
-      routed_stage = state["current_stage"]
-      routed_substage = state["current_substage"]
-    elif band == "precontemplation":
-      self._enter_mi(
-        state,
-        "mi_topic_exploration",
-        resume_stage,
-        resume_substage,
-        "Resuming through MI after the address_tib detour due to precontemplation-level resistance.",
-      )
-      routed_stage = state["current_stage"]
-      routed_substage = state["current_substage"]
-    else:
-      self._set_stage(state, resume_stage, resume_substage)
-      if resume_stage not in {"opening", "id_distortions", "cbt_technique"}:
-        self._clear_resume_context(state)
+    self._set_stage(state, resume_stage, resume_substage)
+    self._maybe_enter_resistance_handling_from_cbt(
+      state,
+      traces,
+      "Resuming after address_tib with persistent precontemplation resistance.",
+    )
+    routed_stage = state["current_stage"]
+    routed_substage = state["current_substage"]
+    if state["current_stage"] == resume_stage and resume_stage not in {"opening", "id_distortions", "cbt_technique"}:
+      self._clear_resume_context(state)
 
     traces.append(
       {

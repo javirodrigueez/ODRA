@@ -25,3 +25,4 @@ env:
   output_dir: out/ds-local
   verbose: true
   resume_file:
+  resistance_handling: mi_techniques

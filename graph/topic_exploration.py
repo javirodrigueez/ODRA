@@ -78,7 +78,10 @@ class TopicExplorationMixin(GraphSupportMixin):
     state["current_mi_topic"] = ""
     state["mi_topic_stack"] = []
     state["mi_topic_probabilities"] = {}
+    state["mi_topics_tried"] = []
     state["last_mi_topic_action"] = ""
+    state["current_mi_technique_selection"] = []
+    state["cami_recovery_turns"] = 0
 
   def _normalize_mi_topic_stack(self, state: SessionState) -> list[str]:
     stack = [topic for topic in state.get("mi_topic_stack", []) if topic][:3]
@@ -149,7 +152,7 @@ class TopicExplorationMixin(GraphSupportMixin):
   def _select_initial_superclass_topic(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     formatted_topics = self._format_topic_options(SUPERCLASS_TOPICS)
     instruction = self._load_stage_prompt(
-      "mi_topic_exploration",
+      "mi_techniques_with_te",
       "superclass_probability",
       formatted_superclass_topics=formatted_topics,
       conversation_rollup_summary=ensure_str(state.get("conversation_rollup_summary"), "(none)"),
@@ -289,7 +292,7 @@ class TopicExplorationMixin(GraphSupportMixin):
     current_topic = stack[-1]
     candidates = self._navigation_candidates(state)
     instruction = self._load_stage_prompt(
-      "mi_topic_exploration",
+      "mi_techniques_with_te",
       "topic_navigation",
       explore_path=" -> ".join(stack),
       topic=current_topic,
@@ -329,30 +332,3 @@ class TopicExplorationMixin(GraphSupportMixin):
     else:
       self._navigate_existing_topic_tree(state, traces)
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
-    self._set_substage(state, "mi_raise_topic")
-
-  def _handle_mi_topic_exploration(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    self._set_substage(state, "mi_choose_topic")
-    current_substage = state["current_substage"]
-
-    if current_substage == "mi_choose_topic":
-      self._select_next_mi_topic(state, traces)
-      if self._mi_topic_exploration_exhausted(state) and self._current_band(state["predicted_resistance"], state) == "precontemplation":
-        self._set_stage(state, "meta_conversation")
-        return self._handle_stage_dispatch(state, traces)
-      current_substage = state["current_substage"]
-
-    if current_substage == "mi_raise_topic":
-      topic = state["current_mi_topic"]
-      if not topic:
-        raise ConversationProcessingError("MI topic exploration selected an empty topic.")
-      instruction = self._load_stage_prompt(
-        "mi_topic_exploration",
-        "raise_topic_utterance",
-        topic=topic,
-        topic_path=" -> ".join(state["mi_topic_stack"]),
-        topic_focus=self._topic_focus_hint(topic),
-      )
-      return self._generate_therapist_utterance(state, instruction)
-
-    raise ConversationProcessingError(f"Unexpected MI topic substage: {current_substage}")

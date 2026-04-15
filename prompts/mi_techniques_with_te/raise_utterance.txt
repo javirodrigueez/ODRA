@@ -1,0 +1,17 @@
+Generate the therapist's next motivational interviewing utterance inside the CAMI resistance-handling stage.
+
+Current topic:
+{topic}
+
+Current topic path:
+{topic_path}
+
+Topic focus guidance:
+{topic_focus}
+
+Selected MI techniques:
+{technique_blend}
+
+The patient's opening mood, opening problem summary, conversation rollup summary, current MI topic, recently used MI techniques, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'conversation_rollup_summary', 'current_mi_topic', 'mi_techniques_used', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Generate one natural therapist utterance that stays anchored to the current topic while genuinely applying the selected technique or technique blend. Do not sound generic, repetitive, or mechanical.
+Respond with plain text.

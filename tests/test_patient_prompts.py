@@ -88,7 +88,7 @@ class PatientPromptTest(unittest.TestCase):
 
   def test_topic_exploration_patient_resistance_update_prompt_mentions_engagement_alignment(self) -> None:
     rendered = render_prompt_text(
-      "mi_topic_exploration/patient_resistance_update.txt",
+      "mi_techniques_with_te/patient_resistance_update.txt",
       resistance="0.42",
       presenting_problem=TEST_PROFILE["presenting_problem"],
       reason_for_seeking_counseling=TEST_PROFILE["reason_seeking_counseling"],
@@ -103,7 +103,7 @@ class PatientPromptTest(unittest.TestCase):
 
   def test_topic_exploration_patient_utterance_core_prompt_mentions_engagement_block(self) -> None:
     rendered = render_prompt_text(
-      "mi_topic_exploration/patient_utterance_core.txt",
+      "mi_techniques_with_te/patient_utterance_core.txt",
       patient_utterance_instruction="Respond to the motivational discussion in line with your current resistance level.",
       resistance_update_reasoning="The therapist is finally speaking to what matters at work.",
       selected_action="Acceptance",

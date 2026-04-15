@@ -564,9 +564,9 @@ class PatientTopicExplorationMixin(GraphSupportMixin):
     classifier_path = ensure_str(getattr(cfg_block, "patient_classifier_path", "") if cfg_block is not None else "")
     wikipedia_dir = ensure_str(getattr(cfg_block, "patient_wikipedia_dir", "") if cfg_block is not None else "")
     if not classifier_path:
-      raise ConversationProcessingError("Missing topic_exploration.patient_classifier_path for mi_topic_exploration.")
+      raise ConversationProcessingError("Missing topic_exploration.patient_classifier_path for mi_techniques_with_te.")
     if not wikipedia_dir:
-      raise ConversationProcessingError("Missing topic_exploration.patient_wikipedia_dir for mi_topic_exploration.")
+      raise ConversationProcessingError("Missing topic_exploration.patient_wikipedia_dir for mi_techniques_with_te.")
 
     classifier = Path(classifier_path).expanduser()
     topic_dir = Path(wikipedia_dir).expanduser()
@@ -701,7 +701,7 @@ class PatientTopicExplorationMixin(GraphSupportMixin):
     motivation_text: str,
   ) -> str:
     return self._load_stage_prompt(
-      "mi_topic_exploration",
+      "mi_techniques_with_te",
       "patient_engagement_analysis",
       recent_conversation=self._format_last_utterances(state["messages"]),
       last_utterance=self._last_therapist_utterance(state),

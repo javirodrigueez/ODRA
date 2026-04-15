@@ -21,3 +21,4 @@ env:
   output_dir: outputs
   verbose: false
   resume_file:
+  resistance_handling: mi_techniques

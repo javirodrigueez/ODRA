@@ -6,7 +6,7 @@ from .resistance import PatientAction, PatientActionDistribution
 
 Stage = Literal[
   "opening",
-  "mi_topic_exploration",
+  "mi_techniques_with_te",
   "mi_techniques",
   "meta_conversation",
   "address_tib",
@@ -25,9 +25,9 @@ SubStage = Literal[
   "open_mood",
   "open_problem",
   "mi_choose_topic",
-  "mi_raise_topic",
   "mi_choose_technique",
   "mi_raise_technique",
+  "mi_raise_cami_utterance",
   "mi_transition_to_cbt",
   "mi_meta_open",
   "mi_meta_probe",
@@ -72,9 +72,9 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
   "open_mood",
   "open_problem",
   "mi_choose_topic",
-  "mi_raise_topic",
   "mi_choose_technique",
   "mi_raise_technique",
+  "mi_raise_cami_utterance",
   "mi_transition_to_cbt",
   "mi_meta_open",
   "mi_meta_probe",
@@ -115,7 +115,7 @@ ALL_SUBSTAGES: tuple[SubStage, ...] = (
 )
 
 CBT_STAGES = {"id_distortions", "cbt_technique", "homework"}
-MI_STAGES = {"mi_topic_exploration", "mi_techniques", "meta_conversation"}
+MI_STAGES = {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}
 CORE_BELIEF_KEYS = ["helplessness", "unlovability", "worthlessness"]
 DISTORTION_KEYS = [
   "mental_filtering",
@@ -132,7 +132,7 @@ DISTORTION_KEYS = [
 MIN_COGNITIVE_SET_EXCHANGES = 3
 DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
   "opening": "open_initial",
-  "mi_topic_exploration": "mi_choose_topic",
+  "mi_techniques_with_te": "mi_choose_topic",
   "mi_techniques": "mi_choose_technique",
   "meta_conversation": "mi_meta_open",
   "address_tib": "tib_plan",
@@ -146,6 +146,7 @@ DEFAULT_SUBSTAGE_BY_STAGE: dict[Stage, SubStage] = {
 
 LEGACY_STAGE_ALIASES: dict[str, Stage] = {
   "patient_demand": "address_tib",
+  "mi_topic_exploration": "mi_techniques_with_te",
 }
 
 LEGACY_SUBSTAGE_ALIASES: dict[str, SubStage] = {
@@ -153,6 +154,7 @@ LEGACY_SUBSTAGE_ALIASES: dict[str, SubStage] = {
   "demand_deliver": "tib_deliver",
   "demand_check": "tib_check",
   "demand_resume": "tib_resume",
+  "mi_raise_topic": "mi_raise_cami_utterance",
 }
 
 TIBRouteBucket = Literal["none", "end_session", "avoidance", "other"]
@@ -286,6 +288,8 @@ class SessionState(TypedDict):
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
   last_mi_topic_action: str
+  preconsecutive_turns: int
+  cami_recovery_turns: int
   mi_end_session_tib_redirect_used: bool
   address_tib_route_bucket: TIBRouteBucket
   address_tib_name: str

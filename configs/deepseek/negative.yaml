@@ -27,3 +27,4 @@ env:
   output_dir: out/deepseek_five
   verbose: true
   resume_file: out/deepseek_five/simulation_10816.json
+  resistance_handling: mi_techniques

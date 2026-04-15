@@ -12,6 +12,9 @@ from .topic_exploration import TopicExplorationMixin
 
 class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
   META_CONVERSATION_TURN_CAP = 5
+  PRECONTEMPLATION_ENTRY_STREAK = 5
+  CAMI_RECOVERY_STREAK = 5
+  LEGACY_MI_TECHNIQUE_TURN_CAP = 10
 
   def _parse_selected_mi_techniques(
     self,
@@ -47,17 +50,8 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       raise ConversationProcessingError("Cannot raise an MI technique utterance without a valid selected technique.")
     return "\n".join(lines)
 
-  def _reactivate_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]], reason: str) -> None:
-    if not state["mi_techniques_paused_until_precontemplation"]:
-      return
-    state["mi_techniques_paused_until_precontemplation"] = False
-    traces.append(
-      {
-        "step": "mi_techniques_reactivated",
-        "input": "MI techniques were paused after a max-turn contemplation escape.",
-        "output": reason,
-      }
-    )
+  def _is_resistance_handling_stage(self, stage: Stage) -> bool:
+    return stage in {"mi_techniques", "mi_techniques_with_te"}
 
   def _enter_mi(
     self,
@@ -70,9 +64,9 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     if resume_stage:
       state["cbt_resume_stage"] = resume_stage
       state["cbt_resume_substage"] = resume_substage or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
-    if target_stage == "mi_topic_exploration":
-      self._reset_mi_topic_exploration_state(state)
-      self._reset_patient_topic_exploration_state(state)
+    state["preconsecutive_turns"] = 0
+    state["cami_recovery_turns"] = 0
+    state["current_mi_technique_selection"] = []
     state["mi_active"] = True
     if not state["cbt_flow_saved_state"] and resume_stage:
       state["cbt_flow_saved_state"] = (
@@ -90,8 +84,16 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       state["current_substage"],
     )
 
-  def _evaluate_mi_and_resume(self, state: SessionState, traces: list[dict[str, Any]], note: str = "") -> None:
-    instruction = self._load_stage_prompt("mi_techniques", "evaluation")
+  def _evaluate_mi_and_resume(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    *,
+    note: str = "",
+    prompt_stage: str = "mi_techniques",
+    transition_stage: Stage = "mi_techniques",
+  ) -> None:
+    instruction = self._load_stage_prompt(prompt_stage, "evaluation")
     mi_eval = self._require_dict(
       self._run_therapist_structured(state, traces, "mi_evaluation", instruction),
       "mi_evaluation",
@@ -106,59 +108,109 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       }
     )
     state["mi_active"] = False
+    state["preconsecutive_turns"] = 0
+    state["cami_recovery_turns"] = 0
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
-    self._set_stage(state, "mi_techniques", "mi_transition_to_cbt")
+    self._set_stage(state, transition_stage, "mi_transition_to_cbt")
+
+  def _update_preconsecutive_turns(self, state: SessionState, band: str) -> None:
+    if self._is_resistance_handling_stage(state["current_stage"]) or state["current_stage"] == "meta_conversation":
+      state["preconsecutive_turns"] = 0
+      return
+    if band == "precontemplation":
+      state["preconsecutive_turns"] += 1
+    else:
+      state["preconsecutive_turns"] = 0
+
+  def _maybe_enter_resistance_handling_from_cbt(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    reason: str,
+  ) -> bool:
+    if state["current_stage"] not in CBT_STAGES:
+      return False
+    if state["preconsecutive_turns"] < self.PRECONTEMPLATION_ENTRY_STREAK:
+      return False
+
+    mode = self._resistance_handling_mode()
+    if mode == "none":
+      return False
+
+    preconsecutive_turns = state["preconsecutive_turns"]
+    target_stage: Stage = "mi_techniques" if mode == "mi_techniques" else "mi_techniques_with_te"
+    self._enter_mi(
+      state,
+      target_stage,
+      state["current_stage"],
+      state["current_substage"],
+      reason,
+    )
+    traces.append(
+      {
+        "step": "resistance_handling_entry",
+        "input": f"preconsecutive_turns={preconsecutive_turns}, mode={mode}",
+        "output": f"Entering {target_stage} after {self.PRECONTEMPLATION_ENTRY_STREAK} consecutive precontemplation turns.",
+      }
+    )
+    return True
+
+  def _select_mi_techniques(
+    self,
+    state: SessionState,
+    traces: list[dict[str, Any]],
+    *,
+    prompt_stage: str,
+    step_name: str,
+  ) -> list[str]:
+    techniques_catalog = self.mi_techniques
+    formatted_catalog = "\n".join(
+      f"- {name}: {description}"
+      for name, description in techniques_catalog.items()
+    )
+    instruction = self._load_stage_prompt(
+      prompt_stage,
+      "technique_selection",
+      formatted_catalog=formatted_catalog,
+    )
+    parsed = self._run_therapist_structured(state, traces, step_name, instruction)
+    payload = self._require_dict(parsed, step_name)
+    selected_techniques = self._parse_selected_mi_techniques(payload, techniques_catalog)
+    state["current_mi_technique_selection"] = selected_techniques
+    state["mi_techniques_used"].extend(selected_techniques)
+    return selected_techniques
 
   def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     stage = state["current_stage"]
     band = self._current_band(state["predicted_resistance"], state)
+    self._update_preconsecutive_turns(state, band)
 
     if stage == "opening":
       return
 
-    if stage == "mi_techniques" and state["current_substage"] == "mi_transition_to_cbt":
+    if self._is_resistance_handling_stage(stage) and state["current_substage"] == "mi_transition_to_cbt":
       resume_stage = state["cbt_resume_stage"] or "id_distortions"
       resume_substage = state["cbt_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
       self._set_stage(state, resume_stage, resume_substage)
       return
 
     if stage in CBT_STAGES:
-      if band == "contemplation":
-        if not state["mi_techniques_paused_until_precontemplation"]:
-          self._enter_mi(
-            state,
-            "mi_techniques",
-            stage,
-            state["current_substage"],
-            "CBT interrupted due to contemplation-level resistance",
-          )
-      elif band == "precontemplation":
-        self._reactivate_mi_techniques(
-          state,
-          traces,
-          "Predicted resistance returned to precontemplation, so MI techniques can be used again.",
-        )
-        self._enter_mi(
-          state,
-          "mi_topic_exploration",
-          stage,
-          state["current_substage"],
-          "CBT interrupted due to precontemplation resistance",
-        )
+      self._maybe_enter_resistance_handling_from_cbt(
+        state,
+        traces,
+        f"CBT interrupted after {self.PRECONTEMPLATION_ENTRY_STREAK} consecutive precontemplation turns.",
+      )
       return
 
     if stage == "mi_techniques":
-      if band == "precontemplation":
-        self._set_stage(state, "mi_topic_exploration")
-        return
       if band == "action":
         self._evaluate_mi_and_resume(state, traces, note="MI reached action band")
         return
-      if self._current_stage_exchange_count(state, "mi_techniques") >= 10:
+      if self._current_stage_exchange_count(state, "mi_techniques") >= self.LEGACY_MI_TECHNIQUE_TURN_CAP:
         traces.append(
           {
             "step": "mi_techniques_escape",
-            "input": "MI techniques reached max 10 exchanges without full resolution.",
+            "input": f"MI techniques reached max {self.LEGACY_MI_TECHNIQUE_TURN_CAP} exchanges without full resolution.",
             "output": "Proceeding with CBT and noting unresolved resistance.",
           }
         )
@@ -166,8 +218,26 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
         self._evaluate_mi_and_resume(state, traces, note="MI reached max-turn escape condition")
       return
 
-    if stage == "mi_topic_exploration" and band in {"contemplation", "action"}:
-      self._set_stage(state, "mi_techniques")
+    if stage == "mi_techniques_with_te":
+      if band == "precontemplation":
+        state["cami_recovery_turns"] = 0
+      else:
+        state["cami_recovery_turns"] += 1
+      if state["cami_recovery_turns"] >= self.CAMI_RECOVERY_STREAK:
+        traces.append(
+          {
+            "step": "cami_recovery_exit",
+            "input": f"CAMI recovery streak reached {state['cami_recovery_turns']} turn(s) below 0.66.",
+            "output": "Transitioning from CAMI resistance handling back to CBT.",
+          }
+        )
+        self._evaluate_mi_and_resume(
+          state,
+          traces,
+          note="CAMI reached sustained recovery condition",
+          prompt_stage="mi_techniques_with_te",
+          transition_stage="mi_techniques_with_te",
+        )
       return
 
   def _handle_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
@@ -181,9 +251,6 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       return self._generate_therapist_utterance(state, instruction)
 
     band = self._current_band(state["predicted_resistance"], state)
-    if band == "precontemplation":
-      self._set_stage(state, "mi_topic_exploration")
-      return self._handle_stage_dispatch(state, traces)
     if band == "action":
       self._evaluate_mi_and_resume(state, traces, note="MI techniques reached action")
       return self._handle_stage_dispatch(state, traces)
@@ -193,21 +260,12 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
 
     # Choose the next MI communication technique.
     if current_substage == "mi_choose_technique":
-      techniques_catalog = self.mi_techniques
-      formatted_catalog = "\n".join(
-        f'- {name}: {description}'
-        for name, description in techniques_catalog.items()
+      self._select_mi_techniques(
+        state,
+        traces,
+        prompt_stage="mi_techniques",
+        step_name="mi_technique_selection",
       )
-      instruction = self._load_stage_prompt(
-        "mi_techniques",
-        "technique_selection",
-        formatted_catalog=formatted_catalog,
-      )
-      parsed = self._run_therapist_structured(state, traces, "mi_technique_selection", instruction)
-      payload = self._require_dict(parsed, "mi_technique_selection")
-      selected_techniques = self._parse_selected_mi_techniques(payload, techniques_catalog)
-      state["current_mi_technique_selection"] = selected_techniques
-      state["mi_techniques_used"].extend(selected_techniques)
       self._set_substage(state, "mi_raise_technique")
       current_substage = state["current_substage"]
 
@@ -226,6 +284,47 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       return utterance
 
     raise ConversationProcessingError(f"Unexpected MI technique substage: {current_substage}")
+
+  def _handle_mi_techniques_with_te(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    if state["current_substage"] == "mi_transition_to_cbt":
+      resume_stage = state["cbt_resume_stage"] or "id_distortions"
+      instruction = self._load_stage_prompt(
+        "mi_techniques_with_te",
+        "transition_to_cbt",
+        resume_stage=resume_stage,
+      )
+      return self._generate_therapist_utterance(state, instruction)
+
+    self._set_substage(state, "mi_choose_topic")
+    self._select_next_mi_topic(state, traces)
+    if self._mi_topic_exploration_exhausted(state) and self._current_band(state["predicted_resistance"], state) == "precontemplation":
+      self._set_stage(state, "meta_conversation")
+      return self._handle_stage_dispatch(state, traces)
+
+    self._set_substage(state, "mi_choose_technique")
+    selected_techniques = self._select_mi_techniques(
+      state,
+      traces,
+      prompt_stage="mi_techniques_with_te",
+      step_name="mi_cami_technique_selection",
+    )
+
+    topic = state["current_mi_topic"]
+    if not topic:
+      raise ConversationProcessingError("CAMI resistance handling selected an empty topic.")
+    technique_blend = self._format_mi_technique_blend(self.mi_techniques, selected_techniques)
+    self._set_substage(state, "mi_raise_cami_utterance")
+    instruction = self._load_stage_prompt(
+      "mi_techniques_with_te",
+      "raise_utterance",
+      topic=topic,
+      topic_path=" -> ".join(state["mi_topic_stack"]),
+      topic_focus=self._topic_focus_hint(topic),
+      technique_blend=technique_blend,
+    )
+    utterance = self._generate_therapist_utterance(state, instruction)
+    state["current_mi_technique_selection"] = []
+    return utterance
 
   def _meta_substage_for_turns(self, turns: int) -> SubStage:
     if turns == 0:
