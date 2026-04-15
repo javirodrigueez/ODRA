@@ -202,6 +202,29 @@ class LongSessionRoutingTest(unittest.TestCase):
     self.assertEqual(state["session_ended_reason"], "max_turns_forced_closing")
     self.assertTrue(state["final_patient_pending_end"])
 
+  def test_long_session_threshold_blocks_mi_reentry_from_homework(self) -> None:
+    builder = self._make_builder()
+    state = self._make_state(builder)
+    state["current_stage"] = "homework"
+    state["current_substage"] = "homework_review_response"
+    state["predicted_resistance"] = 0.9
+    state["preconsecutive_turns"] = 3
+    state["utterance_index"] = 70
+    state["long_session_turn_threshold"] = 70
+    state["mi_active"] = True
+    state["current_mi_technique_selection"] = ["Open Question"]
+    state["mi_recovery_turns"] = 2
+    state["cami_recovery_turns"] = 2
+
+    builder._handle_pre_stage_routing(state, [])
+
+    self.assertEqual(state["current_stage"], "homework")
+    self.assertEqual(state["current_substage"], "homework_review_response")
+    self.assertFalse(state["mi_active"])
+    self.assertEqual(state["current_mi_technique_selection"], [])
+    self.assertEqual(state["mi_recovery_turns"], 0)
+    self.assertEqual(state["cami_recovery_turns"], 0)
+
   def test_legacy_forced_closing_reroutes_to_closing_fallback(self) -> None:
     builder = self._make_builder()
     state = self._make_state(builder)

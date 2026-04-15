@@ -133,6 +133,12 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
   ) -> bool:
     if state["current_stage"] not in CBT_STAGES:
       return False
+    if self._long_session_threshold_reached(state):
+      state["mi_active"] = False
+      state["current_mi_technique_selection"] = []
+      state["mi_recovery_turns"] = 0
+      state["cami_recovery_turns"] = 0
+      return False
     if state["preconsecutive_turns"] < self.PRECONTEMPLATION_ENTRY_STREAK:
       return False
 
