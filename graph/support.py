@@ -1289,13 +1289,12 @@ class GraphSupportMixin:
 
     stage = state["current_stage"]
     suffix = (
-      " Briefly and naturally acknowledge that time is running short for this session."
-      " Keep the tone warm, concise, and low-pressure, and do not sound abrupt, mechanical, or overly apologetic."
+      " Briefly mention that time is running short for this session."
     )
     if stage in {"mi_techniques", "mi_techniques_with_te"}:
       suffix += (
-        " Use this utterance to wrap up the current motivational-interviewing segment and smoothly orient the patient"
-        " toward the last part of today's session rather than continuing this line of exploration."
+        " Use this utterance to end the current motivational-interviewing segment and smoothly orient the patient"
+        " toward the homework part of today's session rather than continuing this line of exploration."
       )
     else:
       suffix += (

@@ -28,3 +28,4 @@ env:
   verbose: true
   resume_file: out/tests/simulation_10816_negative.json
   resistance_handling: cami
+  long_session_turn_threshold: 40
