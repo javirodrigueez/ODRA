@@ -18,13 +18,13 @@ patient:
   # frequency_penalty: 1.0
 
 topic_exploration:
-  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_classifier_path: models/BAAI_bge-reranker-v2-m3
   patient_wikipedia_dir: data/wikipedias
 
 env:
   max_turns: 100
   min_turns: 60
-  output_dir: out/deepseek_five
+  output_dir: out/tests
   verbose: true
-  resume_file: out/deepseek_five/simulation_10816.json
-  resistance_handling: mi_techniques
+  resume_file: out/tests/simulation_10816_negative.json
+  resistance_handling: cami

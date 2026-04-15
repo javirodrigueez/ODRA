@@ -14,3 +14,4 @@ myenv
 /evaluation/**/miniout_*
 /evaluation/data.json
 /evaluation/eval_*
+/models

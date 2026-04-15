@@ -113,7 +113,7 @@ def run_simulation(
     with open(transcript_file, "w", encoding="utf-8") as f:
       messages = cast(list[ConversationMessage], result.get("messages", []))
       for message in messages:
-        f.write(f'--> {message["role"].capitalize()}: {message["content"]}\n\n')
+        f.write(f'--> {message["role"].capitalize()} [{message["stage"]}]: {message["content"]}\n\n')
     with open(json_file, "w", encoding="utf-8") as f:
       json.dump(result, f, indent=2, ensure_ascii=True)
     print(f"  Saved transcript: {transcript_file}")
