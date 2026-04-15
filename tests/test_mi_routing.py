@@ -1,5 +1,6 @@
 import sys
 import types
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -132,7 +133,7 @@ class MIRoutingTest(unittest.TestCase):
   def test_precon_streak_enters_legacy_mi_mode(self) -> None:
     builder = self._make_builder(resistance_handling="mi_techniques")
     state = self._make_state(builder, predicted_resistance=0.8)
-    state["preconsecutive_turns"] = 4
+    state["preconsecutive_turns"] = 2
 
     builder._handle_pre_stage_routing(state, [])
 
@@ -142,7 +143,7 @@ class MIRoutingTest(unittest.TestCase):
   def test_precon_streak_enters_cami_mode(self) -> None:
     builder = self._make_builder(resistance_handling="cami")
     state = self._make_state(builder, predicted_resistance=0.8)
-    state["preconsecutive_turns"] = 4
+    state["preconsecutive_turns"] = 2
 
     builder._handle_pre_stage_routing(state, [])
 
@@ -152,17 +153,17 @@ class MIRoutingTest(unittest.TestCase):
   def test_precon_streak_does_not_enter_mi_when_mode_is_none(self) -> None:
     builder = self._make_builder(resistance_handling="none")
     state = self._make_state(builder, predicted_resistance=0.8)
-    state["preconsecutive_turns"] = 4
+    state["preconsecutive_turns"] = 2
 
     builder._handle_pre_stage_routing(state, [])
 
     self.assertEqual(state["current_stage"], "id_distortions")
-    self.assertEqual(state["preconsecutive_turns"], 5)
+    self.assertEqual(state["preconsecutive_turns"], 3)
 
   def test_non_precon_band_resets_entry_streak(self) -> None:
     builder = self._make_builder()
     state = self._make_state(builder, predicted_resistance=0.5)
-    state["preconsecutive_turns"] = 4
+    state["preconsecutive_turns"] = 2
 
     builder._handle_pre_stage_routing(state, [])
 
@@ -179,11 +180,34 @@ class MIRoutingTest(unittest.TestCase):
     self.assertEqual(state["current_stage"], "mi_techniques")
     self.assertEqual(state["current_substage"], "mi_choose_technique")
 
-  def test_cami_exits_after_five_recovery_turns(self) -> None:
+  def test_legacy_mi_exits_after_three_below_precontemplation_turns(self) -> None:
+    builder = self._make_builder(resistance_handling="mi_techniques")
+    state = self._make_state(builder, stage="mi_techniques", predicted_resistance=0.5)
+    state["current_substage"] = "mi_choose_technique"
+    state["mi_recovery_turns"] = 2
+
+    builder._handle_pre_stage_routing(state, [])
+
+    self.assertEqual(state["current_stage"], "mi_techniques")
+    self.assertEqual(state["current_substage"], "mi_transition_to_cbt")
+    self.assertEqual(state["mi_recovery_turns"], 0)
+
+  def test_action_band_no_longer_exits_legacy_mi_immediately(self) -> None:
+    builder = self._make_builder(resistance_handling="mi_techniques")
+    state = self._make_state(builder, stage="mi_techniques", predicted_resistance=0.2)
+    state["current_substage"] = "mi_choose_technique"
+
+    builder._handle_pre_stage_routing(state, [])
+
+    self.assertEqual(state["current_stage"], "mi_techniques")
+    self.assertEqual(state["current_substage"], "mi_choose_technique")
+    self.assertEqual(state["mi_recovery_turns"], 1)
+
+  def test_cami_exits_after_three_recovery_turns(self) -> None:
     builder = self._make_builder(resistance_handling="cami")
     state = self._make_state(builder, stage="mi_techniques_with_te", predicted_resistance=0.5)
     state["current_substage"] = "mi_choose_topic"
-    state["cami_recovery_turns"] = 4
+    state["cami_recovery_turns"] = 2
 
     builder._handle_pre_stage_routing(state, [])
 
@@ -234,6 +258,60 @@ class MIRoutingTest(unittest.TestCase):
     resumed = builder.resume_state(saved_state, max_turns=12)
 
     self.assertEqual(resumed["long_session_turn_threshold"], 44)
+
+  def test_resume_state_restores_legacy_mi_recovery_streak(self) -> None:
+    builder = self._make_builder()
+    saved_state = builder.initial_state(max_turns=12)
+    saved_state["current_stage"] = "mi_techniques"
+    saved_state["current_substage"] = "mi_choose_technique"
+    saved_state["messages"] = [
+      {
+        "utterance_index": 1,
+        "role": "therapist",
+        "content": "Let's step back.",
+        "stage": "mi_techniques",
+        "substage": "mi_raise_technique",
+      },
+      {
+        "utterance_index": 2,
+        "role": "patient",
+        "content": "Maybe.",
+        "stage": "mi_techniques",
+        "substage": "mi_raise_technique",
+      },
+      {
+        "utterance_index": 3,
+        "role": "therapist",
+        "content": "What feels a bit more open here?",
+        "stage": "mi_techniques",
+        "substage": "mi_raise_technique",
+      },
+      {
+        "utterance_index": 4,
+        "role": "patient",
+        "content": "I guess there might be something to try.",
+        "stage": "mi_techniques",
+        "substage": "mi_raise_technique",
+      },
+    ]
+    saved_state["reasoning_traces"] = [
+      {
+        "utterance_index": 3,
+        "speaker": "therapist",
+        "traces": [
+          {
+            "step": "resistance_prediction",
+            "input": "prediction",
+            "output": json.dumps({"new_p": 0.5}),
+          }
+        ],
+      }
+    ]
+
+    resumed = builder.resume_state(saved_state, max_turns=12)
+
+    self.assertEqual(resumed["mi_recovery_turns"], 1)
+    self.assertEqual(resumed["cami_recovery_turns"], 0)
 
   def test_mi_timeout_instruction_applies_only_when_pending(self) -> None:
     builder = self._make_builder()

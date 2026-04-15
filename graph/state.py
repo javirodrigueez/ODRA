@@ -291,6 +291,7 @@ class SessionState(TypedDict):
   last_mi_predicted_resistance: float | None
   last_mi_topic_action: str
   preconsecutive_turns: int
+  mi_recovery_turns: int
   cami_recovery_turns: int
   mi_end_session_tib_redirect_used: bool
   address_tib_route_bucket: TIBRouteBucket

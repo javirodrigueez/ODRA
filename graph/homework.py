@@ -89,11 +89,16 @@ class HomeworkStageMixin(GraphSupportMixin):
         return self._handle_stage_dispatch(state, traces)
       if state["homework_proposal_attempts"] >= 5:
         state["homework_fallback_to_apply"] = True
+        self._set_substage(state, "homework_apply_fallback")
+      else:
+        self._set_substage(state, "homework_propose_tasks")
+      current_substage = state["current_substage"]
 
     # Apply the lightweight homework fallback after repeated failed proposals.
     if current_substage == "homework_apply_fallback":
       state["proposed_tasks"] = self._minimal_homework_task()
       state["agreed_tasks"] = state["proposed_tasks"]
+      state["homework_fallback_to_apply"] = False
       state["homework_fallback_done"] = True
       traces.append(
         {

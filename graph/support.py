@@ -161,6 +161,15 @@ class GraphSupportMixin:
       last_message = resumed["messages"][-1]
       if isinstance(last_message, dict) and last_message.get("role") == "therapist":
         self._rewind_last_resumed_therapist_turn(resumed)
+    preconsecutive_turns, mi_recovery_turns, cami_recovery_turns = self._infer_resume_streak_counters(
+      resumed.get("messages"),
+      resumed.get("reasoning_traces"),
+    )
+    resumed["preconsecutive_turns"] = preconsecutive_turns
+    resumed["mi_recovery_turns"] = mi_recovery_turns if resumed.get("current_stage") == "mi_techniques" else 0
+    resumed["cami_recovery_turns"] = (
+      cami_recovery_turns if resumed.get("current_stage") == "mi_techniques_with_te" else 0
+    )
     resumed["max_turns"] = int(max_turns)
     resumed["min_turns"] = int(min_turns)
     resumed["long_session_turn_threshold"] = int(
@@ -245,11 +254,12 @@ class GraphSupportMixin:
       state["opening_fallback_triggered"] = False
 
     state["exchange_counts"] = self._rebuild_exchange_counts_from_messages(messages)
-    preconsecutive_turns, cami_recovery_turns = self._infer_resume_streak_counters(
+    preconsecutive_turns, mi_recovery_turns, cami_recovery_turns = self._infer_resume_streak_counters(
       messages,
       state.get("reasoning_traces"),
     )
     state["preconsecutive_turns"] = preconsecutive_turns
+    state["mi_recovery_turns"] = mi_recovery_turns if state["current_stage"] == "mi_techniques" else 0
     state["cami_recovery_turns"] = cami_recovery_turns if state["current_stage"] == "mi_techniques_with_te" else 0
 
     if state["current_stage"] == "address_tib":
@@ -430,9 +440,9 @@ class GraphSupportMixin:
     except (TypeError, ValueError):
       return None
 
-  def _infer_resume_streak_counters(self, messages: Any, traces: Any) -> tuple[int, int]:
+  def _infer_resume_streak_counters(self, messages: Any, traces: Any) -> tuple[int, int, int]:
     if not isinstance(messages, list) or not isinstance(traces, list):
-      return 0, 0
+      return 0, 0, 0
 
     therapist_traces = {
       self._coerce_utterance_index(trace): trace
@@ -441,6 +451,7 @@ class GraphSupportMixin:
     }
 
     preconsecutive_turns = 0
+    mi_recovery_turns = 0
     cami_recovery_turns = 0
     for idx, message in enumerate(messages):
       if not isinstance(message, dict):
@@ -463,6 +474,7 @@ class GraphSupportMixin:
       if route_bucket and route_bucket != "none" and not inline_tib_suppressed:
         if self._trace_has_step(trace, "resistance_handling_entry") or self._trace_has_step(trace, "mi_evaluation"):
           preconsecutive_turns = 0
+          mi_recovery_turns = 0
           cami_recovery_turns = 0
         continue
 
@@ -479,17 +491,28 @@ class GraphSupportMixin:
       else:
         preconsecutive_turns = 0
 
+      if stage_before == "mi_techniques":
+        if band == "precontemplation":
+          mi_recovery_turns = 0
+        else:
+          mi_recovery_turns += 1
+      else:
+        mi_recovery_turns = 0
+
       if stage_before == "mi_techniques_with_te":
         if band == "precontemplation":
           cami_recovery_turns = 0
         else:
           cami_recovery_turns += 1
+      else:
+        cami_recovery_turns = 0
 
       if self._trace_has_step(trace, "resistance_handling_entry") or self._trace_has_step(trace, "mi_evaluation"):
         preconsecutive_turns = 0
+        mi_recovery_turns = 0
         cami_recovery_turns = 0
 
-    return preconsecutive_turns, cami_recovery_turns
+    return preconsecutive_turns, mi_recovery_turns, cami_recovery_turns
 
   def _restore_active_address_tib_state_from_traces(self, state: SessionState) -> None:
     latest_enter: dict[str, Any] = {}
@@ -643,6 +666,7 @@ class GraphSupportMixin:
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
     s.setdefault("last_mi_topic_action", "")
     s.setdefault("preconsecutive_turns", 0)
+    s.setdefault("mi_recovery_turns", 0)
     s.setdefault("cami_recovery_turns", 0)
     if "mi_end_session_tib_redirect_used" not in s and "mi_end_session_demand_redirect_used" in s:
       s["mi_end_session_tib_redirect_used"] = bool(s.get("mi_end_session_demand_redirect_used"))

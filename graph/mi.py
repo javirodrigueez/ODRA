@@ -12,8 +12,9 @@ from .topic_exploration import TopicExplorationMixin
 
 class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
   META_CONVERSATION_TURN_CAP = 5
-  PRECONTEMPLATION_ENTRY_STREAK = 5
-  CAMI_RECOVERY_STREAK = 5
+  PRECONTEMPLATION_ENTRY_STREAK = 3
+  LEGACY_MI_RECOVERY_STREAK = 3
+  CAMI_RECOVERY_STREAK = 3
   LEGACY_MI_TECHNIQUE_TURN_CAP = 10
 
   def _parse_selected_mi_techniques(
@@ -65,6 +66,7 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       state["cbt_resume_stage"] = resume_stage
       state["cbt_resume_substage"] = resume_substage or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
     state["preconsecutive_turns"] = 0
+    state["mi_recovery_turns"] = 0
     state["cami_recovery_turns"] = 0
     state["current_mi_technique_selection"] = []
     state["mi_active"] = True
@@ -109,6 +111,7 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     )
     state["mi_active"] = False
     state["preconsecutive_turns"] = 0
+    state["mi_recovery_turns"] = 0
     state["cami_recovery_turns"] = 0
     state["last_mi_predicted_resistance"] = state["predicted_resistance"]
     self._set_stage(state, transition_stage, "mi_transition_to_cbt")
@@ -189,6 +192,8 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       state["long_session_mi_route_to_homework_pending"] = False
       state["mi_active"] = False
       state["current_mi_technique_selection"] = []
+      state["mi_recovery_turns"] = 0
+      state["cami_recovery_turns"] = 0
       self._set_stage(state, "homework")
       traces.append(
         {
@@ -220,8 +225,19 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       return
 
     if stage == "mi_techniques":
-      if band == "action":
-        self._evaluate_mi_and_resume(state, traces, note="MI reached action band")
+      if band == "precontemplation":
+        state["mi_recovery_turns"] = 0
+      else:
+        state["mi_recovery_turns"] += 1
+      if state["mi_recovery_turns"] >= self.LEGACY_MI_RECOVERY_STREAK:
+        traces.append(
+          {
+            "step": "mi_techniques_recovery_exit",
+            "input": f"MI recovery streak reached {state['mi_recovery_turns']} turn(s) below precontemplation.",
+            "output": "Transitioning from legacy MI resistance handling back to CBT.",
+          }
+        )
+        self._evaluate_mi_and_resume(state, traces, note="MI reached sustained below-precontemplation recovery")
         return
       if self._current_stage_exchange_count(state, "mi_techniques") >= self.LEGACY_MI_TECHNIQUE_TURN_CAP:
         traces.append(
@@ -244,7 +260,7 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
         traces.append(
           {
             "step": "cami_recovery_exit",
-            "input": f"CAMI recovery streak reached {state['cami_recovery_turns']} turn(s) below 0.66.",
+            "input": f"CAMI recovery streak reached {state['cami_recovery_turns']} turn(s) below precontemplation.",
             "output": "Transitioning from CAMI resistance handling back to CBT.",
           }
         )
@@ -279,11 +295,6 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
         resume_stage=resume_stage,
       )
       return self._generate_therapist_utterance(state, instruction)
-
-    band = self._current_band(state["predicted_resistance"], state)
-    if band == "action" and not long_session_exit:
-      self._evaluate_mi_and_resume(state, traces, note="MI techniques reached action")
-      return self._handle_stage_dispatch(state, traces)
 
     self._set_substage(state, "mi_choose_technique")
     current_substage = state["current_substage"]

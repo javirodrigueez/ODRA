@@ -132,7 +132,7 @@ class OpeningStageTest(unittest.TestCase):
   def test_opening_cap_routes_to_id_distortions_without_resistance_gate(self) -> None:
     builder = self._make_builder()
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=4)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=2)
 
     result = builder._handle_opening(state, [])
 
@@ -143,7 +143,7 @@ class OpeningStageTest(unittest.TestCase):
   def test_opening_cap_routes_to_mi_techniques_after_precon_streak_in_legacy_mode(self) -> None:
     builder = self._make_builder(resistance_handling="mi_techniques")
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=3)
 
     result = builder._handle_opening(state, [])
 
@@ -154,7 +154,7 @@ class OpeningStageTest(unittest.TestCase):
   def test_opening_cap_routes_to_cami_stage_after_precon_streak(self) -> None:
     builder = self._make_builder(resistance_handling="cami")
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=3)
 
     result = builder._handle_opening(state, [])
 
@@ -165,7 +165,7 @@ class OpeningStageTest(unittest.TestCase):
   def test_opening_cap_ignores_precon_streak_when_resistance_handling_is_none(self) -> None:
     builder = self._make_builder(resistance_handling="none")
     builder._check_readiness = lambda state, traces: False
-    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=5)
+    state = self._make_state(builder, opening_exchanges=5, predicted_resistance=0.95, preconsecutive_turns=3)
 
     result = builder._handle_opening(state, [])
 

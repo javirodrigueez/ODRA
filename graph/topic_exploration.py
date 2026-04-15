@@ -81,6 +81,7 @@ class TopicExplorationMixin(GraphSupportMixin):
     state["mi_topics_tried"] = []
     state["last_mi_topic_action"] = ""
     state["current_mi_technique_selection"] = []
+    state["mi_recovery_turns"] = 0
     state["cami_recovery_turns"] = 0
 
   def _normalize_mi_topic_stack(self, state: SessionState) -> list[str]:
