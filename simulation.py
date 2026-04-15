@@ -107,8 +107,9 @@ def run_simulation(
   if output_dir:
     os.makedirs(output_dir, exist_ok=True)
     sim_idx = profile.get("idx", "unknown")
-    transcript_file = os.path.join(output_dir, f"simulation_{sim_idx}.txt")
-    json_file = os.path.join(output_dir, f"simulation_{sim_idx}.json")
+    sim_attittude = profile.get("attitude", "unknown")
+    transcript_file = os.path.join(output_dir, f"simulation_{sim_idx}_{sim_attittude}.txt")
+    json_file = os.path.join(output_dir, f"simulation_{sim_idx}_{sim_attittude}.json")
     with open(transcript_file, "w", encoding="utf-8") as f:
       messages = cast(list[ConversationMessage], result.get("messages", []))
       for message in messages:
