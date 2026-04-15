@@ -35,6 +35,7 @@ from .state import (
   DEFAULT_SUBSTAGE_BY_STAGE,
   DISTORTION_KEYS,
   HomeworkTask,
+  MI_STAGES,
   MIN_COGNITIVE_SET_EXCHANGES,
   CognitiveModelSet,
   ConversationMessage,
@@ -149,20 +150,380 @@ class GraphSupportMixin:
     resumed["session_ended_reason"] = ""
     resumed["conversation_error"] = ""
     resumed["final_patient_pending_end"] = False
-    is_therapist_last = False
-    if isinstance(resumed.get("messages"), list):
-      if resumed["messages"][-1].get("role") == "therapist":
-        resumed["messages"].pop()
-        is_therapist_last = True
     if isinstance(resumed.get("reasoning_traces"), list):
       resumed["reasoning_traces"] = [
         trace for trace in resumed["reasoning_traces"] if not self._is_error_trace(trace)
       ]
-      if is_therapist_last:
-        resumed["reasoning_traces"].pop()
+    if isinstance(resumed.get("messages"), list) and resumed["messages"]:
+      last_message = resumed["messages"][-1]
+      if isinstance(last_message, dict) and last_message.get("role") == "therapist":
+        self._rewind_last_resumed_therapist_turn(resumed)
     resumed["max_turns"] = int(max_turns)
     resumed["min_turns"] = int(min_turns)
     return self._ensure_state_defaults(resumed)
+
+  def _rewind_last_resumed_therapist_turn(self, state: SessionState) -> None:
+    messages = state.get("messages")
+    if not isinstance(messages, list) or not messages:
+      return
+
+    deleted_message = messages.pop()
+    deleted_index = self._coerce_utterance_index(deleted_message)
+    last_message_index = self._conversation_rollup_latest_index(messages) if messages else 0
+
+    reasoning_traces = state.get("reasoning_traces")
+    if isinstance(reasoning_traces, list):
+      self._remove_trace_for_utterance(reasoning_traces, deleted_index, "therapist")
+      state["reasoning_traces"] = [
+        trace
+        for trace in reasoning_traces
+        if self._coerce_utterance_index(trace) <= last_message_index
+      ]
+
+    if isinstance(state.get("prompt_audit_records"), list):
+      state["prompt_audit_records"] = [
+        record
+        for record in state["prompt_audit_records"]
+        if not (
+          ensure_str(record.get("speaker")).strip().lower() == "therapist"
+          and self._coerce_utterance_index(record) == last_message_index
+        )
+      ]
+
+    self._prune_resumed_mi_context(state, last_message_index)
+
+    if int(state.get("conversation_rollup_until_utterance_index", 0)) >= deleted_index > 0:
+      state["conversation_rollup_summary"] = ""
+      state["conversation_rollup_until_utterance_index"] = 0
+
+    if messages:
+      last_message = messages[-1]
+      restored_stage = normalize_stage_name(last_message.get("stage"))
+      stage: Stage = cast(Stage, restored_stage) if restored_stage else "opening"
+      restored_substage = normalize_substage_name(last_message.get("substage"))
+      substage = cast(SubStage, restored_substage) if restored_substage else DEFAULT_SUBSTAGE_BY_STAGE[stage]
+      state["current_stage"] = stage
+      state["current_substage"] = substage
+      state["active_exchange_stage"] = stage
+      state["active_exchange_substage"] = substage
+    else:
+      state["current_stage"] = "opening"
+      state["current_substage"] = "open_initial"
+      state["active_exchange_stage"] = ""
+      state["active_exchange_substage"] = ""
+      state["opening_patient_mood"] = ""
+      state["opening_patient_problem"] = ""
+      state["opening_fallback_triggered"] = False
+
+    inferred_predicted_found, inferred_predicted = self._infer_latest_predicted_resistance_from_traces(
+      state.get("reasoning_traces")
+    )
+    if inferred_predicted_found:
+      state["predicted_resistance"] = inferred_predicted
+    elif not messages:
+      state["predicted_resistance"] = None
+
+    inferred_reasoning = self._infer_last_reasoning_from_traces(state.get("reasoning_traces"))
+    if inferred_reasoning is not None:
+      state["last_reasoning"] = inferred_reasoning
+    elif not messages:
+      state["last_reasoning"] = ""
+
+    inferred_opening_context = self._infer_opening_context_from_traces(state.get("reasoning_traces"))
+    if inferred_opening_context["mood"] is not None:
+      state["opening_patient_mood"] = inferred_opening_context["mood"]
+    if inferred_opening_context["problem"] is not None:
+      state["opening_patient_problem"] = inferred_opening_context["problem"]
+
+    if state["current_stage"] == "opening":
+      state["opening_fallback_triggered"] = False
+
+    state["exchange_counts"] = self._rebuild_exchange_counts_from_messages(messages)
+    preconsecutive_turns, cami_recovery_turns = self._infer_resume_streak_counters(
+      messages,
+      state.get("reasoning_traces"),
+    )
+    state["preconsecutive_turns"] = preconsecutive_turns
+    state["cami_recovery_turns"] = cami_recovery_turns if state["current_stage"] == "mi_techniques_with_te" else 0
+
+    if state["current_stage"] == "address_tib":
+      self._clear_address_tib_state(state, clear_resume_cursor=True)
+      self._restore_active_address_tib_state_from_traces(state)
+      self._clear_completed_address_tib_memory(state)
+      self._clear_resume_context(state)
+    else:
+      self._clear_address_tib_state(state, clear_resume_cursor=True)
+
+    if state["current_stage"] in MI_STAGES:
+      state["mi_active"] = True
+    else:
+      state["mi_active"] = False
+      state["current_mi_technique_selection"] = []
+
+    state["utterance_index"] = last_message_index
+
+  def _coerce_utterance_index(self, item: Any) -> int:
+    if not isinstance(item, dict):
+      return 0
+    try:
+      return int(item.get("utterance_index", 0))
+    except (TypeError, ValueError):
+      return 0
+
+  def _trace_steps(self, trace: Any) -> list[dict[str, Any]]:
+    if not isinstance(trace, dict):
+      return []
+    steps = trace.get("traces")
+    if not isinstance(steps, list):
+      return []
+    return [step for step in steps if isinstance(step, dict)]
+
+  def _trace_has_step(self, trace: Any, step_name: str) -> bool:
+    return any(ensure_str(step.get("step")) == step_name for step in self._trace_steps(trace))
+
+  def _trace_step_payload(self, trace: Any, step_name: str) -> dict[str, Any]:
+    for step in reversed(self._trace_steps(trace)):
+      if ensure_str(step.get("step")) != step_name:
+        continue
+      raw_output = step.get("output")
+      if isinstance(raw_output, dict):
+        return raw_output
+      text_output = ensure_str(raw_output).strip()
+      if not text_output:
+        return {}
+      try:
+        payload = json.loads(text_output)
+      except json.JSONDecodeError:
+        return {}
+      return payload if isinstance(payload, dict) else {}
+    return {}
+
+  def _remove_trace_for_utterance(self, traces: list[Any], utterance_index: int, speaker: str) -> None:
+    normalized_speaker = ensure_str(speaker).strip().lower()
+    for idx in range(len(traces) - 1, -1, -1):
+      trace = traces[idx]
+      if ensure_str(trace.get("speaker")).strip().lower() != normalized_speaker:
+        continue
+      if self._coerce_utterance_index(trace) != utterance_index:
+        continue
+      traces.pop(idx)
+      return
+
+  def _prune_resumed_mi_context(self, state: SessionState, last_message_index: int) -> None:
+    raw_mi_context = state.get("mi_context")
+    if not isinstance(raw_mi_context, list):
+      return
+
+    known_message_pairs = {
+      (self._coerce_utterance_index(message), ensure_str(message.get("role")).strip().lower())
+      for message in state.get("messages", [])
+      if isinstance(message, dict)
+    }
+    pruned: list[ConversationMessage] = []
+    for entry in raw_mi_context:
+      if not isinstance(entry, dict):
+        continue
+      utterance_index = self._coerce_utterance_index(entry)
+      role = ensure_str(entry.get("role")).strip().lower()
+      if utterance_index > last_message_index:
+        continue
+      if role == "system_note":
+        if utterance_index >= last_message_index:
+          continue
+        pruned.append(cast(ConversationMessage, entry))
+        continue
+      if (utterance_index, role) not in known_message_pairs:
+        continue
+      pruned.append(cast(ConversationMessage, entry))
+    state["mi_context"] = pruned
+
+  def _infer_latest_predicted_resistance_from_traces(self, traces: Any) -> tuple[bool, float | None]:
+    if not isinstance(traces, list):
+      return False, None
+    for trace in reversed(traces):
+      if ensure_str(trace.get("speaker")).strip().lower() != "therapist":
+        continue
+      payload = self._trace_step_payload(trace, "resistance_prediction")
+      for key in ("new_p", "p_target", "previous_p"):
+        if key not in payload:
+          continue
+        value = payload.get(key)
+        if value is None:
+          return True, None
+        try:
+          return True, float(value)
+        except (TypeError, ValueError):
+          continue
+    return False, None
+
+  def _infer_last_reasoning_from_traces(self, traces: Any) -> str | None:
+    if not isinstance(traces, list):
+      return None
+    for trace in reversed(traces):
+      if ensure_str(trace.get("speaker")).strip().lower() != "therapist":
+        continue
+      for step in reversed(self._trace_steps(trace)):
+        payload = self._trace_step_payload({"traces": [step]}, ensure_str(step.get("step")))
+        reasoning = ensure_str(payload.get("reasoning")).strip()
+        if reasoning:
+          return reasoning
+    return None
+
+  def _infer_opening_context_from_traces(self, traces: Any) -> dict[str, str | None]:
+    latest_mood: str | None = None
+    latest_problem: str | None = None
+    if not isinstance(traces, list):
+      return {"mood": latest_mood, "problem": latest_problem}
+    for trace in traces:
+      if ensure_str(trace.get("speaker")).strip().lower() != "therapist":
+        continue
+      payload = self._trace_step_payload(trace, "opening_info_update")
+      if not payload:
+        continue
+      mood = ensure_str(payload.get("mood")).strip()
+      problem = ensure_str(payload.get("problem")).strip()
+      if mood:
+        latest_mood = mood
+      if problem:
+        latest_problem = problem
+    return {"mood": latest_mood, "problem": latest_problem}
+
+  def _rebuild_exchange_counts_from_messages(self, messages: Any) -> dict[str, list[int]]:
+    if not isinstance(messages, list):
+      return {}
+    rebuilt: dict[str, list[int]] = {}
+    previous_patient_stage: Stage | Literal[""] = ""
+    for message in messages:
+      if not isinstance(message, dict):
+        continue
+      if ensure_str(message.get("role")).strip().lower() != "patient":
+        continue
+      raw_stage = normalize_stage_name(message.get("stage"))
+      if not raw_stage:
+        continue
+      stage = cast(Stage, raw_stage)
+      history = rebuilt.setdefault(stage, [])
+      if not history or previous_patient_stage != stage:
+        history.append(0)
+      history[-1] = int(history[-1]) + 1
+      previous_patient_stage = stage
+    return rebuilt
+
+  def _trace_tib_route_bucket(self, trace: Any) -> str:
+    payload = self._trace_step_payload(trace, "tib_check")
+    route_bucket = ensure_str(payload.get("route_bucket")).strip().lower()
+    if route_bucket in {"none", "end_session", "avoidance", "other"}:
+      return route_bucket
+    return ""
+
+  def _trace_predicted_band(self, trace: Any) -> str | None:
+    payload = self._trace_step_payload(trace, "resistance_prediction")
+    value = payload.get("new_p", payload.get("p_target"))
+    try:
+      return self._current_band(float(value))
+    except (TypeError, ValueError):
+      return None
+
+  def _infer_resume_streak_counters(self, messages: Any, traces: Any) -> tuple[int, int]:
+    if not isinstance(messages, list) or not isinstance(traces, list):
+      return 0, 0
+
+    therapist_traces = {
+      self._coerce_utterance_index(trace): trace
+      for trace in traces
+      if ensure_str(trace.get("speaker")).strip().lower() == "therapist"
+    }
+
+    preconsecutive_turns = 0
+    cami_recovery_turns = 0
+    for idx, message in enumerate(messages):
+      if not isinstance(message, dict):
+        continue
+      if ensure_str(message.get("role")).strip().lower() != "therapist":
+        continue
+      if idx == 0 or not isinstance(messages[idx - 1], dict):
+        continue
+
+      previous_message = messages[idx - 1]
+      if ensure_str(previous_message.get("role")).strip().lower() != "patient":
+        continue
+
+      trace = therapist_traces.get(self._coerce_utterance_index(message))
+      if trace is None:
+        continue
+
+      route_bucket = self._trace_tib_route_bucket(trace)
+      inline_tib_suppressed = self._trace_has_step(trace, "address_tib_repeat_inline_suppressed")
+      if route_bucket and route_bucket != "none" and not inline_tib_suppressed:
+        if self._trace_has_step(trace, "resistance_handling_entry") or self._trace_has_step(trace, "mi_evaluation"):
+          preconsecutive_turns = 0
+          cami_recovery_turns = 0
+        continue
+
+      band = self._trace_predicted_band(trace)
+      if band is None:
+        continue
+
+      raw_stage_before = normalize_stage_name(previous_message.get("stage"))
+      stage_before = cast(Stage, raw_stage_before) if raw_stage_before else "opening"
+      if stage_before in MI_STAGES:
+        preconsecutive_turns = 0
+      elif band == "precontemplation":
+        preconsecutive_turns += 1
+      else:
+        preconsecutive_turns = 0
+
+      if stage_before == "mi_techniques_with_te":
+        if band == "precontemplation":
+          cami_recovery_turns = 0
+        else:
+          cami_recovery_turns += 1
+
+      if self._trace_has_step(trace, "resistance_handling_entry") or self._trace_has_step(trace, "mi_evaluation"):
+        preconsecutive_turns = 0
+        cami_recovery_turns = 0
+
+    return preconsecutive_turns, cami_recovery_turns
+
+  def _restore_active_address_tib_state_from_traces(self, state: SessionState) -> None:
+    latest_enter: dict[str, Any] = {}
+    latest_tib_check: dict[str, Any] = {}
+    latest_plan: dict[str, Any] = {}
+    traces = state.get("reasoning_traces")
+    if isinstance(traces, list):
+      for trace in reversed(traces):
+        if ensure_str(trace.get("speaker")).strip().lower() != "therapist":
+          continue
+        if not latest_enter:
+          latest_enter = self._trace_step_payload(trace, "address_tib_enter")
+        if not latest_tib_check:
+          latest_tib_check = self._trace_step_payload(trace, "tib_check")
+        if not latest_plan:
+          latest_plan = self._trace_step_payload(trace, "address_tib_plan_generation")
+        if latest_enter and latest_tib_check and latest_plan:
+          break
+
+    route_bucket = ensure_str((latest_enter or latest_tib_check).get("route_bucket")).strip().lower()
+    if route_bucket not in {"none", "end_session", "avoidance", "other"}:
+      route_bucket = "other" if latest_enter or latest_tib_check else "none"
+    state["address_tib_route_bucket"] = cast(TIBRouteBucket, route_bucket)
+    state["address_tib_name"] = ensure_str(
+      latest_enter.get("tib_name") or latest_tib_check.get("tib_name") or state.get("address_tib_name")
+    ).strip()
+    state["address_tib_description"] = ensure_str(
+      latest_tib_check.get("tib_description") or state.get("address_tib_description")
+    ).strip()
+    state["address_tib_reasoning"] = ensure_str(
+      latest_enter.get("reasoning") or latest_tib_check.get("reasoning") or state.get("address_tib_reasoning")
+    ).strip()
+    state["address_tib_plan"] = ensure_str(latest_plan.get("tib_plan") or state.get("address_tib_plan")).strip()
+
+    raw_resume_stage = normalize_stage_name(latest_enter.get("resume_stage") or state.get("address_tib_resume_stage"))
+    state["address_tib_resume_stage"] = cast(Stage, raw_resume_stage) if raw_resume_stage else ""
+    raw_resume_substage = normalize_substage_name(
+      latest_enter.get("resume_substage") or state.get("address_tib_resume_substage")
+    )
+    state["address_tib_resume_substage"] = cast(SubStage, raw_resume_substage) if raw_resume_substage else ""
 
   def _is_error_trace(self, trace: Any) -> bool:
     if not isinstance(trace, dict):

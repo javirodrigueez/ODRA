@@ -406,6 +406,185 @@ class TIBRoutingTest(unittest.TestCase):
     self.assertEqual(state["inline_tib_ack_name"], "")
     self.assertEqual(state["inline_tib_ack_description"], "")
 
+  def test_resume_state_rewinds_last_therapist_turn_and_recovers_prior_state(self) -> None:
+    builder = self._make_builder()
+    saved_state = {
+      "current_stage": "mi_techniques_with_te",
+      "current_substage": "mi_raise_cami_utterance",
+      "messages": [
+        {"utterance_index": 1, "role": "therapist", "content": "Hi.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 2, "role": "patient", "content": "I don't know.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 3, "role": "therapist", "content": "Let's address that skepticism first.", "stage": "address_tib", "substage": "tib_deliver"},
+        {"utterance_index": 4, "role": "patient", "content": "Maybe.", "stage": "address_tib", "substage": "tib_deliver"},
+        {"utterance_index": 5, "role": "therapist", "content": "What is the mood underneath that?", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 6, "role": "patient", "content": "Mostly doubt.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 7, "role": "therapist", "content": "Say more about what feels fixed.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 8, "role": "patient", "content": "It feels permanent.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 9, "role": "therapist", "content": "Where does it get in the way?", "stage": "opening", "substage": "open_problem"},
+        {"utterance_index": 10, "role": "patient", "content": "In school and day to day.", "stage": "opening", "substage": "open_problem"},
+        {"utterance_index": 11, "role": "therapist", "content": "Can we look at a recent example?", "stage": "opening", "substage": "open_problem"},
+        {"utterance_index": 12, "role": "patient", "content": "I passed a clinical exam and still felt like a fraud.", "stage": "opening", "substage": "open_problem"},
+        {"utterance_index": 13, "role": "therapist", "content": "If we treated that pass as evidence, what would shift?", "stage": "mi_techniques_with_te", "substage": "mi_raise_cami_utterance"},
+      ],
+      "patient_profile": {},
+      "reasoning_traces": [
+        {"utterance_index": 1, "speaker": "therapist", "traces": []},
+        {"utterance_index": 3, "speaker": "therapist", "traces": [
+          {"step": "tib_check", "output": '{"route_bucket": "other", "tib_name": "skepticism", "tib_description": "The patient doubts the process.", "reasoning": "The patient questions whether therapy will help."}'},
+          {"step": "address_tib_enter", "output": '{"route_bucket": "other", "tib_name": "skepticism", "resume_stage": "opening", "resume_substage": "open_mood", "reasoning": "The patient questions whether therapy will help."}'},
+          {"step": "resistance_prediction", "output": '{"new_p": 0.70}'}
+        ]},
+        {"utterance_index": 5, "speaker": "therapist", "traces": [
+          {"step": "resistance_prediction", "output": '{"new_p": 0.70}'} ,
+          {"step": "opening_info_update", "output": '{"mood": "skeptical", "problem": "discounting achievements"}'},
+          {"step": "opening_readiness_check", "output": '{"reasoning": "Need a clearer problem statement."}'}
+        ]},
+        {"utterance_index": 7, "speaker": "therapist", "traces": [
+          {"step": "resistance_prediction", "output": '{"new_p": 0.71}'} ,
+          {"step": "opening_readiness_check", "output": '{"reasoning": "Still need a more specific example."}'}
+        ]},
+        {"utterance_index": 9, "speaker": "therapist", "traces": [
+          {"step": "resistance_prediction", "output": '{"new_p": 0.72}'} ,
+          {"step": "opening_info_update", "output": '{"problem": "discounting achievements in school and daily life"}'},
+          {"step": "opening_readiness_check", "output": '{"reasoning": "We need one concrete recent situation."}'}
+        ]},
+        {"utterance_index": 11, "speaker": "therapist", "traces": [
+          {"step": "resistance_prediction", "output": '{"new_p": 0.75}'} ,
+          {"step": "opening_info_update", "output": '{"mood": "fatalistic", "problem": "discounting achievements and treating success as evidence of fraud"}'},
+          {"step": "opening_readiness_check", "output": '{"reasoning": "Need a concrete recent example."}'}
+        ]},
+        {"utterance_index": 13, "speaker": "therapist", "traces": [
+          {"step": "resistance_prediction", "output": '{"new_p": 0.81}'} ,
+          {"step": "opening_readiness_check", "output": '{"reasoning": "Opening cap reached, moving into CAMI."}'}
+        ]},
+        {"utterance_index": 13, "speaker": "system", "traces": [
+          {"step": "conversation_error", "input": "mi_techniques_with_te", "output": "boom"}
+        ]},
+      ],
+      "prompt_audit_records": [
+        {"utterance_index": 11, "speaker": "patient", "request_kind": "patient_utterance", "prompt_tokens": 9000, "input_prompt": "patient"},
+        {"utterance_index": 12, "speaker": "therapist", "request_kind": "therapist_utterance", "prompt_tokens": 9000, "input_prompt": "therapist"},
+      ],
+      "mi_context": [
+        {"utterance_index": 12, "role": "system_note", "content": "Opening fallback after 5 exchanges", "stage": "mi_techniques_with_te", "substage": "mi_choose_topic"},
+        {"utterance_index": 13, "role": "therapist", "content": "If we treated that pass as evidence, what would shift?", "stage": "mi_techniques_with_te", "substage": "mi_raise_cami_utterance"},
+      ],
+      "exchange_counts": {"opening": [1, 4], "address_tib": [1], "id_distortions": [0], "mi_techniques_with_te": [0]},
+      "active_exchange_stage": "mi_techniques_with_te",
+      "active_exchange_substage": "mi_raise_cami_utterance",
+      "predicted_resistance": 0.81,
+      "last_reasoning": "Opening cap reached, moving into CAMI.",
+      "opening_patient_mood": "fatalistic",
+      "opening_patient_problem": "discounting achievements and treating success as evidence of fraud",
+      "mi_active": True,
+      "preconsecutive_turns": 0,
+      "cami_recovery_turns": 0,
+      "conversation_rollup_summary": "Summary that includes the deleted therapist turn.",
+      "conversation_rollup_until_utterance_index": 13,
+      "opening_fallback_triggered": True,
+      "session_ended": True,
+      "session_ended_reason": "conversation_error",
+      "conversation_error": "boom",
+    }
+
+    resumed = builder.resume_state(saved_state, max_turns=12)
+
+    self.assertEqual(resumed["messages"][-1]["utterance_index"], 12)
+    self.assertEqual(resumed["messages"][-1]["role"], "patient")
+    self.assertEqual(resumed["current_stage"], "opening")
+    self.assertEqual(resumed["current_substage"], "open_problem")
+    self.assertEqual(resumed["active_exchange_stage"], "opening")
+    self.assertEqual(resumed["active_exchange_substage"], "open_problem")
+    self.assertEqual(resumed["predicted_resistance"], 0.75)
+    self.assertEqual(resumed["last_reasoning"], "Need a concrete recent example.")
+    self.assertEqual(resumed["opening_patient_mood"], "fatalistic")
+    self.assertEqual(resumed["opening_patient_problem"], "discounting achievements and treating success as evidence of fraud")
+    self.assertFalse(resumed["mi_active"])
+    self.assertEqual(resumed["preconsecutive_turns"], 4)
+    self.assertEqual(resumed["cami_recovery_turns"], 0)
+    self.assertFalse(resumed["session_ended"])
+    self.assertEqual(resumed["session_ended_reason"], "")
+    self.assertEqual(resumed["conversation_error"], "")
+    self.assertFalse(resumed["opening_fallback_triggered"])
+    self.assertEqual(resumed["conversation_rollup_summary"], "")
+    self.assertEqual(resumed["conversation_rollup_until_utterance_index"], 0)
+    self.assertEqual(resumed["mi_context"], [])
+    self.assertEqual(len(resumed["reasoning_traces"]), 6)
+    self.assertEqual(len(resumed["prompt_audit_records"]), 1)
+    self.assertEqual(resumed["prompt_audit_records"][0]["speaker"], "patient")
+    self.assertEqual(resumed["exchange_counts"], {"opening": [1, 4], "address_tib": [1]})
+    self.assertNotIn("id_distortions", resumed["exchange_counts"])
+    self.assertNotIn("mi_techniques_with_te", resumed["exchange_counts"])
+
+  def test_resume_state_rewinds_address_tib_exit_artifacts(self) -> None:
+    builder = self._make_builder()
+    saved_state = {
+      "current_stage": "opening",
+      "current_substage": "open_mood",
+      "messages": [
+        {"utterance_index": 1, "role": "therapist", "content": "Hi.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 2, "role": "patient", "content": "This feels pointless.", "stage": "opening", "substage": "open_mood"},
+        {"utterance_index": 3, "role": "therapist", "content": "Let's address that first.", "stage": "address_tib", "substage": "tib_deliver"},
+        {"utterance_index": 4, "role": "patient", "content": "Fine.", "stage": "address_tib", "substage": "tib_deliver"},
+        {"utterance_index": 5, "role": "therapist", "content": "Okay, back to what brought you in.", "stage": "opening", "substage": "open_mood"},
+      ],
+      "patient_profile": {},
+      "reasoning_traces": [
+        {"utterance_index": 1, "speaker": "therapist", "traces": []},
+        {"utterance_index": 3, "speaker": "therapist", "traces": [
+          {"step": "tib_check", "output": '{"route_bucket": "other", "tib_name": "skepticism", "tib_description": "The patient doubts the therapy will help.", "reasoning": "The patient explicitly questions the process."}'},
+          {"step": "address_tib_enter", "output": '{"route_bucket": "other", "tib_name": "skepticism", "resume_stage": "opening", "resume_substage": "open_mood", "reasoning": "The patient explicitly questions the process."}'},
+          {"step": "address_tib_plan_generation", "output": '{"tib_plan": "Acknowledge the concern and reconnect to the session goal."}'},
+          {"step": "resistance_prediction", "output": '{"new_p": 0.60}'}
+        ]},
+        {"utterance_index": 5, "speaker": "therapist", "traces": [
+          {"step": "address_tib_exit", "output": '{"tib_name": "skepticism", "resume_stage": "opening", "resume_substage": "open_mood"}'},
+          {"step": "resistance_prediction", "output": '{"new_p": 0.55}'}
+        ]},
+      ],
+      "address_tib_route_bucket": "none",
+      "address_tib_name": "",
+      "address_tib_description": "",
+      "address_tib_reasoning": "",
+      "address_tib_plan": "",
+      "address_tib_resume_stage": "",
+      "address_tib_resume_substage": "",
+      "resume_context_active": True,
+      "resume_context_from_stage": "address_tib",
+      "resume_context_reason": "single_turn_complete",
+      "resume_context_subject": "TIB name: skepticism",
+      "last_completed_address_tib_name": "skepticism",
+      "last_completed_address_tib_route_bucket": "other",
+      "last_completed_address_tib_no_reroute_active": True,
+      "exchange_counts": {"opening": [1, 0], "address_tib": [1]},
+      "active_exchange_stage": "opening",
+      "active_exchange_substage": "open_mood",
+      "predicted_resistance": 0.55,
+      "session_ended": True,
+      "session_ended_reason": "conversation_error",
+      "conversation_error": "boom",
+    }
+
+    resumed = builder.resume_state(saved_state, max_turns=12)
+
+    self.assertEqual(resumed["messages"][-1]["utterance_index"], 4)
+    self.assertEqual(resumed["current_stage"], "address_tib")
+    self.assertEqual(resumed["current_substage"], "tib_deliver")
+    self.assertEqual(resumed["active_exchange_stage"], "address_tib")
+    self.assertEqual(resumed["active_exchange_substage"], "tib_deliver")
+    self.assertEqual(resumed["address_tib_name"], "skepticism")
+    self.assertEqual(resumed["address_tib_description"], "The patient doubts the therapy will help.")
+    self.assertEqual(resumed["address_tib_plan"], "Acknowledge the concern and reconnect to the session goal.")
+    self.assertEqual(resumed["address_tib_resume_stage"], "opening")
+    self.assertEqual(resumed["address_tib_resume_substage"], "open_mood")
+    self.assertFalse(resumed["resume_context_active"])
+    self.assertEqual(resumed["resume_context_from_stage"], "")
+    self.assertEqual(resumed["last_completed_address_tib_name"], "")
+    self.assertFalse(resumed["last_completed_address_tib_no_reroute_active"])
+    self.assertFalse(resumed["session_ended"])
+    self.assertEqual(resumed["conversation_error"], "")
+    self.assertEqual(resumed["exchange_counts"], {"opening": [1], "address_tib": [1]})
+
   def test_resume_state_normalizes_legacy_patient_demand_shape(self) -> None:
     builder = self._make_builder()
     saved_state = {

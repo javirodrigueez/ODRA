@@ -1,9 +1,0 @@
-Predict the change in your resistance level towards therapy for the next turn given the last therapist utterance during topic exploration.
-
-The current patient's resistance is {resistance}, your presenting problem is: {presenting_problem}, your reason for seeking counseling is: {reason_for_seeking_counseling}, and the last therapist utterance is: {last_utterance}.
-The therapist currently seems focused on the topic {perceived_topic}. Your real motivation topic is {motivation_topic}. Your inferred engagement level with that focus is {engagement_level}.
-
-Use the <engagement> block as the main explanation of how aligned or misaligned the therapist's topic feels with what actually matters to you. Let that alignment strongly influence the predicted resistance update.
-
-Your prediction should be a float bounded by -0.10 and +0.15. Additionally, provide your reasoning for this update.
-Respond JSON: {{"r_change": 0.0, "reasoning":"..."}}

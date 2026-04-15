@@ -1,4 +1,4 @@
-Generate your next utterance during CAMI resistance handling using the next information and guidelines.
+Generate your next utterance using the next information and guidelines.
 
 Stage instruction
 {patient_utterance_instruction}

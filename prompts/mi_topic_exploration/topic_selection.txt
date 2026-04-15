@@ -1,8 +1,0 @@
-Select the next motivational interviewing topic to explore from this available set: {available_topics}.
-The patient's opening problem summary, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_problem', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
-Choose the topic that is most likely to motivate the patient to change, by connecting the patient's current struggle to a concrete life area.
-Respond in JSON format with the following structure:
-{{
-  "topic": string,
-  "reasoning": string
-}}

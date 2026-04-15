@@ -15,7 +15,7 @@ Ground-truth motivation topic
 Ground-truth motivation
 {motivation_text}
 
-Current engagement level
+Current engagement level, ranging from 1 (low) to 4 (high)
 {engagement_level}
 
 Write a concise first-person analysis explaining how aligned or misaligned the therapist's current focus feels with your real motivation, and why. Ground it in the perceived topic and your motivation. Do not mention numeric engagement levels.

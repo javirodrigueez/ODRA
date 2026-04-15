@@ -567,6 +567,7 @@ class TherapyGraphBuilder(
       )
       payload = self._require_dict(update, "resistance_update")
       delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+      print(f"    <DEBUG>Predicted resistance change (delta_llm): {delta_llm:.4f}</DEBUG>") #devlog
       resistance_update = self._apply_homeostatic_resistance_update(
         previous_r=s["resistance"],
         delta_llm=delta_llm,
@@ -575,6 +576,7 @@ class TherapyGraphBuilder(
       )
       s["resistance"] = resistance_update["new_r"]
       s["last_patient_resistance_update_reasoning"] = ensure_str(payload.get("reasoning"))
+      print(f"    <DEBUG>Resistance reasoning: {s['last_patient_resistance_update_reasoning']}</DEBUG>") #devlog
       trace_payload = dict(payload)
       trace_payload.update(resistance_update)
       self._set_last_trace_output(traces, "resistance_update", trace_payload)
