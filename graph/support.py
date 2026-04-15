@@ -141,6 +141,9 @@ class GraphSupportMixin:
       {
         "max_turns": int(max_turns),
         "min_turns": int(min_turns),
+        "long_session_turn_threshold": int(
+          getattr(self.cfg.env, "long_session_turn_threshold", 70)
+        ),
       }
     )
 
@@ -160,6 +163,9 @@ class GraphSupportMixin:
         self._rewind_last_resumed_therapist_turn(resumed)
     resumed["max_turns"] = int(max_turns)
     resumed["min_turns"] = int(min_turns)
+    resumed["long_session_turn_threshold"] = int(
+      resumed.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70))
+    )
     return self._ensure_state_defaults(resumed)
 
   def _rewind_last_resumed_therapist_turn(self, state: SessionState) -> None:
@@ -631,6 +637,8 @@ class GraphSupportMixin:
     s.setdefault("mi_techniques_used", [])
     s.setdefault("current_mi_technique_selection", [])
     s.setdefault("mi_techniques_paused_until_precontemplation", False)
+    s.setdefault("long_session_mi_route_to_homework_pending", False)
+    s.setdefault("long_session_timeout_instruction_pending", False)
     s.setdefault("current_mi_topic", "")
     s.setdefault("last_mi_predicted_resistance", s["predicted_resistance"])
     s.setdefault("last_mi_topic_action", "")
@@ -765,6 +773,9 @@ class GraphSupportMixin:
 
     s["max_turns"] = int(s.get("max_turns", getattr(self.cfg.env, "max_turns", 80)))
     s["min_turns"] = int(s.get("min_turns", getattr(self.cfg.env, "min_turns", 0)))
+    s["long_session_turn_threshold"] = int(
+      s.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70))
+    )
     self._ensure_stage_exchange_counter(s, stage)
     return s
 
@@ -1226,10 +1237,47 @@ class GraphSupportMixin:
     source_stage = ensure_str(state.get("tib_redirect_source_stage"), "unknown stage")
     suffix = (
       " Before moving forward, briefly acknowledge the patient's wish to stop, step back, or change focus "
-      f"in a natural therapist voice. This was a TIB reroute with level='{level}' from {source_stage}. "
+      f"in a natural therapist voice. This was a TIB reroute from {source_stage}. "
       "Then continue with the current stage goal smoothly, without sounding abrupt, defensive, or scripted."
     )
     return f"{text} {suffix}"
+
+  def _long_session_turn_threshold(self, state: SessionState) -> int:
+    threshold = int(state.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70)))
+    return max(0, threshold)
+
+  def _long_session_threshold_reached(self, state: SessionState) -> bool:
+    return int(state.get("utterance_index", 0)) >= self._long_session_turn_threshold(state)
+
+  def _long_session_mi_timeout_applies_to_current_utterance(self, state: SessionState) -> bool:
+    if state.get("long_session_timeout_instruction_pending"):
+      return True
+    return (
+      state["current_stage"] == "closing"
+      and state["current_substage"] == "closing_fallback"
+      and ensure_str(state.get("session_ended_reason")) == "max_turns_forced_closing"
+    )
+
+  def _instruction_with_long_session_timeout(self, state: SessionState, instruction: str) -> tuple[str, bool]:
+    text = ensure_str(instruction)
+    if not self._long_session_mi_timeout_applies_to_current_utterance(state):
+      return text, False
+
+    stage = state["current_stage"]
+    suffix = (
+      " Briefly and naturally acknowledge that time is running short for this session."
+      " Keep the tone warm, concise, and low-pressure, and do not sound abrupt, mechanical, or overly apologetic."
+    )
+    if stage in {"mi_techniques", "mi_techniques_with_te"}:
+      suffix += (
+        " Use this utterance to wrap up the current motivational-interviewing segment and smoothly orient the patient"
+        " toward the last part of today's session rather than continuing this line of exploration."
+      )
+    else:
+      suffix += (
+        " Close for today rather than reopening the session or introducing new therapeutic work."
+      )
+    return f"{text}{suffix}", True
 
   def _resume_context_applies_to_current_utterance(self, state: SessionState) -> bool:
     if not state.get("resume_context_active"):
@@ -1292,9 +1340,13 @@ class GraphSupportMixin:
   def _generate_therapist_utterance(self, state: SessionState, instruction: str) -> str:
     tib_adjusted_instruction = self._instruction_with_tib_redirect(state, instruction)
     resume_adjusted_instruction, used_resume_context = self._instruction_with_resume_context(state, tib_adjusted_instruction)
-    enriched_instruction, used_inline_tib_ack = self._instruction_with_inline_tib_ack(
+    inline_tib_adjusted_instruction, used_inline_tib_ack = self._instruction_with_inline_tib_ack(
       state,
       resume_adjusted_instruction,
+    )
+    enriched_instruction, used_long_session_timeout = self._instruction_with_long_session_timeout(
+      state,
+      inline_tib_adjusted_instruction,
     )
     record_large_prompt_request(
       state,
@@ -1309,6 +1361,8 @@ class GraphSupportMixin:
       session_context=self._build_stage_user_context(state),
       instruction=enriched_instruction,
     )
+    if used_long_session_timeout and state.get("long_session_timeout_instruction_pending"):
+      state["long_session_timeout_instruction_pending"] = False
     if used_inline_tib_ack or state.get("inline_tib_ack_name"):
       self._clear_inline_tib_ack(state)
     if used_resume_context or state.get("resume_context_active"):
@@ -1779,6 +1833,8 @@ class GraphSupportMixin:
       return
     threshold = max(0, state["max_turns"] - 2)
     if state["utterance_index"] >= threshold:
-      self._set_stage(state, "forced_closing")
-      if not state["session_ended_reason"]:
-        state["session_ended_reason"] = "max_turns_forced_closing"
+      state["long_session_mi_route_to_homework_pending"] = False
+      state["long_session_timeout_instruction_pending"] = False
+      self._set_stage(state, "closing", "closing_fallback")
+      state["final_patient_pending_end"] = True
+      state["session_ended_reason"] = "max_turns_forced_closing"

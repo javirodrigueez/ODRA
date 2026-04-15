@@ -96,6 +96,14 @@ class ClosingStageMixin(GraphSupportMixin):
       state["final_patient_pending_end"] = True
       if not state["session_ended_reason"]:
         state["session_ended_reason"] = "closing_fallback"
+      if state["session_ended_reason"] == "max_turns_forced_closing":
+        traces.append(
+          {
+            "step": "max_turns_forced_closing",
+            "input": f"Reached max_turns threshold ({state['max_turns']}).",
+            "output": "Routing hard-cap close through closing fallback with timeout framing.",
+          }
+        )
       instruction = self._load_stage_prompt("closing", "fallback_utterance")
       return self._generate_closing_utterance(state, instruction)
 

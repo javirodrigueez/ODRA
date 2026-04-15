@@ -71,6 +71,7 @@ def normalize_runtime_config(cfg: Any) -> Any:
     raise ValueError("Config block 'env' must be a mapping.")
   env.setdefault("max_turns", 80)
   env.setdefault("min_turns", 0)
+  env.setdefault("long_session_turn_threshold", 70)
   env.setdefault("output_dir", "")
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")

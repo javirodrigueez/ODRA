@@ -178,6 +178,10 @@ class TechniqueStageMixin(GraphSupportMixin):
     state["technique_turn_count"] = 0
 
   def _handle_cbt_technique(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    if not state["selected_techniques"] and self._long_session_threshold_reached(state):
+      self._set_stage(state, "homework")
+      return self._handle_stage_dispatch(state, traces)
+
     if not state["selected_techniques"]:
       self._set_substage(state, "cbt_select_techniques")
     elif state["current_technique_plan"] and state["technique_turn_count"] > 0:
@@ -205,6 +209,10 @@ class TechniqueStageMixin(GraphSupportMixin):
 
     # Decide whether to continue with techniques or move to homework.
     if current_substage == "cbt_decide_next":
+      if self._long_session_threshold_reached(state) and not state["current_technique_plan"]:
+        self._set_stage(state, "homework")
+        return self._handle_stage_dispatch(state, traces)
+
       max_techniques = state["techniques_completed"] >= 5
       enough_techniques = state["techniques_completed"] >= 3 and not state["current_technique_plan"]
       are_techniques_completed = state["current_technique_index"] >= len(state["selected_techniques"])

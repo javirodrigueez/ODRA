@@ -185,6 +185,23 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     band = self._current_band(state["predicted_resistance"], state)
     self._update_preconsecutive_turns(state, band)
 
+    if stage in {"mi_techniques", "mi_techniques_with_te"} and state["long_session_mi_route_to_homework_pending"]:
+      state["long_session_mi_route_to_homework_pending"] = False
+      state["mi_active"] = False
+      state["current_mi_technique_selection"] = []
+      self._set_stage(state, "homework")
+      traces.append(
+        {
+          "step": "long_session_mi_homework_handoff",
+          "input": f"Reached long-session threshold at utterance {state['utterance_index']}.",
+          "output": "Routing directly from MI to homework after the timeout-style MI exit utterance.",
+        }
+      )
+      return
+
+    if stage in {"mi_techniques", "mi_techniques_with_te"} and self._long_session_threshold_reached(state):
+      return
+
     if stage == "opening":
       return
 
@@ -241,6 +258,19 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       return
 
   def _handle_mi_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    long_session_exit = self._long_session_threshold_reached(state)
+    if long_session_exit:
+      state["long_session_timeout_instruction_pending"] = True
+      state["long_session_mi_route_to_homework_pending"] = True
+      self._set_substage(state, "mi_choose_technique")
+      traces.append(
+        {
+          "step": "long_session_mi_exit",
+          "input": f"Reached long-session threshold ({state['long_session_turn_threshold']}) during legacy MI.",
+          "output": "Generating one timeout-style MI exit utterance, then handing off to homework.",
+        }
+      )
+
     if state["current_substage"] == "mi_transition_to_cbt":
       resume_stage = state["cbt_resume_stage"] or "id_distortions"
       instruction = self._load_stage_prompt(
@@ -251,7 +281,7 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
       return self._generate_therapist_utterance(state, instruction)
 
     band = self._current_band(state["predicted_resistance"], state)
-    if band == "action":
+    if band == "action" and not long_session_exit:
       self._evaluate_mi_and_resume(state, traces, note="MI techniques reached action")
       return self._handle_stage_dispatch(state, traces)
 
@@ -286,6 +316,18 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     raise ConversationProcessingError(f"Unexpected MI technique substage: {current_substage}")
 
   def _handle_mi_techniques_with_te(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
+    if self._long_session_threshold_reached(state):
+      state["long_session_timeout_instruction_pending"] = True
+      state["long_session_mi_route_to_homework_pending"] = True
+      self._set_substage(state, "mi_choose_topic")
+      traces.append(
+        {
+          "step": "long_session_cami_exit",
+          "input": f"Reached long-session threshold ({state['long_session_turn_threshold']}) during CAMI.",
+          "output": "Generating one timeout-style CAMI exit utterance, then handing off to homework.",
+        }
+      )
+
     if state["current_substage"] == "mi_transition_to_cbt":
       resume_stage = state["cbt_resume_stage"] or "id_distortions"
       instruction = self._load_stage_prompt(
@@ -439,13 +481,7 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     return self._load_stage_prompt("anticipated_closing", "final_utterance")
 
   def _handle_forced_closing(self, state: SessionState, traces: list[dict[str, Any]]) -> str:
-    state["final_patient_pending_end"] = True
     state["session_ended_reason"] = "max_turns_forced_closing"
-    traces.append(
-      {
-        "step": "max_turns_forced_closing",
-        "input": f"Reached max_turns threshold ({state['max_turns']}).",
-        "output": "Triggering brief forced closing exchange.",
-      }
-    )
-    return self._load_stage_prompt("forced_closing", "final_utterance")
+    state["final_patient_pending_end"] = True
+    self._set_stage(state, "closing", "closing_fallback")
+    return self._handle_closing(state, traces)

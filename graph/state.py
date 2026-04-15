@@ -285,6 +285,8 @@ class SessionState(TypedDict):
   mi_techniques_used: list[str]
   current_mi_technique_selection: list[str]
   mi_techniques_paused_until_precontemplation: bool
+  long_session_mi_route_to_homework_pending: bool
+  long_session_timeout_instruction_pending: bool
   current_mi_topic: str
   last_mi_predicted_resistance: float | None
   last_mi_topic_action: str
@@ -341,3 +343,4 @@ class SessionState(TypedDict):
 
   max_turns: int
   min_turns: int
+  long_session_turn_threshold: int

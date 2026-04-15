@@ -89,6 +89,7 @@ if "openai" not in sys.modules:
   sys.modules["openai"] = openai_module
 
 from graph.graph import TherapyGraphBuilder
+from runtime_config import normalize_runtime_config
 
 
 class MIRoutingTest(unittest.TestCase):
@@ -96,7 +97,12 @@ class MIRoutingTest(unittest.TestCase):
     builder = TherapyGraphBuilder.__new__(TherapyGraphBuilder)
     builder.profile = {}
     builder.cfg = SimpleNamespace(
-      env=SimpleNamespace(max_turns=12, min_turns=0, resistance_handling=resistance_handling),
+      env=SimpleNamespace(
+        max_turns=12,
+        min_turns=0,
+        long_session_turn_threshold=70,
+        resistance_handling=resistance_handling,
+      ),
       topic_exploration=SimpleNamespace(patient_classifier_path="", patient_wikipedia_dir=""),
     )
     builder.mi_techniques = {"Open Question": "Ask an open question."}
@@ -203,6 +209,118 @@ class MIRoutingTest(unittest.TestCase):
     self.assertEqual(state["current_mi_topic"], "Employment")
     self.assertEqual(state["mi_topic_stack"], ["Economy", "Employment"])
     self.assertEqual(state["mi_topics_tried"], ["Economy", "Employment"])
+
+  def test_runtime_config_sets_default_long_session_threshold(self) -> None:
+    cfg = normalize_runtime_config({"env": {}})
+    self.assertEqual(cfg["env"]["long_session_turn_threshold"], 70)
+
+  def test_runtime_config_preserves_custom_long_session_threshold(self) -> None:
+    cfg = normalize_runtime_config({"env": {"long_session_turn_threshold": 55}})
+    self.assertEqual(cfg["env"]["long_session_turn_threshold"], 55)
+
+  def test_initial_state_uses_configured_long_session_threshold(self) -> None:
+    builder = self._make_builder()
+    builder.cfg.env.long_session_turn_threshold = 33
+
+    state = builder.initial_state(max_turns=12)
+
+    self.assertEqual(state["long_session_turn_threshold"], 33)
+
+  def test_resume_state_preserves_saved_long_session_threshold(self) -> None:
+    builder = self._make_builder()
+    saved_state = builder.initial_state(max_turns=12)
+    saved_state["long_session_turn_threshold"] = 44
+
+    resumed = builder.resume_state(saved_state, max_turns=12)
+
+    self.assertEqual(resumed["long_session_turn_threshold"], 44)
+
+  def test_mi_timeout_instruction_applies_only_when_pending(self) -> None:
+    builder = self._make_builder()
+    state = self._make_state(builder, stage="mi_techniques", predicted_resistance=0.8)
+    state["current_substage"] = "mi_raise_technique"
+
+    unchanged, used = builder._instruction_with_long_session_timeout(state, "base")
+    self.assertEqual(unchanged, "base")
+    self.assertFalse(used)
+
+    state["long_session_timeout_instruction_pending"] = True
+    enriched, used = builder._instruction_with_long_session_timeout(state, "base")
+
+    self.assertIn("time is running short for this session", enriched)
+    self.assertTrue(used)
+
+  def test_hard_cap_closing_fallback_uses_timeout_instruction(self) -> None:
+    builder = self._make_builder()
+    state = self._make_state(builder, stage="closing", predicted_resistance=0.2)
+    state["current_stage"] = "closing"
+    state["current_substage"] = "closing_fallback"
+    state["session_ended_reason"] = "max_turns_forced_closing"
+
+    enriched, used = builder._instruction_with_long_session_timeout(state, "closing/fallback_utterance")
+
+    self.assertTrue(used)
+    self.assertIn("Close for today", enriched)
+
+  def test_pre_stage_routing_moves_pending_mi_timeout_to_homework(self) -> None:
+    builder = self._make_builder()
+    state = self._make_state(builder, stage="mi_techniques", predicted_resistance=0.8)
+    state["long_session_mi_route_to_homework_pending"] = True
+
+    builder._handle_pre_stage_routing(state, [])
+
+    self.assertEqual(state["current_stage"], "homework")
+    self.assertFalse(state["long_session_mi_route_to_homework_pending"])
+
+  def test_mi_threshold_marks_timeout_exit_and_defers_homework_handoff(self) -> None:
+    builder = self._make_builder()
+    state = self._make_state(builder, stage="mi_techniques", predicted_resistance=0.8)
+    state["long_session_turn_threshold"] = 5
+    state["utterance_index"] = 5
+    state["current_substage"] = "mi_choose_technique"
+    captured: list[str] = []
+    def _select_techniques(state: dict, traces: list[dict], **kwargs: str) -> list[str]:
+      state["current_mi_technique_selection"] = ["Open Question"]
+      state["mi_techniques_used"].append("Open Question")
+      return ["Open Question"]
+    builder._select_mi_techniques = _select_techniques
+    def _generate(state: dict, instruction: str) -> str:
+      captured.append(instruction)
+      state["long_session_timeout_instruction_pending"] = False
+      return instruction
+    builder._generate_therapist_utterance = _generate
+
+    result = builder._handle_mi_techniques(state, [])
+
+    self.assertEqual(result, "mi_techniques/raise_technique_utterance")
+    self.assertEqual(captured, ["mi_techniques/raise_technique_utterance"])
+    self.assertTrue(state["long_session_mi_route_to_homework_pending"])
+    self.assertFalse(state["long_session_timeout_instruction_pending"])
+
+  def test_cami_threshold_marks_timeout_exit_and_defers_homework_handoff(self) -> None:
+    builder = self._make_builder(resistance_handling="cami")
+    state = self._make_state(builder, stage="mi_techniques_with_te", predicted_resistance=0.8)
+    state["long_session_turn_threshold"] = 5
+    state["utterance_index"] = 5
+    state["mi_topic_stack"] = ["Work"]
+    state["current_mi_topic"] = "Work"
+    builder._select_next_mi_topic = lambda *args, **kwargs: None
+    builder._mi_topic_exploration_exhausted = lambda *args, **kwargs: False
+    def _select_techniques(state: dict, traces: list[dict], **kwargs: str) -> list[str]:
+      state["current_mi_technique_selection"] = ["Open Question"]
+      state["mi_techniques_used"].append("Open Question")
+      return ["Open Question"]
+    builder._select_mi_techniques = _select_techniques
+    def _generate(state: dict, instruction: str) -> str:
+      state["long_session_timeout_instruction_pending"] = False
+      return instruction
+    builder._generate_therapist_utterance = _generate
+
+    result = builder._handle_mi_techniques_with_te(state, [])
+
+    self.assertEqual(result, "mi_techniques_with_te/raise_utterance")
+    self.assertTrue(state["long_session_mi_route_to_homework_pending"])
+    self.assertFalse(state["long_session_timeout_instruction_pending"])
 
 
 if __name__ == "__main__":
