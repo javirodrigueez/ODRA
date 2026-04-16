@@ -242,9 +242,9 @@ class MIRoutingTest(unittest.TestCase):
     cfg = normalize_runtime_config({"env": {}})
 
     self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_turns"], 5)
-    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_min_delta"], -0.2)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_min_delta"], -0.3)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_max_delta"], 0.3)
-    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.1)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.15)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_later_max_delta"], 0.15)
 
   def test_runtime_config_preserves_custom_long_session_threshold(self) -> None:

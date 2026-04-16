@@ -44,6 +44,11 @@ Previous predicted resistance: 0.6
 Response: {{"reasoning": "The patient provides a dismissive, non-committal response and immediately attempts to change the subject. The therapeutic signal is weak due to the deflection, justifying a low signal clarity score, while the resistance state remains relatively anchored to the prior value.", "signal_clarity": 0.2, "p_target": 0.65}}
 
 Example 6:
+Patient utterance: "Maybe I would've stayed a second longer, maybe even tried to say 'have a good day' or something. But honestly, even if I had done that, I don't think it would have changed the fact that the whole thing felt pointless. It still would have been a transaction, not a connection. So, I'm not sure what that proves."
+Previous predicted resistance: 0.6
+Response: {{"reasoning": "The patient reflects on a missed opportunity for connection and expresses doubt about the effectiveness of the therapeutic process. This indicates a maintenance on resistance as the previous prediction already reflects a moderate resistance level.", "signal_clarity": 0.9, "p_target": 0.6}}
+
+Example 7:
 Patient utterance: "This is a complete waste of my time. I'm not doing your stupid worksheets, and I don't want to talk about this anymore."
 Previous predicted resistance: 0.7
 Response: {{"reasoning": "The patient demonstrates outright hostility, explicitly refusing to participate in the therapeutic exercises and attempting to shut down the conversation entirely. This maps perfectly to the highest tier of defiance and non-compliance.", "signal_clarity": 1.0, "p_target": 0.95}}

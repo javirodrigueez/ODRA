@@ -26,6 +26,6 @@ env:
   min_turns: 60
   output_dir: out/tests-16_04
   verbose: true
-  resume_file:
+  resume_file: out/tests-16_04/simulation_41_neutral_halved.json
   resistance_handling: none
   long_session_turn_threshold: 70
