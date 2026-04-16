@@ -40,6 +40,13 @@ def _load_profiles(profiles_path: str) -> list[dict[str, Any]]:
   raise ValueError(f"Unsupported profiles payload in {profiles_path}")
 
 
+def _resolve_profiles_path(cli_profiles_path: str | None, cfg_profiles_path: Any) -> str:
+  profiles_path = str(cli_profiles_path or cfg_profiles_path or "").strip()
+  if not profiles_path:
+    raise ValueError("Patient profiles path is required. Pass --profiles-path or set patient.profiles in the config.")
+  return profiles_path
+
+
 def _load_resume_state(resume_path: str) -> dict[str, Any]:
   with open(resume_path, "r", encoding="utf-8") as f:
     payload = json.load(f)
@@ -438,6 +445,7 @@ def run_simulation(
 def main(
   cfg_path: str,
   *,
+  profiles_path: str | None = None,
   n_profiles: int | None = None,
   resume_from_json: str | None = None,
   run_eval: bool = False,
@@ -482,7 +490,7 @@ def main(
   if not output_dir:
     raise ValueError("cfg.env.output_dir is required for profile batch simulation manifests.")
 
-  profiles_path = str(cfg.patient.profiles)
+  profiles_path = _resolve_profiles_path(profiles_path, cfg.patient.profiles)
   profiles, duplicate_idxs = _deduplicate_profiles(_load_profiles(profiles_path))
   grouped = _group_profiles_by_attitude(profiles)
   manifests = _initialize_manifests(
@@ -535,6 +543,7 @@ def main(
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="Run CBT therapy simulation")
   parser.add_argument("--cfg", type=str, default="configs/bedrock.yaml", help="YAML configuration file.")
+  parser.add_argument("--profiles-path", type=str, default=None, help="Path to patient profiles JSON/JSONL. Overrides patient.profiles in the config.")
   parser.add_argument("--n-profiles", type=int, default=None, help="Run only N new profiles from the loaded profile set.")
   parser.add_argument("--resume-from-json", type=str, default=None, help="Resume a batch from an execution manifest JSON.")
   parser.add_argument("--eval", action="store_true", help="Evaluate all included attitudes after simulations finish.")
@@ -542,6 +551,7 @@ if __name__ == "__main__":
   args = parser.parse_args()
   main(
     args.cfg,
+    profiles_path=args.profiles_path,
     n_profiles=args.n_profiles,
     resume_from_json=args.resume_from_json,
     run_eval=args.eval,

@@ -96,6 +96,7 @@ from simulation import (
   _manifest_path,
   _mark_profile_result,
   _matching_simulation_files,
+  _resolve_profiles_path,
   _select_profiles_to_execute,
   _write_manifest,
 )
@@ -194,6 +195,16 @@ class SimulationBatchingTest(unittest.TestCase):
       matches = _matching_simulation_files(base, "neutral")
 
       self.assertEqual([path.name for path in matches], ["simulation_1_neutral.json"])
+
+  def test_resolve_profiles_path_prefers_cli_value(self) -> None:
+    self.assertEqual(
+      _resolve_profiles_path("cli_profiles.json", "config_profiles.json"),
+      "cli_profiles.json",
+    )
+
+  def test_resolve_profiles_path_requires_cli_or_config_value(self) -> None:
+    with self.assertRaisesRegex(ValueError, "--profiles-path"):
+      _resolve_profiles_path(None, "")
 
 
 if __name__ == "__main__":
