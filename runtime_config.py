@@ -75,6 +75,11 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("output_dir", "")
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")
+  env.setdefault("resistance_prediction_clip_initial_turns", 5)
+  env.setdefault("resistance_prediction_clip_initial_min_delta", -0.2)
+  env.setdefault("resistance_prediction_clip_initial_max_delta", 0.3)
+  env.setdefault("resistance_prediction_clip_later_min_delta", -0.1)
+  env.setdefault("resistance_prediction_clip_later_max_delta", 0.15)
   resistance_handling = str(env.get("resistance_handling", "mi_techniques") or "mi_techniques").strip().lower()
   if resistance_handling not in {"none", "mi_techniques", "cami"}:
     resistance_handling = "mi_techniques"

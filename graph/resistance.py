@@ -115,6 +115,14 @@ class TherapistResistanceUpdate(TypedDict):
   new_p: float
   prediction_mode: NotRequired[str]
   previous_p: NotRequired[float]
+  prediction_turn: NotRequired[int]
+  unclipped_new_p: NotRequired[float]
+  unclipped_delta: NotRequired[float | None]
+  clipped_delta: NotRequired[float | None]
+  delta_clip_min: NotRequired[float | None]
+  delta_clip_max: NotRequired[float | None]
+  delta_clip_window: NotRequired[str]
+  delta_clip_applied: NotRequired[bool]
 
 
 class PatientResistanceState(TypedDict):
@@ -437,3 +445,57 @@ def apply_bayesian_predicted_resistance_update(
     "signal_clarity": bounded_clarity,
     "new_p": new_p,
   }
+
+
+def apply_predicted_resistance_delta_clip(
+  prediction_update: Mapping[str, Any],
+  previous_p: float | None,
+  prediction_turn: int,
+  initial_turns: int = 5,
+  initial_min_delta: float = -0.2,
+  initial_max_delta: float = 0.3,
+  later_min_delta: float = -0.1,
+  later_max_delta: float = 0.15,
+) -> TherapistResistanceUpdate:
+  clipped_update = cast(TherapistResistanceUpdate, dict(prediction_update))
+  unclipped_new_p = round(_coerce_bounded_float(clipped_update.get("new_p"), 0.0, 0.0, 1.0), 4)
+  clipped_update["new_p"] = unclipped_new_p
+  clipped_update["prediction_turn"] = max(1, int(prediction_turn))
+  clipped_update["unclipped_new_p"] = unclipped_new_p
+
+  if previous_p is None:
+    clipped_update["unclipped_delta"] = None
+    clipped_update["clipped_delta"] = None
+    clipped_update["delta_clip_min"] = None
+    clipped_update["delta_clip_max"] = None
+    clipped_update["delta_clip_window"] = "initial_prediction_exempt"
+    clipped_update["delta_clip_applied"] = False
+    return clipped_update
+
+  bounded_previous = round(_coerce_bounded_float(previous_p, 0.0, 0.0, 1.0), 4)
+  normalized_initial_turns = max(1, int(initial_turns))
+  if clipped_update["prediction_turn"] <= normalized_initial_turns:
+    min_delta = float(initial_min_delta)
+    max_delta = float(initial_max_delta)
+    window = "initial"
+  else:
+    min_delta = float(later_min_delta)
+    max_delta = float(later_max_delta)
+    window = "later"
+
+  if min_delta > max_delta:
+    min_delta, max_delta = max_delta, min_delta
+
+  unclipped_delta = round(unclipped_new_p - bounded_previous, 4)
+  clipped_delta = round(_clamp(unclipped_delta, min_delta, max_delta), 4)
+  clipped_new_p = round(_clamp(bounded_previous + clipped_delta, 0.0, 1.0), 4)
+
+  clipped_update["previous_p"] = bounded_previous
+  clipped_update["new_p"] = clipped_new_p
+  clipped_update["unclipped_delta"] = unclipped_delta
+  clipped_update["clipped_delta"] = clipped_delta
+  clipped_update["delta_clip_min"] = round(min_delta, 4)
+  clipped_update["delta_clip_max"] = round(max_delta, 4)
+  clipped_update["delta_clip_window"] = window
+  clipped_update["delta_clip_applied"] = clipped_delta != unclipped_delta
+  return clipped_update

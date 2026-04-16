@@ -31,3 +31,8 @@ env:
   resume_file:
   resistance_handling:
   long_session_turn_threshold:
+  resistance_prediction_clip_initial_turns:
+  resistance_prediction_clip_initial_min_delta:
+  resistance_prediction_clip_initial_max_delta:
+  resistance_prediction_clip_later_min_delta:
+  resistance_prediction_clip_later_max_delta:

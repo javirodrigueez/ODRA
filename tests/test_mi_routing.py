@@ -238,9 +238,37 @@ class MIRoutingTest(unittest.TestCase):
     cfg = normalize_runtime_config({"env": {}})
     self.assertEqual(cfg["env"]["long_session_turn_threshold"], 70)
 
+  def test_runtime_config_sets_default_resistance_prediction_clip_values(self) -> None:
+    cfg = normalize_runtime_config({"env": {}})
+
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_turns"], 5)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_min_delta"], -0.2)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_max_delta"], 0.3)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.1)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_max_delta"], 0.15)
+
   def test_runtime_config_preserves_custom_long_session_threshold(self) -> None:
     cfg = normalize_runtime_config({"env": {"long_session_turn_threshold": 55}})
     self.assertEqual(cfg["env"]["long_session_turn_threshold"], 55)
+
+  def test_runtime_config_preserves_custom_resistance_prediction_clip_values(self) -> None:
+    cfg = normalize_runtime_config(
+      {
+        "env": {
+          "resistance_prediction_clip_initial_turns": 4,
+          "resistance_prediction_clip_initial_min_delta": -0.25,
+          "resistance_prediction_clip_initial_max_delta": 0.35,
+          "resistance_prediction_clip_later_min_delta": -0.05,
+          "resistance_prediction_clip_later_max_delta": 0.12,
+        }
+      }
+    )
+
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_turns"], 4)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_min_delta"], -0.25)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_max_delta"], 0.35)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.05)
+    self.assertEqual(cfg["env"]["resistance_prediction_clip_later_max_delta"], 0.12)
 
   def test_initial_state_uses_configured_long_session_threshold(self) -> None:
     builder = self._make_builder()
@@ -249,6 +277,40 @@ class MIRoutingTest(unittest.TestCase):
     state = builder.initial_state(max_turns=12)
 
     self.assertEqual(state["long_session_turn_threshold"], 33)
+
+  def test_resistance_prediction_turn_uses_patient_message_count(self) -> None:
+    builder = self._make_builder()
+    state = builder.initial_state(max_turns=12)
+    state["messages"] = [
+      {"utterance_index": 1, "role": "therapist", "content": "T1", "stage": "opening", "substage": "open_mood"},
+      {"utterance_index": 2, "role": "patient", "content": "P1", "stage": "opening", "substage": "open_mood"},
+      {"utterance_index": 3, "role": "therapist", "content": "T2", "stage": "opening", "substage": "open_mood"},
+      {"utterance_index": 4, "role": "patient", "content": "P2", "stage": "opening", "substage": "open_mood"},
+      {"utterance_index": 5, "role": "therapist", "content": "T3", "stage": "opening", "substage": "open_mood"},
+      {"utterance_index": 6, "role": "patient", "content": "P3", "stage": "opening", "substage": "open_mood"},
+    ]
+    state["reasoning_traces"] = []
+    state = builder._ensure_state_defaults(state)
+
+    self.assertEqual(builder._current_resistance_prediction_turn(state), 3)
+
+  def test_resistance_prediction_turn_uses_existing_prediction_traces_as_fallback(self) -> None:
+    builder = self._make_builder()
+    state = builder.initial_state(max_turns=12)
+    state["messages"] = [
+      {"utterance_index": 1, "role": "patient", "content": "P1", "stage": "opening", "substage": "open_mood"},
+    ]
+    state["reasoning_traces"] = [
+      {
+        "utterance_index": index,
+        "speaker": "therapist",
+        "traces": [{"step": "resistance_prediction", "input": "x", "output": "{}"}],
+      }
+      for index in (2, 4, 6, 8, 10)
+    ]
+    state = builder._ensure_state_defaults(state)
+
+    self.assertEqual(builder._current_resistance_prediction_turn(state), 6)
 
   def test_resume_state_preserves_saved_long_session_threshold(self) -> None:
     builder = self._make_builder()

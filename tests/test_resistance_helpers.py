@@ -3,6 +3,7 @@ import unittest
 
 from graph.resistance import (
   action_prior_for_resistance,
+  apply_predicted_resistance_delta_clip,
   can_select_terminate_action,
   constrain_action_distribution_for_utterance,
   fallback_action_distribution_for_resistance,
@@ -47,6 +48,96 @@ class ResistanceHelpersTest(unittest.TestCase):
     for raw_value, expected in cases.items():
       with self.subTest(raw_value=raw_value):
         self.assertEqual(resistance_interval_for_level(raw_value), expected)
+
+  def test_predicted_resistance_delta_clip_exempts_initial_prediction(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {
+        "prediction_mode": "initial_from_first_patient_utterance",
+        "p_target": 0.8,
+        "signal_clarity": 0.9,
+        "new_p": 0.8,
+      },
+      previous_p=None,
+      prediction_turn=1,
+    )
+
+    self.assertEqual(update["new_p"], 0.8)
+    self.assertEqual(update["unclipped_new_p"], 0.8)
+    self.assertIsNone(update["unclipped_delta"])
+    self.assertIsNone(update["clipped_delta"])
+    self.assertIsNone(update["delta_clip_min"])
+    self.assertIsNone(update["delta_clip_max"])
+    self.assertEqual(update["delta_clip_window"], "initial_prediction_exempt")
+    self.assertFalse(update["delta_clip_applied"])
+
+  def test_predicted_resistance_delta_clip_uses_initial_upper_bound(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {"p_target": 0.9, "signal_clarity": 1.0, "new_p": 0.8},
+      previous_p=0.2,
+      prediction_turn=2,
+    )
+
+    self.assertEqual(update["new_p"], 0.5)
+    self.assertEqual(update["unclipped_new_p"], 0.8)
+    self.assertEqual(update["unclipped_delta"], 0.6)
+    self.assertEqual(update["clipped_delta"], 0.3)
+    self.assertEqual(update["delta_clip_window"], "initial")
+    self.assertTrue(update["delta_clip_applied"])
+
+  def test_predicted_resistance_delta_clip_uses_initial_lower_bound(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {"p_target": 0.1, "signal_clarity": 1.0, "new_p": 0.1},
+      previous_p=0.8,
+      prediction_turn=2,
+    )
+
+    self.assertEqual(update["new_p"], 0.6)
+    self.assertEqual(update["unclipped_delta"], -0.7)
+    self.assertEqual(update["clipped_delta"], -0.2)
+    self.assertEqual(update["delta_clip_window"], "initial")
+    self.assertTrue(update["delta_clip_applied"])
+
+  def test_predicted_resistance_delta_clip_uses_later_upper_bound(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {"p_target": 0.9, "signal_clarity": 1.0, "new_p": 0.8},
+      previous_p=0.2,
+      prediction_turn=6,
+    )
+
+    self.assertEqual(update["new_p"], 0.35)
+    self.assertEqual(update["unclipped_delta"], 0.6)
+    self.assertEqual(update["clipped_delta"], 0.15)
+    self.assertEqual(update["delta_clip_window"], "later")
+    self.assertTrue(update["delta_clip_applied"])
+
+  def test_predicted_resistance_delta_clip_uses_later_lower_bound(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {"p_target": 0.1, "signal_clarity": 1.0, "new_p": 0.1},
+      previous_p=0.8,
+      prediction_turn=6,
+    )
+
+    self.assertEqual(update["new_p"], 0.7)
+    self.assertEqual(update["unclipped_delta"], -0.7)
+    self.assertEqual(update["clipped_delta"], -0.1)
+    self.assertEqual(update["delta_clip_window"], "later")
+    self.assertTrue(update["delta_clip_applied"])
+
+  def test_predicted_resistance_delta_clip_leaves_in_range_delta_unchanged(self) -> None:
+    update = apply_predicted_resistance_delta_clip(
+      {"p_target": 0.5, "signal_clarity": 1.0, "new_p": 0.5},
+      previous_p=0.4,
+      prediction_turn=6,
+    )
+
+    self.assertEqual(update["new_p"], 0.5)
+    self.assertEqual(update["unclipped_new_p"], 0.5)
+    self.assertEqual(update["unclipped_delta"], 0.1)
+    self.assertEqual(update["clipped_delta"], 0.1)
+    self.assertEqual(update["delta_clip_min"], -0.1)
+    self.assertEqual(update["delta_clip_max"], 0.15)
+    self.assertEqual(update["delta_clip_window"], "later")
+    self.assertFalse(update["delta_clip_applied"])
 
   def test_action_prior_lookup_uses_interval_distribution(self) -> None:
     self.assertEqual(

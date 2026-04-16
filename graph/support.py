@@ -26,6 +26,7 @@ from .resistance import (
   TherapistResistanceUpdate,
   apply_homeostatic_resistance_update,
   apply_bayesian_predicted_resistance_update,
+  apply_predicted_resistance_delta_clip,
   normalize_predicted_resistance_state_fields,
   normalize_resistance_state_fields,
 )
@@ -1814,6 +1815,31 @@ class GraphSupportMixin:
         return msg["content"]
     return ""
 
+  def _current_resistance_prediction_turn(self, state: SessionState) -> int:
+    patient_turns = sum(
+      1
+      for message in state.get("messages", [])
+      if isinstance(message, dict) and ensure_str(message.get("role")).strip().lower() == "patient"
+    )
+    completed_prediction_traces = sum(
+      1
+      for trace in state.get("reasoning_traces", [])
+      if isinstance(trace, dict) and self._trace_has_step(trace, "resistance_prediction")
+    )
+    return max(1, patient_turns, completed_prediction_traces + 1)
+
+  def _env_int(self, name: str, default: int) -> int:
+    try:
+      return int(getattr(self.cfg.env, name, default))
+    except (TypeError, ValueError):
+      return default
+
+  def _env_float(self, name: str, default: float) -> float:
+    try:
+      return float(getattr(self.cfg.env, name, default))
+    except (TypeError, ValueError):
+      return default
+
   def _run_resistance_prediction(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     previous_p = state["predicted_resistance"]
     instruction = self._load_stage_prompt(
@@ -1827,6 +1853,16 @@ class GraphSupportMixin:
     p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0)
     signal_clarity = self._require_bounded_float(payload, "signal_clarity", "resistance_prediction", 0.0, 1.0)
     prediction_update = self._apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
+    prediction_update = apply_predicted_resistance_delta_clip(
+      prediction_update,
+      previous_p,
+      self._current_resistance_prediction_turn(state),
+      initial_turns=self._env_int("resistance_prediction_clip_initial_turns", 5),
+      initial_min_delta=self._env_float("resistance_prediction_clip_initial_min_delta", -0.2),
+      initial_max_delta=self._env_float("resistance_prediction_clip_initial_max_delta", 0.3),
+      later_min_delta=self._env_float("resistance_prediction_clip_later_min_delta", -0.1),
+      later_max_delta=self._env_float("resistance_prediction_clip_later_max_delta", 0.15),
+    )
     state["predicted_resistance"] = prediction_update["new_p"]
     trace_payload = dict(payload)
     trace_payload.update(prediction_update)
