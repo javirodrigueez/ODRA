@@ -80,10 +80,12 @@ def _simulation_output_paths(output_dir: str | Path, profile: dict[str, Any]) ->
   idx = _profile_idx(profile)
   attitude = _profile_attitude(profile)
   base = Path(output_dir)
-  base_json = base / "json" / f"simulation_{idx}_{attitude}.json"
+  base_json = base / "json" 
   base_json.mkdir(parents=True, exist_ok=True)
-  base_txt = base / "transcripts" / f"simulation_{idx}_{attitude}.txt"
+  base_json = base_json / f"simulation_{idx}_{attitude}.json"
+  base_txt = base / "transcripts" 
   base_txt.parent.mkdir(parents=True, exist_ok=True)
+  base_txt = base_txt / f"simulation_{idx}_{attitude}.txt"
 
   return (
     base_txt,
