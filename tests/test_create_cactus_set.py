@@ -57,6 +57,37 @@ def _complete_rows(case_count: int) -> list[dict]:
   return rows
 
 
+def _write_seed_file(path: Path, pairs: list[tuple[str, str]]) -> None:
+  payload = [
+    {
+      "AI_client": {
+        "intake_form": _intake_form(name),
+        "attitude": attitude,
+      }
+    }
+    for name, attitude in pairs
+  ]
+  path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _session_payload(name: str = "Rebecca Finch", attitude: str = "negative") -> dict:
+  return {
+    "example": {
+      "AI_client": {
+        "intake_form": _intake_form(name),
+        "attitude": attitude,
+      },
+      "ground_truth_CBT": ["Alternative Perspective"],
+    },
+    "cbt_technique": "CBT technique:Decatastrophizing",
+    "history": [
+      {"role": "counselor", "message": "Hello, how are you feeling today?"},
+      {"role": "client", "message": "I feel worried about work."},
+      {"role": "counselor", "message": "Let's slow down and look at that thought."},
+    ],
+  }
+
+
 class CreateCactusSetTest(unittest.TestCase):
   def test_parse_dialogue_normalizes_roles(self) -> None:
     messages = create_cactus_set.parse_dialogue(
@@ -148,6 +179,126 @@ class CreateCactusSetTest(unittest.TestCase):
 
       records = run_batch_metrics.discover_conversations(output_dir)
       self.assertEqual(len(records), 60)
+
+  def test_seed_file_writes_referenced_name_attitude_pairs(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      seed_file = base / "evaluation.json"
+      output_dir = base / "out"
+      _write_seed_file(
+        seed_file,
+        [
+          ("Patient 1", "positive"),
+          ("Patient 1", "neutral"),
+          ("Patient 1", "negative"),
+          ("Patient 1", "positive"),
+        ],
+      )
+      rows = [
+        _row(1, "positive", "Reality Testing"),
+        _row(1, "neutral", "Reality Testing"),
+        _row(1, "negative", "Reality Testing"),
+        _row(1, "positive", "Alternative Perspective"),
+        _row(2, "positive", "Reality Testing"),
+      ]
+
+      summary = create_cactus_set.write_cactus_set_from_seed_file(rows, output_dir, seed_file)
+
+      self.assertEqual(summary["seed_references"], 4)
+      self.assertEqual(summary["written_files"], 4)
+      self.assertEqual(summary["ambiguous_matches"], 2)
+      self.assertEqual(
+        sorted(summary["files"]),
+        [
+          "simulation_0_positive.json",
+          "simulation_0_positive_seed_3.json",
+          "simulation_1_neutral.json",
+          "simulation_2_negative.json",
+        ],
+      )
+
+      first_positive = json.loads(
+        (output_dir / "simulation_0_positive.json").read_text(encoding="utf-8")
+      )
+      duplicate_positive = json.loads(
+        (output_dir / "simulation_0_positive_seed_3.json").read_text(encoding="utf-8")
+      )
+      self.assertEqual(first_positive["patient_profile"]["idx"], 0)
+      self.assertEqual(duplicate_positive["patient_profile"]["idx"], 0)
+      self.assertIn("Reality Testing", rows[first_positive["patient_profile"]["idx"]]["cbt_technique"])
+
+      records = run_batch_metrics.discover_conversations(output_dir)
+      self.assertEqual(len(records), 4)
+
+  def test_seed_file_reports_missing_pairs(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      seed_file = base / "evaluation.json"
+      _write_seed_file(seed_file, [("Missing Patient", "positive")])
+
+      with self.assertRaisesRegex(create_cactus_set.CactusSetError, "Missing Patient"):
+        create_cactus_set.write_cactus_set_from_seed_file(
+          [_row(1, "positive")],
+          base / "out",
+          seed_file,
+        )
+
+  def test_json_source_session_directory_writes_metric_compatible_files(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      source_dir = base / "sessions"
+      output_dir = base / "out"
+      source_dir.mkdir()
+      output_dir.mkdir()
+      (source_dir / "session_1_cactus.json").write_text(
+        json.dumps(_session_payload()),
+        encoding="utf-8",
+      )
+      (source_dir / "session 2.json").write_text(
+        json.dumps(_session_payload(name="Alex Carter", attitude="positive")),
+        encoding="utf-8",
+      )
+      stale_file = output_dir / "simulation_stale.json"
+      keep_file = output_dir / "notes.txt"
+      stale_file.write_text("{}", encoding="utf-8")
+      keep_file.write_text("{}", encoding="utf-8")
+
+      summary = create_cactus_set.write_cactus_set_from_json_source(source_dir, output_dir)
+
+      self.assertEqual(summary["source_files"], 2)
+      self.assertEqual(summary["written_files"], 2)
+      self.assertEqual(summary["removed_files"], 1)
+      self.assertFalse(stale_file.exists())
+      self.assertTrue(keep_file.exists())
+      self.assertEqual(
+        sorted(summary["files"]),
+        ["simulation_session_1_cactus.json", "simulation_session_2.json"],
+      )
+
+      payload = json.loads(
+        (output_dir / "simulation_session_1_cactus.json").read_text(encoding="utf-8")
+      )
+      self.assertEqual(
+        payload["messages"],
+        [
+          {"role": "therapist", "content": "Hello, how are you feeling today?"},
+          {"role": "patient", "content": "I feel worried about work."},
+          {
+            "role": "therapist",
+            "content": "Let's slow down and look at that thought.",
+          },
+        ],
+      )
+      self.assertEqual(payload["patient_profile"]["attitude"], "negative")
+      self.assertEqual(payload["patient_profile"]["personal_info"]["name"], "Rebecca Finch")
+      self.assertIn("work", payload["patient_profile"]["presenting_problem"])
+
+      records = run_batch_metrics.discover_conversations(output_dir)
+      self.assertEqual(len(records), 2)
+      self.assertEqual(
+        sorted(record.filename for record in records),
+        ["simulation_session_1_cactus.json", "simulation_session_2.json"],
+      )
 
 
 if __name__ == "__main__":
