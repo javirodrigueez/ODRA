@@ -1,6 +1,5 @@
 import re
 import json
-import os
 import argparse
 
 ATTITUDES = ["positive", "neutral", "negative"]
@@ -15,60 +14,89 @@ def extract_line(key, full_text):
     match = re.search(pattern, full_text, re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
-def process_dataset(output_file):
+def load_huggingface_rows():
     from datasets import load_dataset
 
-    # 2. Load the dataset
     print("Loading dataset...")
     ds = load_dataset("LangAGI-Lab/cactus")
+    return ds["train"]
+
+def load_json_rows(json_source):
+    print(f"Loading JSON source: {json_source}")
+    with open(json_source, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"JSON source must contain a list of records: {json_source}")
+    return data
+
+def normalize_item(item):
+    ai_client = item.get("AI_client") if isinstance(item, dict) else None
+    if isinstance(ai_client, dict):
+        return {
+            "intake_form": ai_client.get("intake_form", ""),
+            "patterns": item.get("patterns", []),
+            "attitude": ai_client.get("attitude"),
+        }
+    return item
+
+def build_entry(idx, item, attitude):
+    text = item["intake_form"]
+    name = extract_line("Name", text)
+
+    personal_info = {
+        "name": name,
+        "age": extract_line("Age", text),
+        "gender": extract_line("Gender", text),
+        "occupation": extract_line("Occupation", text),
+        "education": extract_line("Education", text),
+        "marital_status": extract_line("Marital Status", text),
+        "family_details": extract_line("Family Details", text)
+    }
     
+    more_info = {
+        "past_history": extract_section("4. Past History", text),
+        "academic_occupational_functioning": extract_section("5. Academic/occupational functioning level", text),
+        "social_support_system": extract_section("6. Social Support System", text)
+    }
+    
+    return {
+        "idx": idx,
+        "personal_info": personal_info,
+        "presenting_problem": extract_section("2. Presenting Problem", text),
+        "reason_seeking_counseling": extract_section("3. Reason for Seeking Counseling", text),
+        "patterns": item.get("patterns", []),
+        "attitude": attitude,
+        "emotional_recovery": "moderate",
+        "more_information": more_info,
+    }
+
+def normalize_attitude(attitude):
+    return str(attitude or "").strip().lower()
+
+def process_dataset(output_file, json_source=None):
+    source_rows = load_json_rows(json_source) if json_source else load_huggingface_rows()
     processed_data = []
 
-    print(f"Processing {len(ds['train'])} items...")
+    print(f"Processing {len(source_rows)} items...")
     added_seeds = set()
-    for idx, item in enumerate(ds["train"]):
+    for idx, raw_item in enumerate(source_rows):
+        item = normalize_item(raw_item)
         text = item["intake_form"]
         name = extract_line("Name", text)
-        
-        # Skip if we have already processed this seed (based on name)
-        if name in added_seeds:
-            continue
-        added_seeds.add(name)
 
-        personal_info = {
-            "name": name,
-            "age": extract_line("Age", text),
-            "gender": extract_line("Gender", text),
-            "occupation": extract_line("Occupation", text),
-            "education": extract_line("Education", text),
-            "marital_status": extract_line("Marital Status", text),
-            "family_details": extract_line("Family Details", text)
-        }
-        
-        more_info = {
-            "past_history": extract_section("4. Past History", text),
-            "academic_occupational_functioning": extract_section("5. Academic/occupational functioning level", text),
-            "social_support_system": extract_section("6. Social Support System", text)
-        }
-        
-        new_entry = {
-            "idx": idx,
-            "personal_info": personal_info,
-            "presenting_problem": extract_section("2. Presenting Problem", text),
-            "reason_seeking_counseling": extract_section("3. Reason for Seeking Counseling", text),
-            "patterns": item["patterns"],
-            "attitude": None,
-            "emotional_recovery": "moderate",
-            "more_information": more_info,
-        }
-        
-        for attitude in ATTITUDES:
-          attitude_entry = new_entry.copy()
-          attitude_entry["attitude"] = attitude
-          processed_data.append(attitude_entry)
+        if not json_source and name in added_seeds:
+            continue
+
+        if not json_source:
+            added_seeds.add(name)
+
+        source_attitude = normalize_attitude(item.get("attitude"))
+        attitudes = [source_attitude] if json_source and source_attitude else ATTITUDES
+        for attitude in attitudes:
+            processed_data.append(build_entry(idx, item, attitude))
 
     # 3. Save the results
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(processed_data, f, indent=2)
 
     print(f"Success! Saved to: {output_file}")
@@ -84,8 +112,13 @@ if __name__ == "__main__":
         default="data/processed_cactus.json", 
         help="The file where the processed JSON will be saved (default: data/processed_cactus.json)"
     )
+    parser.add_argument(
+        "--json-source",
+        type=str,
+        help="Optional local JSON source instead of loading LangAGI-Lab/cactus from Hugging Face."
+    )
 
     args = parser.parse_args()
     
     # Run the main processing function
-    process_dataset(args.output_file)
+    process_dataset(args.output_file, args.json_source)
