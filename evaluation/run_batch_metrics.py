@@ -394,21 +394,27 @@ def build_main_requests(
   before_payloads: dict[str, dict[str, Any]],
   model: str,
   max_iter: int,
+  excluded_metrics: set[str] | None = None,
 ) -> list[BatchRequest]:
   requests: list[BatchRequest] = []
+  excluded = excluded_metrics or set()
   ctrs_templates = {
     key: load_prompt(EVALUATION_ROOT / "CTRS" / "prompts" / f"{key}.txt")
     for key in CTRS_KEYS
-  }
+  } if "ctrs" not in excluded else {}
   wai_templates = {
     key: load_prompt(EVALUATION_ROOT / "WAI" / "prompts" / f"{key}.txt")
     for key in WAI_KEYS
-  }
-  panas_after_template = load_prompt(EVALUATION_ROOT / "PANAS" / "prompts" / "panas_after.txt")
+  } if "wai" not in excluded else {}
+  panas_after_template = (
+    load_prompt(EVALUATION_ROOT / "PANAS" / "prompts" / "panas_after.txt")
+    if "panas" not in excluded
+    else ""
+  )
 
   for index, record in enumerate(records):
     ctrs_output_file = Path("ctrs") / record.filename
-    if not output_is_complete("ctrs", output_dir / ctrs_output_file):
+    if "ctrs" not in excluded and not output_is_complete("ctrs", output_dir / ctrs_output_file):
       for key in CTRS_KEYS:
         prompt = render_template(ctrs_templates[key], {"conversation": record.history})
         requests.append(
@@ -424,7 +430,7 @@ def build_main_requests(
         )
 
     wai_output_file = Path("wai") / record.filename
-    if not output_is_complete("wai", output_dir / wai_output_file):
+    if "wai" not in excluded and not output_is_complete("wai", output_dir / wai_output_file):
       for key in WAI_KEYS:
         prompt = render_template(wai_templates[key], {"conversation": record.history})
         requests.append(
@@ -440,7 +446,7 @@ def build_main_requests(
         )
 
     panas_after_output_file = Path("panas_after") / record.filename
-    if not output_is_complete("panas_after", output_dir / panas_after_output_file):
+    if "panas" not in excluded and not output_is_complete("panas_after", output_dir / panas_after_output_file):
       before_payload = before_payloads.get(record.filename)
       if before_payload is None:
         raise BatchMetricsError(
@@ -708,6 +714,7 @@ def compute_signature(
   records: list[ConversationRecord],
   model: str,
   max_iter: int,
+  excluded_metrics: set[str] | None = None,
 ) -> dict[str, Any]:
   files = [
     {
@@ -723,6 +730,7 @@ def compute_signature(
     "output_dir": str(output_dir.resolve()),
     "model": model,
     "max_iter": max_iter,
+    "excluded_metrics": sorted(excluded_metrics or set()),
     "endpoint": BATCH_ENDPOINT,
     "files": files,
   }
@@ -849,15 +857,22 @@ def collect_existing_before_payloads(
   return payloads
 
 
-def build_skipped_summary(records: list[ConversationRecord], output_dir: Path) -> dict[str, list[str]]:
+def build_skipped_summary(
+  records: list[ConversationRecord],
+  output_dir: Path,
+  excluded_metrics: set[str] | None = None,
+) -> dict[str, list[str]]:
   skipped = {
     "ctrs": [],
     "wai": [],
     "panas_before": [],
     "panas_after": [],
   }
+  excluded = excluded_metrics or set()
   for record in records:
     for group in skipped:
+      if group in excluded or (group in {"panas_before", "panas_after"} and "panas" in excluded):
+        continue
       if output_is_complete(group, output_dir / group / record.filename):
         skipped[group].append(record.filename)
   return skipped
@@ -1117,6 +1132,9 @@ def run_batch_metrics(
   *,
   client: Any | None = None,
   model: str = MODEL_NAME,
+  exc_wai: bool = False,
+  exc_ctrs: bool = False,
+  exc_panas: bool = False,
   poll_interval: float = DEFAULT_POLL_INTERVAL,
   local_timeout_hours: float = DEFAULT_LOCAL_TIMEOUT_HOURS,
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
@@ -1133,18 +1151,32 @@ def run_batch_metrics(
   records = discover_conversations(input_path)
   records_by_filename = {record.filename: record for record in records}
   ensure_output_dirs(output_path)
+  excluded_metrics = {
+    metric
+    for metric, excluded in (
+      ("wai", exc_wai),
+      ("ctrs", exc_ctrs),
+      ("panas", exc_panas),
+    )
+    if excluded
+  }
 
-  signature = compute_signature(input_path, output_path, records, model, max_iter)
+  signature = compute_signature(input_path, output_path, records, model, max_iter, excluded_metrics)
   artifact_dir, manifest, resumed = load_or_create_manifest(output_path, signature)
   if not resumed:
-    manifest["skipped"] = build_skipped_summary(records, output_path)
+    manifest["excluded_metrics"] = sorted(excluded_metrics)
+    manifest["skipped"] = build_skipped_summary(records, output_path, excluded_metrics)
     save_manifest(artifact_dir, manifest)
 
   staged_outputs = load_staged_outputs(artifact_dir)
   active_client = client
 
   try:
-    phase1_specs = build_panas_before_requests(records, output_path, model, max_iter)
+    phase1_specs = (
+      []
+      if exc_panas
+      else build_panas_before_requests(records, output_path, model, max_iter)
+    )
     if active_client is None and phase_requires_client(manifest, "panas_before", phase1_specs):
       active_client = make_openai_client()
     run_phase(
@@ -1162,8 +1194,19 @@ def run_batch_metrics(
       staged_outputs,
     )
 
-    before_payloads = collect_existing_before_payloads(records, output_path, staged_outputs)
-    phase2_specs = build_main_requests(records, output_path, before_payloads, model, max_iter)
+    before_payloads = (
+      {}
+      if exc_panas
+      else collect_existing_before_payloads(records, output_path, staged_outputs)
+    )
+    phase2_specs = build_main_requests(
+      records,
+      output_path,
+      before_payloads,
+      model,
+      max_iter,
+      excluded_metrics,
+    )
     if active_client is None and phase_requires_client(manifest, "main", phase2_specs):
       active_client = make_openai_client()
     run_phase(
@@ -1225,6 +1268,9 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser.add_argument("--local-timeout-hours", type=float, default=DEFAULT_LOCAL_TIMEOUT_HOURS)
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
   parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
+  parser.add_argument("--exc-wai", action="store_true", help="Exclude WAI evaluation.")
+  parser.add_argument("--exc-ctrs", action="store_true", help="Exclude CTRS evaluation.")
+  parser.add_argument("--exc-panas", action="store_true", help="Exclude both PANAS-before and PANAS-after evaluation.")
   return parser.parse_args(argv)
 
 
@@ -1235,6 +1281,9 @@ def main(argv: Iterable[str] | None = None) -> int:
       args.input_dir,
       args.output_dir,
       args.max_iter,
+      exc_wai=args.exc_wai,
+      exc_ctrs=args.exc_ctrs,
+      exc_panas=args.exc_panas,
       poll_interval=args.poll_interval,
       local_timeout_hours=args.local_timeout_hours,
       input_cost_per_1m=args.input_cost_per_1m,
@@ -1246,10 +1295,14 @@ def main(argv: Iterable[str] | None = None) -> int:
 
   print("Batch evaluation completed.")
   print(f"Run artifacts: {Path(manifest['signature']['output_dir']) / '_batch_artifacts' / manifest['run_id']}")
-  print(f"CTRS results: {Path(manifest['signature']['output_dir']) / 'ctrs'}")
-  print(f"WAI results: {Path(manifest['signature']['output_dir']) / 'wai'}")
-  print(f"PANAS-before results: {Path(manifest['signature']['output_dir']) / 'panas_before'}")
-  print(f"PANAS-after results: {Path(manifest['signature']['output_dir']) / 'panas_after'}")
+  excluded_metrics = set(manifest.get("excluded_metrics") or [])
+  if "ctrs" not in excluded_metrics:
+    print(f"CTRS results: {Path(manifest['signature']['output_dir']) / 'ctrs'}")
+  if "wai" not in excluded_metrics:
+    print(f"WAI results: {Path(manifest['signature']['output_dir']) / 'wai'}")
+  if "panas" not in excluded_metrics:
+    print(f"PANAS-before results: {Path(manifest['signature']['output_dir']) / 'panas_before'}")
+    print(f"PANAS-after results: {Path(manifest['signature']['output_dir']) / 'panas_after'}")
   return 0
 
 
