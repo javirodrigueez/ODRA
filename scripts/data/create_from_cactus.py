@@ -2,7 +2,6 @@ import re
 import json
 import os
 import argparse
-from datasets import load_dataset
 
 ATTITUDES = ["positive", "neutral", "negative"]
 
@@ -17,6 +16,8 @@ def extract_line(key, full_text):
     return match.group(1).strip() if match else ""
 
 def process_dataset(output_file):
+    from datasets import load_dataset
+
     # 2. Load the dataset
     print("Loading dataset...")
     ds = load_dataset("LangAGI-Lab/cactus")
