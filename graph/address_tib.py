@@ -42,7 +42,7 @@ class AddressTIBStageMixin(GraphSupportMixin):
     resume_substage = state["address_tib_resume_substage"] or DEFAULT_SUBSTAGE_BY_STAGE[resume_stage]
     completion_note = completion_reason or "Addressed in the allotted single exchange turn."
     subject = self._build_address_tib_resume_subject(tib_name, tib_description, completion_note)
-    band = self._current_band(state["predicted_resistance"], state)
+    band = self._current_band(state["predicted_resistance"], state) if self._resistance_enabled() else None
 
     self._remember_completed_address_tib(state, route_bucket, tib_name)
     self._set_resume_context(state, "address_tib", exit_reason, subject)

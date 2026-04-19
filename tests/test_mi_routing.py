@@ -94,7 +94,7 @@ from runtime_config import normalize_runtime_config
 
 
 class MIRoutingTest(unittest.TestCase):
-  def _make_builder(self, *, resistance_handling: str = "mi_techniques") -> TherapyGraphBuilder:
+  def _make_builder(self, *, resistance_handling: str = "mi_techniques", resistance: bool = True) -> TherapyGraphBuilder:
     builder = TherapyGraphBuilder.__new__(TherapyGraphBuilder)
     builder.profile = {}
     builder.cfg = SimpleNamespace(
@@ -103,6 +103,7 @@ class MIRoutingTest(unittest.TestCase):
         min_turns=0,
         long_session_turn_threshold=70,
         resistance_handling=resistance_handling,
+        resistance=resistance,
       ),
       topic_exploration=SimpleNamespace(patient_classifier_path="", patient_wikipedia_dir=""),
     )
@@ -237,6 +238,19 @@ class MIRoutingTest(unittest.TestCase):
   def test_runtime_config_sets_default_long_session_threshold(self) -> None:
     cfg = normalize_runtime_config({"env": {}})
     self.assertEqual(cfg["env"]["long_session_turn_threshold"], 70)
+
+  def test_runtime_config_sets_default_resistance_enabled(self) -> None:
+    cfg = normalize_runtime_config({"env": {}})
+    self.assertTrue(cfg["env"]["resistance"])
+
+  def test_runtime_config_preserves_disabled_resistance(self) -> None:
+    cfg = normalize_runtime_config({"env": {"resistance": False}})
+    self.assertFalse(cfg["env"]["resistance"])
+
+  def test_disabled_resistance_overrides_resistance_handling_mode(self) -> None:
+    builder = self._make_builder(resistance_handling="cami", resistance=False)
+
+    self.assertEqual(builder._resistance_handling_mode(), "none")
 
   def test_runtime_config_sets_default_resistance_prediction_clip_values(self) -> None:
     cfg = normalize_runtime_config({"env": {}})

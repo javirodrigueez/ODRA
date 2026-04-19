@@ -70,6 +70,31 @@ class GraphSupportMixin:
   def _project_root(self) -> Path:
     return Path(__file__).resolve().parent.parent
 
+  def _env_value(self, name: str, default: Any) -> Any:
+    env = getattr(self.cfg, "env", {})
+    if isinstance(env, dict):
+      return env.get(name, default)
+    return getattr(env, name, default)
+
+  def _env_bool(self, name: str, default: bool) -> bool:
+    value = self._env_value(name, default)
+    if value is None:
+      return default
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, str):
+      normalized = value.strip().lower()
+      if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+      if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    if isinstance(value, (int, float)):
+      return bool(value)
+    return default
+
+  def _resistance_enabled(self) -> bool:
+    return self._env_bool("resistance", True)
+
   def _init_agents(self) -> None:
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
@@ -82,6 +107,7 @@ class GraphSupportMixin:
       patient_llm,
       self.profile,
       generation_defaults=extract_generation_config(self.cfg.patient),
+      resistance_enabled=self._resistance_enabled(),
     )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
@@ -143,7 +169,7 @@ class GraphSupportMixin:
         "max_turns": int(max_turns),
         "min_turns": int(min_turns),
         "long_session_turn_threshold": int(
-          getattr(self.cfg.env, "long_session_turn_threshold", 70)
+          self._env_value("long_session_turn_threshold", 70)
         ),
       }
     )
@@ -174,7 +200,7 @@ class GraphSupportMixin:
     resumed["max_turns"] = int(max_turns)
     resumed["min_turns"] = int(min_turns)
     resumed["long_session_turn_threshold"] = int(
-      resumed.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70))
+      resumed.get("long_session_turn_threshold", self._env_value("long_session_turn_threshold", 70))
     )
     return self._ensure_state_defaults(resumed)
 
@@ -355,6 +381,8 @@ class GraphSupportMixin:
     state["mi_context"] = pruned
 
   def _infer_latest_predicted_resistance_from_traces(self, traces: Any) -> tuple[bool, float | None]:
+    if not self._resistance_enabled():
+      return False, None
     if not isinstance(traces, list):
       return False, None
     for trace in reversed(traces):
@@ -380,7 +408,10 @@ class GraphSupportMixin:
       if ensure_str(trace.get("speaker")).strip().lower() != "therapist":
         continue
       for step in reversed(self._trace_steps(trace)):
-        payload = self._trace_step_payload({"traces": [step]}, ensure_str(step.get("step")))
+        step_name = ensure_str(step.get("step"))
+        if not self._resistance_enabled() and step_name == "resistance_prediction":
+          continue
+        payload = self._trace_step_payload({"traces": [step]}, step_name)
         reasoning = ensure_str(payload.get("reasoning")).strip()
         if reasoning:
           return reasoning
@@ -442,6 +473,8 @@ class GraphSupportMixin:
       return None
 
   def _infer_resume_streak_counters(self, messages: Any, traces: Any) -> tuple[int, int, int]:
+    if not self._resistance_enabled():
+      return 0, 0, 0
     if not isinstance(messages, list) or not isinstance(traces, list):
       return 0, 0, 0
 
@@ -796,13 +829,32 @@ class GraphSupportMixin:
     s.setdefault("conversation_error", "")
     s.setdefault("opening_fallback_triggered", False)
 
-    s["max_turns"] = int(s.get("max_turns", getattr(self.cfg.env, "max_turns", 80)))
-    s["min_turns"] = int(s.get("min_turns", getattr(self.cfg.env, "min_turns", 0)))
+    s["max_turns"] = int(s.get("max_turns", self._env_value("max_turns", 80)))
+    s["min_turns"] = int(s.get("min_turns", self._env_value("min_turns", 0)))
     s["long_session_turn_threshold"] = int(
-      s.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70))
+      s.get("long_session_turn_threshold", self._env_value("long_session_turn_threshold", 70))
     )
+    if not self._resistance_enabled():
+      self._clear_resistance_state_fields(s)
     self._ensure_stage_exchange_counter(s, stage)
     return s
+
+  def _clear_resistance_state_fields(self, state: SessionState) -> None:
+    state["resistance_baseline"] = None
+    state["resistance_recovery_rate"] = None
+    state["resistance"] = None
+    state["predicted_resistance"] = None
+    state["last_mi_predicted_resistance"] = None
+    state["last_patient_resistance_update_reasoning"] = ""
+    state["preconsecutive_turns"] = 0
+    state["mi_recovery_turns"] = 0
+    state["cami_recovery_turns"] = 0
+    state["last_patient_action"] = ""
+    state["last_patient_action_prior_distribution"] = cast(PatientActionDistribution, {})
+    state["last_patient_action_context_distribution"] = cast(PatientActionDistribution, {})
+    state["last_patient_action_distribution"] = cast(PatientActionDistribution, {})
+    for message in state["messages"]:
+      message["resistance"] = None
 
   def _set_stage(self, state: SessionState, stage: Stage, substage: Optional[SubStage] = None) -> None:
     previous_stage = ensure_str(state.get("current_stage"))
@@ -1076,7 +1128,6 @@ class GraphSupportMixin:
     stage = state["current_stage"]
     context: dict[str, Any] = {
       "current_stage": stage,
-      "predicted_resistance": state["predicted_resistance"],
       #"stage_exchange_count": self._current_stage_exchange_count(state, stage),
       #"stage_exchange_history": list(state["exchange_counts"].get(stage, [])),
       # "tib_redirect_triggered": state["tib_redirect_triggered"],
@@ -1094,6 +1145,8 @@ class GraphSupportMixin:
       # "mi_end_session_tib_redirect_used": state["mi_end_session_tib_redirect_used"],
       "last_patient_response": state["messages"][-1]["content"] if state["messages"] else "(no utterances yes)",
     }
+    if self._resistance_enabled():
+      context["predicted_resistance"] = state["predicted_resistance"]
 
     if stage == "opening":
       context.update(
@@ -1268,7 +1321,7 @@ class GraphSupportMixin:
     return f"{text} {suffix}"
 
   def _long_session_turn_threshold(self, state: SessionState) -> int:
-    threshold = int(state.get("long_session_turn_threshold", getattr(self.cfg.env, "long_session_turn_threshold", 70)))
+    threshold = int(state.get("long_session_turn_threshold", self._env_value("long_session_turn_threshold", 70)))
     return max(0, threshold)
 
   def _long_session_threshold_reached(self, state: SessionState) -> bool:
@@ -1413,7 +1466,10 @@ class GraphSupportMixin:
     stage: Stage,
     substage: SubStage,
   ) -> int:
-    resistance = state["predicted_resistance"] if role == "therapist" else state["resistance"]
+    if self._resistance_enabled():
+      resistance = state["predicted_resistance"] if role == "therapist" else state["resistance"]
+    else:
+      resistance = None
     state["utterance_index"] += 1
     state["messages"].append(
       {
@@ -1590,7 +1646,9 @@ class GraphSupportMixin:
     return max(known_ids, default=0) + 1
 
   def _resistance_handling_mode(self) -> Literal["none", "mi_techniques", "cami"]:
-    raw_mode = ensure_str(getattr(self.cfg.env, "resistance_handling", "mi_techniques"))
+    if not self._resistance_enabled():
+      return "none"
+    raw_mode = ensure_str(self._env_value("resistance_handling", "mi_techniques"))
     normalized = raw_mode.strip().lower()
     if normalized in {"none", "mi_techniques", "cami"}:
       return cast(Literal["none", "mi_techniques", "cami"], normalized)
@@ -1830,17 +1888,20 @@ class GraphSupportMixin:
 
   def _env_int(self, name: str, default: int) -> int:
     try:
-      return int(getattr(self.cfg.env, name, default))
+      return int(self._env_value(name, default))
     except (TypeError, ValueError):
       return default
 
   def _env_float(self, name: str, default: float) -> float:
     try:
-      return float(getattr(self.cfg.env, name, default))
+      return float(self._env_value(name, default))
     except (TypeError, ValueError):
       return default
 
   def _run_resistance_prediction(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
+    if not self._resistance_enabled():
+      state["predicted_resistance"] = None
+      return
     previous_p = state["predicted_resistance"]
     instruction = self._load_stage_prompt(
       "shared",

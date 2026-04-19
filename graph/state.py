@@ -234,9 +234,9 @@ class SessionState(TypedDict):
   messages: list[ConversationMessage]
 
   patient_profile: dict[str, Any]
-  resistance_baseline: float
-  resistance_recovery_rate: float
-  resistance: float
+  resistance_baseline: float | None
+  resistance_recovery_rate: float | None
+  resistance: float | None
   predicted_resistance: float | None
   last_patient_resistance_update_reasoning: str
   last_patient_action: PatientAction | Literal[""]

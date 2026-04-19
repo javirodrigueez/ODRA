@@ -76,6 +76,10 @@ if "omegaconf" not in sys.modules:
     def is_config(config) -> bool:
       return False
 
+    @staticmethod
+    def create(config):
+      return config
+
   omegaconf_module.OmegaConf = _OmegaConf
   sys.modules["omegaconf"] = omegaconf_module
 
@@ -176,6 +180,24 @@ class TIBRoutingTest(unittest.TestCase):
     self.assertTrue(state["mi_end_session_tib_redirect_used"])
     self.assertTrue(state["tib_redirect_triggered"])
     self.assertEqual(state["tib_redirect_level"], "yes")
+
+  def test_disabled_resistance_still_routes_end_session_tib(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": True,
+        "tib_name": "end_session",
+        "tib_description": "The patient says they want to stop for today.",
+        "reasoning": "This is an explicit request to end the session.",
+      }
+    )
+    builder.cfg.env.resistance = False
+    state = self._make_state(builder, stage="opening", substage="open_problem")
+
+    bucket = builder._maybe_handle_tib(state, [])
+
+    self.assertEqual(bucket, "end_session")
+    self.assertEqual(state["current_stage"], "meta_conversation")
+    self.assertTrue(state["mi_end_session_tib_redirect_used"])
 
   def test_exact_avoidance_routes_like_old_item_move(self) -> None:
     builder = self._make_builder(
@@ -288,6 +310,142 @@ class TIBRoutingTest(unittest.TestCase):
     self.assertEqual(updated["address_tib_description"], "")
     self.assertEqual(updated["address_tib_plan"], "")
     self.assertEqual(updated["reasoning_traces"][-1]["traces"][0]["step"], "address_tib_exit")
+
+  def test_disabled_resistance_therapist_turn_keeps_tib_check_and_skips_prediction(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": False,
+        "tib_name": "none",
+        "tib_description": None,
+        "reasoning": "No interfering behavior is present.",
+      }
+    )
+    builder.cfg.env.resistance = False
+    tib_calls: list[str] = []
+    def _run_therapist_structured(state: dict, traces: list[dict], step_name: str, instruction: str):
+      tib_calls.append(step_name)
+      traces.append({"step": step_name, "input": instruction, "output": "{}"})
+      return {
+        "has_tib": False,
+        "tib_name": "none",
+        "tib_description": None,
+        "reasoning": "No interfering behavior is present.",
+      }
+    builder._run_therapist_structured = _run_therapist_structured
+    builder._run_resistance_prediction = (
+      lambda state, traces:
+      (_ for _ in ()).throw(AssertionError("resistance prediction should be skipped"))
+    )
+    builder._handle_pre_stage_routing = (
+      lambda state, traces:
+      (_ for _ in ()).throw(AssertionError("resistance routing should be skipped"))
+    )
+    builder._handle_stage_dispatch = lambda state, traces: "Therapist reply"
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+
+    updated = builder.therapist_turn(state)
+
+    self.assertEqual(updated["messages"][-1]["content"], "Therapist reply")
+    self.assertIsNone(updated["messages"][-1]["resistance"])
+    self.assertEqual(tib_calls, ["tib_check"])
+    trace_steps = [step["step"] for step in updated["reasoning_traces"][-1]["traces"]]
+    self.assertIn("tib_check", trace_steps)
+    self.assertNotIn("resistance_prediction", trace_steps)
+
+  def test_disabled_resistance_patient_turn_skips_update_and_action_sampling(self) -> None:
+    class _FakePatient:
+      def __init__(self) -> None:
+        self.last_instruction = ""
+        self.last_resistance_level = "unset"
+
+      def build_utterance_messages(self, **kwargs):
+        return [{"role": "user", "content": kwargs["instruction"]}]
+
+      def generate_utterance(self, **kwargs):
+        self.last_instruction = kwargs["instruction"]
+        self.last_resistance_level = kwargs["resistance_level"]
+        return "Patient reply"
+
+    builder = self._make_builder()
+    builder.cfg.env.resistance = False
+    fake_patient = _FakePatient()
+    builder.patient = fake_patient
+    builder._run_patient_structured = (
+      lambda *args, **kwargs:
+      (_ for _ in ()).throw(AssertionError("patient resistance update should be skipped"))
+    )
+    builder._select_patient_action = (
+      lambda *args, **kwargs:
+      (_ for _ in ()).throw(AssertionError("patient action selection should be skipped"))
+    )
+    state = self._make_state(builder, stage="opening", substage="open_mood")
+
+    updated = builder.patient_turn(state)
+
+    self.assertEqual(updated["messages"][-1]["content"], "Patient reply")
+    self.assertIsNone(updated["messages"][-1]["resistance"])
+    self.assertEqual(fake_patient.last_instruction, "shared/patient_utterance_core_weak")
+    self.assertIsNone(fake_patient.last_resistance_level)
+    trace_steps = [step["step"] for step in updated["reasoning_traces"][-1]["traces"]]
+    self.assertNotIn("resistance_update", trace_steps)
+    self.assertNotIn("patient_action_selection", trace_steps)
+
+  def test_resume_state_nulls_resistance_fields_when_disabled(self) -> None:
+    builder = self._make_builder()
+    builder.cfg.env.resistance = False
+    saved_state = {
+      "current_stage": "id_distortions",
+      "current_substage": "cognitive_review_active_question",
+      "messages": [
+        {
+          "utterance_index": 1,
+          "role": "therapist",
+          "content": "Let's look at the thought.",
+          "stage": "id_distortions",
+          "substage": "cognitive_review_active_question",
+          "resistance": 0.8,
+        },
+        {
+          "utterance_index": 2,
+          "role": "patient",
+          "content": "I guess.",
+          "stage": "id_distortions",
+          "substage": "cognitive_review_active_question",
+          "resistance": 0.7,
+        },
+      ],
+      "patient_profile": {},
+      "resistance": 0.7,
+      "resistance_baseline": 0.5,
+      "resistance_recovery_rate": 0.15,
+      "predicted_resistance": 0.8,
+      "preconsecutive_turns": 4,
+      "mi_recovery_turns": 2,
+      "cami_recovery_turns": 1,
+      "reasoning_traces": [
+        {
+          "utterance_index": 1,
+          "speaker": "therapist",
+          "traces": [
+            {
+              "step": "resistance_prediction",
+              "output": '{"new_p": 0.8, "reasoning": "high resistance"}',
+            }
+          ],
+        }
+      ],
+    }
+
+    resumed = builder.resume_state(saved_state, max_turns=12)
+
+    self.assertIsNone(resumed["resistance"])
+    self.assertIsNone(resumed["resistance_baseline"])
+    self.assertIsNone(resumed["resistance_recovery_rate"])
+    self.assertIsNone(resumed["predicted_resistance"])
+    self.assertEqual(resumed["preconsecutive_turns"], 0)
+    self.assertEqual(resumed["mi_recovery_turns"], 0)
+    self.assertEqual(resumed["cami_recovery_turns"], 0)
+    self.assertTrue(all(message.get("resistance") is None for message in resumed["messages"]))
 
   def test_same_tib_is_handled_inline_without_reroute(self) -> None:
     builder = self._make_builder(

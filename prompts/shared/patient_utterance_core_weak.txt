@@ -1,0 +1,9 @@
+Generate your next utterance using the next information and guidelines.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Guidelines:
+* Use the <attitude_towards_therapy> block as broad tone guidance.
+* Respond naturally to the therapist's latest utterance and the current stage instruction.
+* Do not mention the attitude label explicitly.

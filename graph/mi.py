@@ -117,6 +117,9 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     self._set_stage(state, transition_stage, "mi_transition_to_cbt")
 
   def _update_preconsecutive_turns(self, state: SessionState, band: str) -> None:
+    if not self._resistance_enabled():
+      state["preconsecutive_turns"] = 0
+      return
     if self._is_resistance_handling_stage(state["current_stage"]) or state["current_stage"] == "meta_conversation":
       state["preconsecutive_turns"] = 0
       return
@@ -131,6 +134,11 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     traces: list[dict[str, Any]],
     reason: str,
   ) -> bool:
+    if not self._resistance_enabled():
+      state["preconsecutive_turns"] = 0
+      state["mi_recovery_turns"] = 0
+      state["cami_recovery_turns"] = 0
+      return False
     if state["current_stage"] not in CBT_STAGES:
       return False
     if self._long_session_threshold_reached(state):
@@ -190,6 +198,11 @@ class MIStageMixin(PatientTopicExplorationMixin, TopicExplorationMixin):
     return selected_techniques
 
   def _handle_pre_stage_routing(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
+    if not self._resistance_enabled():
+      state["preconsecutive_turns"] = 0
+      state["mi_recovery_turns"] = 0
+      state["cami_recovery_turns"] = 0
+      return
     stage = state["current_stage"]
     band = self._current_band(state["predicted_resistance"], state)
     self._update_preconsecutive_turns(state, band)

@@ -316,8 +316,9 @@ class TherapyGraphBuilder(
         tib_route_bucket = "none"
         if not completed_address_tib:
           tib_route_bucket = self._maybe_handle_tib(s, traces)
-        self._run_resistance_prediction(s, traces)
-        if tib_route_bucket == "none":
+        if self._resistance_enabled():
+          self._run_resistance_prediction(s, traces)
+        if tib_route_bucket == "none" and self._resistance_enabled():
           self._handle_pre_stage_routing(s, traces)
       utterance = self._handle_stage_dispatch(s, traces)
 
@@ -351,6 +352,24 @@ class TherapyGraphBuilder(
     substage = state["current_substage"]
     if state["final_patient_pending_end"]:
       return "Provide a brief closing response."
+    if not self._resistance_enabled():
+      if stage == "opening":
+        return "Respond to the therapist's utterance, sharing only what feels comfortable."
+      if stage == "id_distortions":
+        return "Respond to the therapist's question. When you are comfortable, share your real thoughts, emotions, and behavior."
+      if stage == "cbt_technique":
+        return "Respond to the CBT exercise with realistic engagement."
+      if stage == "homework":
+        return "Respond honestly about whether the proposed homework feels feasible."
+      if stage == "address_tib":
+        return "Respond to the therapist's attempt to address the current therapy-interfering behavior."
+      if stage in {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}:
+        return "Respond to the motivational discussion naturally."
+      if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
+        return "Respond briefly to close the session."
+      if stage == "closing":
+        return "Respond to the therapist's closing prompts without closing the conversation."
+      return "Respond naturally."
     if stage == "opening":
       return "Respond to the therapist's utterance, sharing only what feels comfortable with respect to your resistance level."
     if stage == "id_distortions":
@@ -395,6 +414,12 @@ class TherapyGraphBuilder(
     *,
     prompt_stage: str = "shared",
   ) -> str:
+    if not self._resistance_enabled():
+      return self._load_stage_prompt(
+        prompt_stage,
+        "patient_utterance_core_weak",
+        patient_utterance_instruction=self._patient_utterance_instruction(state),
+      )
     action = normalize_patient_action(selected_action)
     action_definition = action_definition_for_action(action)
     return self._load_stage_prompt(
@@ -554,45 +579,50 @@ class TherapyGraphBuilder(
         utterance_prompt_stage = "mi_techniques_with_te"
         utterance_engagement_block = topic_engagement["engagement_instruction"]
 
-      update_instruction = self._build_patient_resistance_update_instruction(
-        s,
-        prompt_stage=resistance_prompt_stage,
-      )
-      update = self._run_patient_structured(
-        s,
-        traces,
-        "resistance_update",
-        update_instruction,
-        engagement_block=resistance_engagement_block,
-      )
-      payload = self._require_dict(update, "resistance_update")
-      delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
-      print(f"    <DEBUG>Predicted resistance change (delta_llm): {delta_llm:.4f}</DEBUG>") #devlog
-      resistance_update = self._apply_homeostatic_resistance_update(
-        previous_r=s["resistance"],
-        delta_llm=delta_llm,
-        baseline=s["resistance_baseline"],
-        alpha=s["resistance_recovery_rate"],
-      )
-      s["resistance"] = resistance_update["new_r"]
-      s["last_patient_resistance_update_reasoning"] = ensure_str(payload.get("reasoning"))
-      print(f"    <DEBUG>Resistance reasoning: {s['last_patient_resistance_update_reasoning']}</DEBUG>") #devlog
-      trace_payload = dict(payload)
-      trace_payload.update(resistance_update)
-      self._set_last_trace_output(traces, "resistance_update", trace_payload)
-
       selected_action: PatientAction | None = None
-      if should_select_patient_action(s["final_patient_pending_end"]):
-        selected_action = self._select_patient_action(
+      if self._resistance_enabled():
+        update_instruction = self._build_patient_resistance_update_instruction(
+          s,
+          prompt_stage=resistance_prompt_stage,
+        )
+        update = self._run_patient_structured(
           s,
           traces,
-          resistance_update["new_r"],
-          s["last_patient_resistance_update_reasoning"],
+          "resistance_update",
+          update_instruction,
+          engagement_block=resistance_engagement_block,
         )
+        payload = self._require_dict(update, "resistance_update")
+        delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+        print(f"    <DEBUG>Predicted resistance change (delta_llm): {delta_llm:.4f}</DEBUG>") #devlog
+        resistance_update = self._apply_homeostatic_resistance_update(
+          previous_r=s["resistance"],
+          delta_llm=delta_llm,
+          baseline=s["resistance_baseline"],
+          alpha=s["resistance_recovery_rate"],
+        )
+        s["resistance"] = resistance_update["new_r"]
+        s["last_patient_resistance_update_reasoning"] = ensure_str(payload.get("reasoning"))
+        print(f"    <DEBUG>Resistance reasoning: {s['last_patient_resistance_update_reasoning']}</DEBUG>") #devlog
+        trace_payload = dict(payload)
+        trace_payload.update(resistance_update)
+        self._set_last_trace_output(traces, "resistance_update", trace_payload)
+
+        if should_select_patient_action(s["final_patient_pending_end"]):
+          selected_action = self._select_patient_action(
+            s,
+            traces,
+            resistance_update["new_r"],
+            s["last_patient_resistance_update_reasoning"],
+          )
+        else:
+          self._reset_patient_action_state(s)
       else:
         self._reset_patient_action_state(s)
+        s["last_patient_resistance_update_reasoning"] = ""
 
-      print(f"    <DEBUG>Selected patient action: {selected_action}</DEBUG>") #devlog
+      if self._resistance_enabled():
+        print(f"    <DEBUG>Selected patient action: {selected_action}</DEBUG>") #devlog
       utterance_instruction = self._build_patient_utterance_core_instruction(
         s,
         s["last_patient_resistance_update_reasoning"],

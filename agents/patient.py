@@ -16,14 +16,20 @@ class PatientAgent(Agent):
     llm: LLM,
     profile: dict[str, Any],
     generation_defaults: dict[str, Any] | None = None,
+    resistance_enabled: bool = True,
   ):
     super().__init__(
       llm,
       generation_defaults=generation_defaults,
     )
     self.profile = profile
-    system_path = Path(__file__).parent.parent / "prompts" / "patient_system.txt"
-    system_structured_path = Path(__file__).parent.parent / "prompts" / "patient_system_structured.txt"
+    self.resistance_enabled = bool(resistance_enabled)
+    system_filename = "patient_system.txt" if self.resistance_enabled else "patient_system_weak.txt"
+    system_structured_filename = (
+      "patient_system_structured.txt" if self.resistance_enabled else "patient_system_structured_weak.txt"
+    )
+    system_path = Path(__file__).parent.parent / "prompts" / system_filename
+    system_structured_path = Path(__file__).parent.parent / "prompts" / system_structured_filename
     self.system_prompt = self._build_system_prompt(system_path)
     self.system_prompt_structured = self._build_system_prompt(system_structured_path)
 
@@ -71,24 +77,48 @@ class PatientAgent(Agent):
       scaled_resistance=f"{self._prompt_resistance_level(resistance_level):.1f}",
     )
 
+  def _attitude_towards_therapy(self) -> str:
+    attitude = str(self.profile.get("attitude") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if attitude in {"positive", "very_positive"}:
+      return "Positive"
+    if attitude in {"negative", "very_negative"}:
+      return "Negative"
+    return "Neutral"
+
+  def _render_patient_state_block(self, resistance_level: float | None, structured: bool) -> str:
+    if not self.resistance_enabled:
+      return (
+        "<attitude_towards_therapy>\n"
+        f"{self._attitude_towards_therapy()}\n"
+        "</attitude_towards_therapy>\n\n"
+      )
+
+    resolved_resistance = 0.0 if resistance_level is None else float(resistance_level)
+    resistance_prompt = (
+      self._render_resistance_prompt(resolved_resistance)
+      if structured == False
+      else f"Your resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resolved_resistance:.2f}"
+    )
+    return f"<resistance_level>\n{resistance_prompt}\n</resistance_level>\n\n"
+
   def _build_user_prompt(
     self,
     instruction: str,
     full_conversation: str,
     last_utterances: str,
-    resistance_level: float,
+    resistance_level: float | None,
     suffix: str,
     engagement_block: str | None = None,
     structured: bool = False,
   ) -> str:
-    resistance_prompt = self._render_resistance_prompt(resistance_level) if structured == False else f"Your resistance level towards therapy (bounded in the interval 0.0,1.0) is: {resistance_level:.2f}"
     engagement_section = ""
     if engagement_block:
       engagement_section = f"<engagement>\n{engagement_block}\n</engagement>\n\n"
+    patient_state_block = self._render_patient_state_block(resistance_level, structured)
     return (
       f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
-      f"<resistance_level>\n{resistance_prompt}\n</resistance_level>\n\n"
+      f"{patient_state_block}"
       f"{engagement_section}"
       f"Instruction: {instruction}\n"
       f"{suffix}"
@@ -98,7 +128,7 @@ class PatientAgent(Agent):
     self,
     full_conversation: str,
     last_utterances: str,
-    resistance_level: float,
+    resistance_level: float | None,
     instruction: str,
     engagement_block: str | None = None,
   ) -> list[ChatMessage]:
@@ -120,7 +150,7 @@ class PatientAgent(Agent):
     self,
     full_conversation: str,
     last_utterances: str,
-    resistance_level: float,
+    resistance_level: float | None,
     instruction: str,
     engagement_block: str | None = None,
   ) -> list[ChatMessage]:
@@ -143,7 +173,7 @@ class PatientAgent(Agent):
     self,
     full_conversation: str,
     last_utterances: str,
-    resistance_level: float,
+    resistance_level: float | None,
     instruction: str,
     engagement_block: str | None = None,
     max_tokens: int | None = None,
@@ -181,7 +211,7 @@ class PatientAgent(Agent):
     self,
     full_conversation: str,
     last_utterances: str,
-    resistance_level: float,
+    resistance_level: float | None,
     instruction: str,
     engagement_block: str | None = None,
     max_retries: int = 2,

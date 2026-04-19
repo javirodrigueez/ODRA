@@ -76,6 +76,10 @@ if "omegaconf" not in sys.modules:
     def is_config(config) -> bool:
       return False
 
+    @staticmethod
+    def create(config):
+      return config
+
   omegaconf_module.OmegaConf = _OmegaConf
   sys.modules["omegaconf"] = omegaconf_module
 

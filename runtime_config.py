@@ -43,6 +43,22 @@ def _normalize_model_block(
   return normalized
 
 
+def _coerce_bool(value: Any, default: bool) -> bool:
+  if value is None:
+    return default
+  if isinstance(value, bool):
+    return value
+  if isinstance(value, str):
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes", "y", "on"}:
+      return True
+    if normalized in {"false", "0", "no", "n", "off"}:
+      return False
+  if isinstance(value, (int, float)):
+    return bool(value)
+  return default
+
+
 def normalize_runtime_config(cfg: Any) -> Any:
   raw_cfg = _to_plain_container(cfg) or {}
   if not isinstance(raw_cfg, dict):
@@ -75,6 +91,7 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("output_dir", "")
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")
+  env["resistance"] = _coerce_bool(env.get("resistance"), True)
   env.setdefault("resistance_prediction_clip_initial_turns", 5)
   env.setdefault("resistance_prediction_clip_initial_min_delta", -0.3)
   env.setdefault("resistance_prediction_clip_initial_max_delta", 0.3)

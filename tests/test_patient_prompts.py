@@ -1,14 +1,110 @@
 import unittest
+import sys
+import types
 from pathlib import Path
 
 from graph.resistance import resistance_prompt_name_for_level
 
+if "dotenv" not in sys.modules:
+  dotenv_module = types.ModuleType("dotenv")
+  dotenv_module.load_dotenv = lambda *args, **kwargs: None
+  sys.modules["dotenv"] = dotenv_module
+
+if "langchain.messages" not in sys.modules:
+  langchain_module = types.ModuleType("langchain")
+  langchain_messages_module = types.ModuleType("langchain.messages")
+
+  class _Message:
+    def __init__(self, content: str):
+      self.content = content
+
+  langchain_messages_module.AIMessage = _Message
+  langchain_messages_module.HumanMessage = _Message
+  langchain_messages_module.SystemMessage = _Message
+  sys.modules["langchain"] = langchain_module
+  sys.modules["langchain.messages"] = langchain_messages_module
+
+if "langchain_aws" not in sys.modules:
+  langchain_aws_module = types.ModuleType("langchain_aws")
+  langchain_aws_module.ChatBedrock = object
+  sys.modules["langchain_aws"] = langchain_aws_module
+
+if "langchain_core.prompts" not in sys.modules:
+  langchain_core_module = types.ModuleType("langchain_core")
+  langchain_core_prompts_module = types.ModuleType("langchain_core.prompts")
+
+  class _PromptTemplate:
+    def __init__(self, template: str):
+      self.template = template
+
+    @classmethod
+    def from_template(cls, template: str) -> "_PromptTemplate":
+      return cls(template)
+
+    def format(self, **values: str) -> str:
+      rendered = self.template
+      for key, value in values.items():
+        rendered = rendered.replace(f"{{{key}}}", value)
+      return rendered
+
+  langchain_core_prompts_module.PromptTemplate = _PromptTemplate
+  sys.modules["langchain_core"] = langchain_core_module
+  sys.modules["langchain_core.prompts"] = langchain_core_prompts_module
+
+if "langchain_huggingface" not in sys.modules:
+  langchain_huggingface_module = types.ModuleType("langchain_huggingface")
+  langchain_huggingface_module.ChatHuggingFace = object
+  langchain_huggingface_module.HuggingFacePipeline = object
+  sys.modules["langchain_huggingface"] = langchain_huggingface_module
+
+if "omegaconf" not in sys.modules:
+  omegaconf_module = types.ModuleType("omegaconf")
+
+  class _OmegaConf:
+    @staticmethod
+    def to_container(config, resolve: bool = True):
+      return config
+
+    @staticmethod
+    def is_config(config) -> bool:
+      return False
+
+    @staticmethod
+    def create(config):
+      return config
+
+  omegaconf_module.OmegaConf = _OmegaConf
+  sys.modules["omegaconf"] = omegaconf_module
+
+if "openai" not in sys.modules:
+  openai_module = types.ModuleType("openai")
+  openai_module.OpenAI = object
+  sys.modules["openai"] = openai_module
+
+from agents.patient import PatientAgent
+
 
 TEST_PROFILE = {
+  "personal_info": {
+    "name": "Alex",
+    "age": "32",
+  },
   "presenting_problem": "I keep assuming that small mistakes mean something is deeply wrong with me.",
   "reason_seeking_counseling": "I want to stop spiraling every time something goes wrong.",
+  "patterns": ["catastrophizing"],
+  "more_information": {
+    "past_history": "Longstanding self-doubt.",
+    "academic_occupational_functioning": "Works full time.",
+    "social_support_system": "Has a close friend.",
+  },
+  "attitude": "neutral",
 }
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
+
+
+class FakeLLM:
+  def generate(self, messages, **kwargs):  # type: ignore[no-untyped-def]
+    return "{}"
 
 
 def render_prompt_text(relative_path: str, **values: str) -> str:
@@ -111,6 +207,50 @@ class PatientPromptTest(unittest.TestCase):
     )
     self.assertIn("Use the <engagement> block", rendered)
     self.assertIn("Acceptance", rendered)
+
+  def test_weak_patient_prompt_uses_attitude_block_without_resistance_block(self) -> None:
+    profile = dict(TEST_PROFILE)
+    profile["attitude"] = "very_positive"
+    agent = PatientAgent(FakeLLM(), profile, resistance_enabled=False)
+
+    messages = agent.build_utterance_messages(
+      full_conversation="Therapist: Hello.",
+      last_utterances="Therapist: Hello.",
+      resistance_level=0.95,
+      instruction="Respond naturally.",
+    )
+
+    user_prompt = messages[1]["content"]
+    self.assertIn("<attitude_towards_therapy>\nPositive\n</attitude_towards_therapy>", user_prompt)
+    self.assertNotIn("<resistance_level>", user_prompt)
+    self.assertNotIn("Patient attitude towards therapy:", user_prompt)
+
+  def test_weak_structured_patient_prompt_uses_same_attitude_block(self) -> None:
+    profile = dict(TEST_PROFILE)
+    profile["attitude"] = "very_negative"
+    agent = PatientAgent(FakeLLM(), profile, resistance_enabled=False)
+
+    messages = agent.build_structured_messages(
+      full_conversation="Therapist: Hello.",
+      last_utterances="Therapist: Hello.",
+      resistance_level=0.05,
+      instruction="Return JSON.",
+    )
+
+    user_prompt = messages[1]["content"]
+    self.assertIn("<attitude_towards_therapy>\nNegative\n</attitude_towards_therapy>", user_prompt)
+    self.assertNotIn("<resistance_level>", user_prompt)
+
+  def test_weak_patient_utterance_core_omits_action_and_resistance_reasoning(self) -> None:
+    rendered = render_prompt_text(
+      "shared/patient_utterance_core_weak.txt",
+      patient_utterance_instruction="Respond to the CBT exercise with realistic engagement.",
+    )
+
+    self.assertIn("Respond to the CBT exercise with realistic engagement.", rendered)
+    self.assertIn("<attitude_towards_therapy>", rendered)
+    self.assertNotIn("Selected utterance action", rendered)
+    self.assertNotIn("resistance update", rendered.lower())
 
 
 if __name__ == "__main__":
