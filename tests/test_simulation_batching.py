@@ -1,9 +1,13 @@
+import contextlib
+import io
 import json
+import shutil
 import sys
-import tempfile
 import types
+import uuid
 from pathlib import Path
 import unittest
+from unittest import mock
 
 if "dotenv" not in sys.modules:
   dotenv_module = types.ModuleType("dotenv")
@@ -91,15 +95,29 @@ if "openai" not in sys.modules:
   sys.modules["openai"] = openai_module
 
 from simulation import (
+  _advance_progress_bar,
   _deduplicate_profiles,
+  _handle_completed_multiprocessing_result,
   _initialize_manifests,
   _manifest_path,
   _mark_profile_result,
   _matching_simulation_files,
   _resolve_profiles_path,
   _select_profiles_to_execute,
+  _validate_multiprocessing_options,
   _write_manifest,
+  run_simulation,
 )
+
+
+@contextlib.contextmanager
+def _temporary_workspace_dir():
+  path = Path.cwd() / f".tmp_test_{uuid.uuid4().hex}"
+  path.mkdir()
+  try:
+    yield str(path)
+  finally:
+    shutil.rmtree(path, ignore_errors=True)
 
 
 class SimulationBatchingTest(unittest.TestCase):
@@ -122,7 +140,7 @@ class SimulationBatchingTest(unittest.TestCase):
     )
 
   def test_initialize_manifests_creates_one_manifest_per_attitude(self) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temporary_workspace_dir() as tmp:
       profiles = [
         {"idx": 1, "attitude": "neutral"},
         {"idx": 2, "attitude": "negative"},
@@ -141,7 +159,7 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual(set(manifests["negative"]["profiles"]), {"2"})
 
   def test_select_profiles_to_execute_skips_executed_and_limits_new_profiles(self) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temporary_workspace_dir() as tmp:
       profiles = [
         {"idx": 1, "attitude": "neutral"},
         {"idx": 2, "attitude": "negative"},
@@ -162,7 +180,7 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual([profile["idx"] for profile in selected], [2, 3])
 
   def test_mark_profile_result_and_write_manifest_records_error_status(self) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temporary_workspace_dir() as tmp:
       profile = {"idx": 1, "attitude": "neutral"}
       manifests = _initialize_manifests(
         cfg_path="configs/test.yaml",
@@ -186,7 +204,7 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual(saved["metadata"]["success_count"], 0)
 
   def test_matching_simulation_files_excludes_manifests_and_other_attitudes(self) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temporary_workspace_dir() as tmp:
       base = Path(tmp)
       (base / "simulation_1_neutral.json").write_text("{}", encoding="utf-8")
       (base / "simulation_2_negative.json").write_text("{}", encoding="utf-8")
@@ -205,6 +223,178 @@ class SimulationBatchingTest(unittest.TestCase):
   def test_resolve_profiles_path_requires_cli_or_config_value(self) -> None:
     with self.assertRaisesRegex(ValueError, "--profiles-path"):
       _resolve_profiles_path(None, "")
+
+  def test_validate_multiprocessing_requires_positive_process_count(self) -> None:
+    with self.assertRaisesRegex(ValueError, "--n-processes"):
+      _validate_multiprocessing_options(True, None)
+    with self.assertRaisesRegex(ValueError, "--n-processes"):
+      _validate_multiprocessing_options(True, 0)
+
+    _validate_multiprocessing_options(True, 1)
+    _validate_multiprocessing_options(False, None)
+
+  def test_run_simulation_verbose_uses_streaming_live_output(self) -> None:
+    fake_chain = _FakeChain()
+    fake_graph_module = types.ModuleType("graph.graph")
+    fake_graph_module.TherapyGraphBuilder = _fake_builder_factory(fake_chain)
+
+    stdout = io.StringIO()
+    with mock.patch.dict(sys.modules, {"graph.graph": fake_graph_module}):
+      with contextlib.redirect_stdout(stdout):
+        result = run_simulation(
+          "configs/test.yaml",
+          {"idx": 1, "attitude": "neutral"},
+          max_turns=10,
+          min_turns=0,
+          verbose=True,
+        )
+
+    self.assertTrue(fake_chain.stream_called)
+    self.assertFalse(fake_chain.invoke_called)
+    self.assertIn("Therapist", stdout.getvalue())
+    self.assertIn("hello", stdout.getvalue())
+    self.assertEqual(result["utterance_index"], 1)
+
+  def test_run_simulation_non_verbose_uses_invoke(self) -> None:
+    fake_chain = _FakeChain()
+    fake_graph_module = types.ModuleType("graph.graph")
+    fake_graph_module.TherapyGraphBuilder = _fake_builder_factory(fake_chain)
+
+    with mock.patch.dict(sys.modules, {"graph.graph": fake_graph_module}):
+      result = run_simulation(
+        "configs/test.yaml",
+        {"idx": 1, "attitude": "neutral"},
+        max_turns=10,
+        min_turns=0,
+        verbose=False,
+      )
+
+    self.assertFalse(fake_chain.stream_called)
+    self.assertTrue(fake_chain.invoke_called)
+    self.assertEqual(result["utterance_index"], 2)
+
+  def test_progress_bar_advances_by_utterance_delta_and_keeps_early_final_count(self) -> None:
+    bar = _FakeProgressBar()
+    progress_counts = {1: 0}
+
+    _advance_progress_bar(progress_counts, {1: bar}, 1, 2, max_turns=10)
+    _advance_progress_bar(progress_counts, {1: bar}, 1, 4, max_turns=10)
+    _advance_progress_bar(progress_counts, {1: bar}, 1, 3, max_turns=10)
+
+    self.assertEqual(bar.total_updated, 4)
+    self.assertEqual(bar.updates, [2, 2])
+    self.assertEqual(progress_counts[1], 4)
+
+  def test_completed_multiprocessing_result_records_in_completion_order(self) -> None:
+    with _temporary_workspace_dir() as tmp:
+      first_profile = {"idx": 1, "attitude": "neutral"}
+      second_profile = {"idx": 2, "attitude": "negative"}
+      manifests = _initialize_manifests(
+        cfg_path="configs/test.yaml",
+        profiles_path="profiles.json",
+        output_dir=tmp,
+        profiles=[first_profile, second_profile],
+        duplicate_idxs=[],
+        resume_from_json=None,
+      )
+      written_lines: list[str] = []
+
+      _handle_completed_multiprocessing_result(
+        {
+          "run_index": 2,
+          "profile": second_profile,
+          "result": {"utterance_index": 4, "exchange_counts": {}, "session_ended_reason": "done"},
+        },
+        total_to_run=2,
+        output_dir=tmp,
+        manifests=manifests,
+        writer=written_lines.append,
+      )
+      _handle_completed_multiprocessing_result(
+        {
+          "run_index": 1,
+          "profile": first_profile,
+          "result": {"utterance_index": 3, "exchange_counts": {}, "session_ended_reason": "done"},
+        },
+        total_to_run=2,
+        output_dir=tmp,
+        manifests=manifests,
+        writer=written_lines.append,
+      )
+
+      simulation_headers = [line for line in written_lines if line.startswith("Simulation ")]
+      self.assertEqual(simulation_headers[0], "Simulation 2/2 \u2014 idx: 2 \u2014 attitude: negative")
+      self.assertEqual(simulation_headers[1], "Simulation 1/2 \u2014 idx: 1 \u2014 attitude: neutral")
+      self.assertTrue(manifests["negative"]["profiles"]["2"]["executed"])
+      self.assertTrue(manifests["neutral"]["profiles"]["1"]["executed"])
+
+
+class _FakeChain:
+  def __init__(self) -> None:
+    self.stream_called = False
+    self.invoke_called = False
+
+  def stream(self, initial_state, stream_mode):
+    self.stream_called = True
+    yield {
+      "messages": [
+        {
+          "role": "therapist",
+          "content": "hello",
+          "stage": "opening",
+        }
+      ],
+      "current_stage": "opening",
+      "resistance": 0.2,
+      "predicted_resistance": 0.1,
+      "utterance_index": 1,
+      "exchange_counts": {},
+      "session_ended_reason": "done",
+      "conversation_error": "",
+    }
+
+  def invoke(self, initial_state):
+    self.invoke_called = True
+    return {
+      "messages": [],
+      "utterance_index": 2,
+      "exchange_counts": {},
+      "session_ended_reason": "done",
+      "conversation_error": "",
+    }
+
+
+class _FakeProgressBar:
+  def __init__(self) -> None:
+    self.updates: list[int] = []
+    self.total_updated = 0
+
+  def update(self, delta: int) -> None:
+    self.updates.append(delta)
+    self.total_updated += delta
+
+
+def _fake_builder_factory(fake_chain: _FakeChain):
+  class _FakeBuilder:
+    def __init__(self, cfg_path, profile) -> None:
+      self.cfg_path = cfg_path
+      self.profile = profile
+
+    def create_chain(self):
+      return fake_chain
+
+    def initial_state(self, max_turns, min_turns):
+      return {
+        "messages": [],
+        "utterance_index": 0,
+        "exchange_counts": {},
+        "conversation_error": "",
+      }
+
+    def resume_state(self, saved_state, max_turns, min_turns):
+      return dict(saved_state)
+
+  return _FakeBuilder
 
 
 if __name__ == "__main__":
