@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -36,45 +37,54 @@ class Counter:
 
 
 @dataclass
-class SessionResistanceStats:
-  predicted_total: float = 0.0
-  current_total: float = 0.0
+class PairErrorStats:
+  absolute_error_total: float = 0.0
+  squared_error_total: float = 0.0
   total: int = 0
 
   def add(self, pair: "PredictionPair") -> None:
-    self.predicted_total += pair.predicted_resistance
-    self.current_total += pair.actual_resistance
+    error = pair.predicted_resistance - pair.actual_resistance
+    self.absolute_error_total += abs(error)
+    self.squared_error_total += error * error
     self.total += 1
 
   @property
-  def avg_predicted_resistance(self) -> float | None:
+  def mae(self) -> float | None:
     if self.total == 0:
       return None
-    return self.predicted_total / self.total
+    return self.absolute_error_total / self.total
 
   @property
-  def avg_current_resistance(self) -> float | None:
+  def rmse(self) -> float | None:
     if self.total == 0:
       return None
-    return self.current_total / self.total
+    return math.sqrt(self.squared_error_total / self.total)
+
+
+@dataclass
+class SessionResistanceStats:
+  pair_difference_total: float = 0.0
+  total: int = 0
+
+  def add(self, pair: "PredictionPair") -> None:
+    self.pair_difference_total += pair.predicted_resistance - pair.actual_resistance
+    self.total += 1
 
   @property
-  def avg_predicted_minus_current(self) -> float | None:
-    avg_predicted = self.avg_predicted_resistance
-    avg_current = self.avg_current_resistance
-    if avg_predicted is None or avg_current is None:
+  def avg_pair_predicted_minus_current(self) -> float | None:
+    if self.total == 0:
       return None
-    return avg_predicted - avg_current
+    return self.pair_difference_total / self.total
 
 
 @dataclass
 class AttitudeStats:
   counter: Counter = field(default_factory=Counter)
+  pair_errors: PairErrorStats = field(default_factory=PairErrorStats)
   max_prediction_change: float | None = None
   prediction_change_count: int = 0
-  session_avg_difference_total: float = 0.0
-  session_avg_abs_difference_total: float = 0.0
-  session_avg_difference_count: int = 0
+  session_avg_pair_difference_total: float = 0.0
+  session_avg_pair_difference_count: int = 0
 
   def add_prediction(
     self,
@@ -83,6 +93,7 @@ class AttitudeStats:
     pair: "PredictionPair",
   ) -> None:
     self.counter.add(is_correct, session_name)
+    self.pair_errors.add(pair)
 
     if pair.previous_predicted_resistance is None:
       return
@@ -93,25 +104,21 @@ class AttitudeStats:
     self.prediction_change_count += 1
 
   def add_session(self, session_stats: SessionResistanceStats) -> None:
-    difference = session_stats.avg_predicted_minus_current
+    difference = session_stats.avg_pair_predicted_minus_current
     if difference is None:
       return
 
-    self.session_avg_difference_total += difference
-    self.session_avg_abs_difference_total += abs(difference)
-    self.session_avg_difference_count += 1
+    self.session_avg_pair_difference_total += difference
+    self.session_avg_pair_difference_count += 1
 
   @property
-  def avg_session_predicted_minus_current(self) -> float | None:
-    if self.session_avg_difference_count == 0:
+  def avg_session_pair_predicted_minus_current(self) -> float | None:
+    if self.session_avg_pair_difference_count == 0:
       return None
-    return self.session_avg_difference_total / self.session_avg_difference_count
-
-  @property
-  def avg_session_abs_predicted_minus_current(self) -> float | None:
-    if self.session_avg_difference_count == 0:
-      return None
-    return self.session_avg_abs_difference_total / self.session_avg_difference_count
+    return (
+      self.session_avg_pair_difference_total
+      / self.session_avg_pair_difference_count
+    )
 
 
 @dataclass(frozen=True)
@@ -267,6 +274,7 @@ def print_results(
   files_seen: int,
   files_used: int,
   overall: Counter,
+  overall_pair_errors: PairErrorStats,
   by_attitude: dict[str, AttitudeStats],
   skipped: list[tuple[Path, str]],
 ) -> None:
@@ -276,6 +284,8 @@ def print_results(
   print(f"JSON files with paired turns: {files_used}")
   print(f"Paired turns evaluated: {overall.total}")
   print(f"Overall accuracy: {format_counter(overall)}")
+  print(f"Overall MAE: {format_optional_float(overall_pair_errors.mae)}")
+  print(f"Overall RMSE: {format_optional_float(overall_pair_errors.rmse)}")
 
   print("\nAccuracy by patient attitude baseline:")
   if by_attitude:
@@ -290,13 +300,11 @@ def print_results(
         f"{format_optional_float(stats.max_prediction_change)} "
         f"({stats.prediction_change_count} change(s))"
       )
+      print(f"    Pair MAE: {format_optional_float(stats.pair_errors.mae)}")
+      print(f"    Pair RMSE: {format_optional_float(stats.pair_errors.rmse)}")
       print(
-        "    Avg session avg predicted-current R difference: "
-        f"{format_optional_float(stats.avg_session_predicted_minus_current)}"
-      )
-      print(
-        "    Avg session avg absolute predicted-current R difference: "
-        f"{format_optional_float(stats.avg_session_abs_predicted_minus_current)}"
+        "    Avg session pair Pred-R minus R difference: "
+        f"{format_optional_float(stats.avg_session_pair_predicted_minus_current)}"
       )
   else:
     print("  No grouped results available.")
@@ -312,6 +320,7 @@ def json_results(
   files_seen: int,
   files_used: int,
   overall: Counter,
+  overall_pair_errors: PairErrorStats,
   by_attitude: dict[str, AttitudeStats],
   skipped: list[tuple[Path, str]],
 ) -> dict[str, Any]:
@@ -324,6 +333,8 @@ def json_results(
       "accuracy_percent": overall.accuracy,
       "correct": overall.correct,
       "total": overall.total,
+      "mae": overall_pair_errors.mae,
+      "rmse": overall_pair_errors.rmse,
     },
     "by_patient_attitude_baseline": {
       label: {
@@ -331,15 +342,16 @@ def json_results(
         "correct": stats.counter.correct,
         "total": stats.counter.total,
         "sessions": stats.counter.session_count,
+        "mae": stats.pair_errors.mae,
+        "rmse": stats.pair_errors.rmse,
         "max_prediction_change": stats.max_prediction_change,
         "prediction_change_count": stats.prediction_change_count,
-        "avg_session_predicted_minus_current_r": (
-          stats.avg_session_predicted_minus_current
+        "avg_session_pair_predicted_minus_current_r": (
+          stats.avg_session_pair_predicted_minus_current
         ),
-        "avg_session_abs_predicted_minus_current_r": (
-          stats.avg_session_abs_predicted_minus_current
+        "session_avg_pair_difference_count": (
+          stats.session_avg_pair_difference_count
         ),
-        "session_avg_difference_count": stats.session_avg_difference_count,
       }
       for label, stats in sorted(by_attitude.items())
     },
@@ -353,9 +365,17 @@ def json_results(
 def evaluate_directory(
   input_dir: Path,
   recursive: bool,
-) -> tuple[int, int, Counter, dict[str, AttitudeStats], list[tuple[Path, str]]]:
+) -> tuple[
+  int,
+  int,
+  Counter,
+  PairErrorStats,
+  dict[str, AttitudeStats],
+  list[tuple[Path, str]],
+]:
   files = iter_json_files(input_dir, recursive)
   overall = Counter()
+  overall_pair_errors = PairErrorStats()
   by_attitude: dict[str, AttitudeStats] = {}
   skipped: list[tuple[Path, str]] = []
   files_used = 0
@@ -387,12 +407,13 @@ def evaluate_directory(
       predicted_interval = resistance_interval(pair.predicted_resistance)
       is_correct = actual_interval == predicted_interval
       overall.add(is_correct, session_name)
+      overall_pair_errors.add(pair)
       group_stats.add_prediction(is_correct, session_name, pair)
       session_stats.add(pair)
 
     group_stats.add_session(session_stats)
 
-  return len(files), files_used, overall, by_attitude, skipped
+  return len(files), files_used, overall, overall_pair_errors, by_attitude, skipped
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -428,20 +449,40 @@ def main() -> int:
   if not input_dir.is_dir():
     parser.error(f"input_dir does not exist or is not a directory: {input_dir}")
 
-  files_seen, files_used, overall, by_attitude, skipped = evaluate_directory(
-    input_dir,
-    recursive=args.recursive,
-  )
+  (
+    files_seen,
+    files_used,
+    overall,
+    overall_pair_errors,
+    by_attitude,
+    skipped,
+  ) = evaluate_directory(input_dir, recursive=args.recursive)
 
   if args.json:
     print(
       json.dumps(
-        json_results(input_dir, files_seen, files_used, overall, by_attitude, skipped),
+        json_results(
+          input_dir,
+          files_seen,
+          files_used,
+          overall,
+          overall_pair_errors,
+          by_attitude,
+          skipped,
+        ),
         indent=2,
       )
     )
   else:
-    print_results(input_dir, files_seen, files_used, overall, by_attitude, skipped)
+    print_results(
+      input_dir,
+      files_seen,
+      files_used,
+      overall,
+      overall_pair_errors,
+      by_attitude,
+      skipped,
+    )
 
   return 0 if overall.total else 1
 
