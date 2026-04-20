@@ -62,6 +62,22 @@ class PairErrorStats:
 
 
 @dataclass
+class PairDifferenceStats:
+  difference_total: float = 0.0
+  total: int = 0
+
+  def add(self, pair: "PredictionPair") -> None:
+    self.difference_total += pair.predicted_resistance - pair.actual_resistance
+    self.total += 1
+
+  @property
+  def avg_predicted_minus_current(self) -> float | None:
+    if self.total == 0:
+      return None
+    return self.difference_total / self.total
+
+
+@dataclass
 class SessionResistanceStats:
   pair_difference_total: float = 0.0
   total: int = 0
@@ -81,6 +97,9 @@ class SessionResistanceStats:
 class AttitudeStats:
   counter: Counter = field(default_factory=Counter)
   pair_errors: PairErrorStats = field(default_factory=PairErrorStats)
+  misclassified_pair_differences: PairDifferenceStats = field(
+    default_factory=PairDifferenceStats
+  )
   max_prediction_change: float | None = None
   prediction_change_count: int = 0
   session_avg_pair_difference_total: float = 0.0
@@ -94,6 +113,8 @@ class AttitudeStats:
   ) -> None:
     self.counter.add(is_correct, session_name)
     self.pair_errors.add(pair)
+    if not is_correct:
+      self.misclassified_pair_differences.add(pair)
 
     if pair.previous_predicted_resistance is None:
       return
@@ -275,6 +296,7 @@ def print_results(
   files_used: int,
   overall: Counter,
   overall_pair_errors: PairErrorStats,
+  overall_misclassified_pair_differences: PairDifferenceStats,
   by_attitude: dict[str, AttitudeStats],
   skipped: list[tuple[Path, str]],
 ) -> None:
@@ -286,6 +308,14 @@ def print_results(
   print(f"Overall accuracy: {format_counter(overall)}")
   print(f"Overall MAE: {format_optional_float(overall_pair_errors.mae)}")
   print(f"Overall RMSE: {format_optional_float(overall_pair_errors.rmse)}")
+  overall_misclassified_difference = format_optional_float(
+    overall_misclassified_pair_differences.avg_predicted_minus_current
+  )
+  print(
+    "Overall misclassified pair Pred-R minus R difference: "
+    f"{overall_misclassified_difference} "
+    f"({overall_misclassified_pair_differences.total} pair(s))"
+  )
 
   print("\nAccuracy by patient attitude baseline:")
   if by_attitude:
@@ -302,6 +332,14 @@ def print_results(
       )
       print(f"    Pair MAE: {format_optional_float(stats.pair_errors.mae)}")
       print(f"    Pair RMSE: {format_optional_float(stats.pair_errors.rmse)}")
+      misclassified_difference = format_optional_float(
+        stats.misclassified_pair_differences.avg_predicted_minus_current
+      )
+      print(
+        "    Misclassified pair Pred-R minus R difference: "
+        f"{misclassified_difference} "
+        f"({stats.misclassified_pair_differences.total} pair(s))"
+      )
       print(
         "    Avg session pair Pred-R minus R difference: "
         f"{format_optional_float(stats.avg_session_pair_predicted_minus_current)}"
@@ -321,6 +359,7 @@ def json_results(
   files_used: int,
   overall: Counter,
   overall_pair_errors: PairErrorStats,
+  overall_misclassified_pair_differences: PairDifferenceStats,
   by_attitude: dict[str, AttitudeStats],
   skipped: list[tuple[Path, str]],
 ) -> dict[str, Any]:
@@ -335,6 +374,12 @@ def json_results(
       "total": overall.total,
       "mae": overall_pair_errors.mae,
       "rmse": overall_pair_errors.rmse,
+      "misclassified_pair_avg_predicted_minus_current_r": (
+        overall_misclassified_pair_differences.avg_predicted_minus_current
+      ),
+      "misclassified_pair_difference_count": (
+        overall_misclassified_pair_differences.total
+      ),
     },
     "by_patient_attitude_baseline": {
       label: {
@@ -344,6 +389,12 @@ def json_results(
         "sessions": stats.counter.session_count,
         "mae": stats.pair_errors.mae,
         "rmse": stats.pair_errors.rmse,
+        "misclassified_pair_avg_predicted_minus_current_r": (
+          stats.misclassified_pair_differences.avg_predicted_minus_current
+        ),
+        "misclassified_pair_difference_count": (
+          stats.misclassified_pair_differences.total
+        ),
         "max_prediction_change": stats.max_prediction_change,
         "prediction_change_count": stats.prediction_change_count,
         "avg_session_pair_predicted_minus_current_r": (
@@ -370,12 +421,14 @@ def evaluate_directory(
   int,
   Counter,
   PairErrorStats,
+  PairDifferenceStats,
   dict[str, AttitudeStats],
   list[tuple[Path, str]],
 ]:
   files = iter_json_files(input_dir, recursive)
   overall = Counter()
   overall_pair_errors = PairErrorStats()
+  overall_misclassified_pair_differences = PairDifferenceStats()
   by_attitude: dict[str, AttitudeStats] = {}
   skipped: list[tuple[Path, str]] = []
   files_used = 0
@@ -408,12 +461,22 @@ def evaluate_directory(
       is_correct = actual_interval == predicted_interval
       overall.add(is_correct, session_name)
       overall_pair_errors.add(pair)
+      if not is_correct:
+        overall_misclassified_pair_differences.add(pair)
       group_stats.add_prediction(is_correct, session_name, pair)
       session_stats.add(pair)
 
     group_stats.add_session(session_stats)
 
-  return len(files), files_used, overall, overall_pair_errors, by_attitude, skipped
+  return (
+    len(files),
+    files_used,
+    overall,
+    overall_pair_errors,
+    overall_misclassified_pair_differences,
+    by_attitude,
+    skipped,
+  )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -454,6 +517,7 @@ def main() -> int:
     files_used,
     overall,
     overall_pair_errors,
+    overall_misclassified_pair_differences,
     by_attitude,
     skipped,
   ) = evaluate_directory(input_dir, recursive=args.recursive)
@@ -467,6 +531,7 @@ def main() -> int:
           files_used,
           overall,
           overall_pair_errors,
+          overall_misclassified_pair_differences,
           by_attitude,
           skipped,
         ),
@@ -480,6 +545,7 @@ def main() -> int:
       files_used,
       overall,
       overall_pair_errors,
+      overall_misclassified_pair_differences,
       by_attitude,
       skipped,
     )
