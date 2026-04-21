@@ -12,7 +12,7 @@ from typing import Any, Iterable
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.export_expert_session_texts import (
+from scripts.expert_eval.export_expert_session_texts import (
     SessionSet,
     SessionTextExportError,
     build_session_sets,
