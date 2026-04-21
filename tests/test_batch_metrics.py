@@ -211,6 +211,97 @@ class BatchMetricsTest(unittest.TestCase):
       self.assertTrue(all(request.body["model"] == "gpt-4o" for request in phase1 + phase2))
       self.assertTrue(all(request.body["n"] == 2 for request in phase1 + phase2))
 
+  def test_default_panas_after_prompt_uses_legacy_dialogue_input(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      batch_metrics.ensure_output_dirs(output_dir)
+      records = batch_metrics.discover_conversations(input_dir)
+
+      phase2 = batch_metrics.build_main_requests(
+        records,
+        output_dir,
+        {},
+        "gpt-4o",
+        1,
+        {"ctrs", "wai"},
+      )
+
+      self.assertEqual(len(phase2), 1)
+      prompt = phase2[0].body["messages"][0]["content"]
+      self.assertIn("Here is the counseling session:", prompt)
+      self.assertIn("Therapist: Hi, how are you feeling today?", prompt)
+      self.assertNotIn("{dialogue}", prompt)
+      self.assertNotIn("<presession_questionnaire>", prompt)
+
+  def test_panas_v2_prompt_uses_presession_questionnaire_input(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      batch_metrics.ensure_output_dirs(output_dir)
+      records = batch_metrics.discover_conversations(input_dir)
+      before_payloads = {
+        "conversation.json": {
+          **{feeling: [2] for feeling in batch_metrics.FEELINGS},
+          "explanations": [],
+          "attitude": "neutral",
+          "cost": 0.1,
+        }
+      }
+
+      phase2 = batch_metrics.build_main_requests(
+        records,
+        output_dir,
+        before_payloads,
+        "gpt-4o",
+        1,
+        {"ctrs", "wai"},
+        panas_v2=True,
+      )
+
+      self.assertEqual(len(phase2), 1)
+      prompt = phase2[0].body["messages"][0]["content"]
+      self.assertIn("<presession_questionnaire>", prompt)
+      self.assertIn("interested: 2", prompt)
+      self.assertIn("<conversation>", prompt)
+      self.assertIn("Therapist: Hi, how are you feeling today?", prompt)
+      self.assertNotIn("{conversation}", prompt)
+      self.assertNotIn("{presession_questionnaire}", prompt)
+
+  def test_panas_v2_flag_is_parsed_and_part_of_signature(self) -> None:
+    args = batch_metrics.parse_args(["input", "--panas-v2"])
+    self.assertTrue(args.panas_v2)
+
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      records = batch_metrics.discover_conversations(input_dir)
+
+      default_signature = batch_metrics.compute_signature(
+        input_dir,
+        output_dir,
+        records,
+        "gpt-4o",
+        1,
+      )
+      v2_signature = batch_metrics.compute_signature(
+        input_dir,
+        output_dir,
+        records,
+        "gpt-4o",
+        1,
+        panas_v2=True,
+      )
+
+      self.assertEqual(default_signature["panas_after_prompt"], "panas_after.txt")
+      self.assertEqual(v2_signature["panas_after_prompt"], "panas_after_v2.txt")
+
   def test_skip_existing_complete_outputs(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
       base = Path(tmp)

@@ -388,6 +388,40 @@ def build_panas_before_requests(
   return requests
 
 
+def panas_after_prompt_filename(panas_v2: bool) -> str:
+  return "panas_after_v2.txt" if panas_v2 else "panas_after.txt"
+
+
+def render_panas_after_prompt(
+  prompt_template: str,
+  record: ConversationRecord,
+  before_payload: dict[str, Any] | None,
+  *,
+  panas_v2: bool,
+) -> str:
+  if panas_v2:
+    if before_payload is None:
+      raise BatchMetricsError(
+        f"PANAS-after v2 requires a PANAS-before result for {record.filename}, but none is available."
+      )
+    return render_template(
+      prompt_template,
+      {
+        "intake_form": record.intake_form,
+        "conversation": record.history,
+        "presession_questionnaire": format_presession_questionnaire(before_payload),
+      },
+    )
+
+  return render_template(
+    prompt_template,
+    {
+      "intake_form": record.intake_form,
+      "dialogue": record.history,
+    },
+  )
+
+
 def build_main_requests(
   records: list[ConversationRecord],
   output_dir: Path,
@@ -395,6 +429,7 @@ def build_main_requests(
   model: str,
   max_iter: int,
   excluded_metrics: set[str] | None = None,
+  panas_v2: bool = False,
 ) -> list[BatchRequest]:
   requests: list[BatchRequest] = []
   excluded = excluded_metrics or set()
@@ -407,7 +442,7 @@ def build_main_requests(
     for key in WAI_KEYS
   } if "wai" not in excluded else {}
   panas_after_template = (
-    load_prompt(EVALUATION_ROOT / "PANAS" / "prompts" / "panas_after.txt")
+    load_prompt(EVALUATION_ROOT / "PANAS" / "prompts" / panas_after_prompt_filename(panas_v2))
     if "panas" not in excluded
     else ""
   )
@@ -448,17 +483,11 @@ def build_main_requests(
     panas_after_output_file = Path("panas_after") / record.filename
     if "panas" not in excluded and not output_is_complete("panas_after", output_dir / panas_after_output_file):
       before_payload = before_payloads.get(record.filename)
-      if before_payload is None:
-        raise BatchMetricsError(
-          f"PANAS-after requires a PANAS-before result for {record.filename}, but none is available."
-        )
-      prompt = render_template(
+      prompt = render_panas_after_prompt(
         panas_after_template,
-        {
-          "intake_form": record.intake_form,
-          "conversation": record.history,
-          "presession_questionnaire": format_presession_questionnaire(before_payload),
-        },
+        record,
+        before_payload,
+        panas_v2=panas_v2,
       )
       requests.append(
         BatchRequest(
@@ -715,6 +744,7 @@ def compute_signature(
   model: str,
   max_iter: int,
   excluded_metrics: set[str] | None = None,
+  panas_v2: bool = False,
 ) -> dict[str, Any]:
   files = [
     {
@@ -731,6 +761,7 @@ def compute_signature(
     "model": model,
     "max_iter": max_iter,
     "excluded_metrics": sorted(excluded_metrics or set()),
+    "panas_after_prompt": panas_after_prompt_filename(panas_v2),
     "endpoint": BATCH_ENDPOINT,
     "files": files,
   }
@@ -1135,6 +1166,7 @@ def run_batch_metrics(
   exc_wai: bool = False,
   exc_ctrs: bool = False,
   exc_panas: bool = False,
+  panas_v2: bool = False,
   poll_interval: float = DEFAULT_POLL_INTERVAL,
   local_timeout_hours: float = DEFAULT_LOCAL_TIMEOUT_HOURS,
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
@@ -1161,10 +1193,19 @@ def run_batch_metrics(
     if excluded
   }
 
-  signature = compute_signature(input_path, output_path, records, model, max_iter, excluded_metrics)
+  signature = compute_signature(
+    input_path,
+    output_path,
+    records,
+    model,
+    max_iter,
+    excluded_metrics,
+    panas_v2=panas_v2,
+  )
   artifact_dir, manifest, resumed = load_or_create_manifest(output_path, signature)
   if not resumed:
     manifest["excluded_metrics"] = sorted(excluded_metrics)
+    manifest["panas_after_prompt"] = panas_after_prompt_filename(panas_v2)
     manifest["skipped"] = build_skipped_summary(records, output_path, excluded_metrics)
     save_manifest(artifact_dir, manifest)
 
@@ -1206,6 +1247,7 @@ def run_batch_metrics(
       model,
       max_iter,
       excluded_metrics,
+      panas_v2=panas_v2,
     )
     if active_client is None and phase_requires_client(manifest, "main", phase2_specs):
       active_client = make_openai_client()
@@ -1271,6 +1313,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser.add_argument("--exc-wai", action="store_true", help="Exclude WAI evaluation.")
   parser.add_argument("--exc-ctrs", action="store_true", help="Exclude CTRS evaluation.")
   parser.add_argument("--exc-panas", action="store_true", help="Exclude both PANAS-before and PANAS-after evaluation.")
+  parser.add_argument(
+    "--panas-v2",
+    action="store_true",
+    help="Use the PANAS-after v2 prompt with pre-session questionnaire context.",
+  )
   return parser.parse_args(argv)
 
 
@@ -1284,6 +1331,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       exc_wai=args.exc_wai,
       exc_ctrs=args.exc_ctrs,
       exc_panas=args.exc_panas,
+      panas_v2=args.panas_v2,
       poll_interval=args.poll_interval,
       local_timeout_hours=args.local_timeout_hours,
       input_cost_per_1m=args.input_cost_per_1m,

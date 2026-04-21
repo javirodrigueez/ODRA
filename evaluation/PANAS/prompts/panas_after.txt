@@ -1,26 +1,16 @@
-<intake_form>
+A person with the characteristics listed in the intake form received counseling. The following counseling session is a conversation between the client and the counselor. After reviewing the conversation, evaluate the intensity of each of the following feelings the person might have experienced once the counseling session is complete: Interested, Excited, Strong, Enthusiastic, Proud, Alert, Inspired, Determined, Attentive, Active, Distressed, Upset, Guilty, Scared, Hostile, Irritable, Ashamed, Nervous, Jittery, Afraid.
+
+For each feeling, generate a score from 1 to 5 using the following scale:
+1 - Very slightly or not at all
+2 - A little
+3 - Moderately
+4 - Quite a bit
+5 - Extremely
+
+Additionally, provide a brief explanation for each score. Separate feeling, explanation, score by comma. Do not add any prefix.
+
+Here is the text:
 {intake_form}
-</intake_form>
 
-<presession_questionnaire>
-{presession_questionnaire}
-</presession_questionnaire>
-
-<conversation>
-{conversation}
-</conversation>
-
-<self_questionnaire>
-Read each item and indicate to what extent you feel this way right now, that is, at the present moment: 
-1 - Very slightly or not at all 
-2 - A little 
-3 - Moderately 
-4 - Quite a bit 
-5 - Extremely 
-
-The items are: Interested, Excited, Strong, Enthusiastic, Proud, Alert, Inspired, Determined, Attentive, Active, Distressed, Upset, Guilty, Scared, Hostile, Irritable, Ashamed, Nervous, Jittery, Afraid
-</self_questionnaire>
-
-A person with the characteristics listed in the <intake_form> received counseling. The following <conversation> is the counseling session between the client and the counselor. The patient also did a PANAS evaluation before the session, which is in <presession_questionnaire>. First review the conversation. Then imagine you are the patient, who has just finished the counseling session, and do the next post-session <self_questionnaire>. 
-
-Additionally, provide a brief explanation for each score. ***Separate feeling, explanation, score by comma. The score should only be the numeric value. Do not add explanations after the score. Do not add any prefix.***
+Here is the counseling session:
+{dialogue}
