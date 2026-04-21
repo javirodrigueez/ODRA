@@ -356,13 +356,13 @@ class TherapyGraphBuilder(
       if stage == "opening":
         return "Respond to the therapist's utterance, sharing only what feels comfortable."
       if stage == "id_distortions":
-        return "Respond to the therapist's question. When you are comfortable, share your real thoughts, emotions, and behavior."
+        return "Respond to the therapist's utterance. When you are comfortable, share your real thoughts, emotions, and behavior."
       if stage == "cbt_technique":
-        return "Respond to the CBT exercise with realistic engagement."
+        return "Respond to the therapist's utterance."
       if stage == "homework":
         return "Respond honestly about whether the proposed homework feels feasible."
       if stage == "address_tib":
-        return "Respond to the therapist's attempt to address the current therapy-interfering behavior."
+        return "Respond to the therapist's attempt to address your concern."
       if stage in {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}:
         return "Respond to the motivational discussion naturally."
       if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):
@@ -379,7 +379,7 @@ class TherapyGraphBuilder(
     if stage == "homework":
       return "Respond honestly about whether the proposed homework feels feasible depending on your current resistance level."
     if stage == "address_tib":
-      return "Respond to the therapist's attempt to address the current therapy-interfering behavior according to your resistance level."
+      return "Respond to the therapist's attempt to address your concern according to your resistance level."
     if stage in {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}:
       return "Respond to the motivational discussion in line with your current resistance level."
     if stage in {"anticipated_closing", "forced_closing"} or (stage == "closing" and substage == 'closing_finalize_feedback'):

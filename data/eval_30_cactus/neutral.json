@@ -1,0 +1,222 @@
+[
+  {
+    "idx": 26,
+    "personal_info": {
+      "name": "Barbara Jean Smith",
+      "age": "57",
+      "gender": "female",
+      "occupation": "Not specified",
+      "education": "Not specified",
+      "marital_status": "Not specified",
+      "family_details": "Only child, lives with parents and 3 cats"
+    },
+    "presenting_problem": "I often have thoughts that my parents didn't want more children after having me, which leads to feelings of rejection and loneliness.\nThese thoughts started during my teenage years and have persisted since then.\nI believe the cause of these thoughts is growing up without siblings and feeling isolated at times.\nThe problem has stayed constant over time, especially during family gatherings or events where other families with siblings are present.\nI experience these thoughts intermittently but more frequently when interacting with other families.\nI have not taken any specific steps to address these thoughts.",
+    "reason_seeking_counseling": "The thoughts of rejection and loneliness have been affecting my mental well-being and relationships, prompting me to seek counseling.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for other psychological problems.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "Not specified\nInterpersonal relationships: My relationships with family members have been affected by these thoughts of rejection.\nDaily life: These thoughts influence my mood and self-perception on a regular basis.",
+      "social_support_system": "I have a few friends I can talk to but have not shared these thoughts with them."
+    }
+  },
+  {
+    "idx": 29,
+    "personal_info": {
+      "name": "Griffin Davis",
+      "age": "21",
+      "gender": "male",
+      "occupation": "Not specified",
+      "education": "Not specified",
+      "marital_status": "Not specified",
+      "family_details": "Lives with grandparents, has a cat named Mater"
+    },
+    "presenting_problem": "I feel that missing a score during a basketball game ruins the entire experience, leading to feelings of failure and disappointment.\nThese feelings started during childhood but have become more intense recently.\nI believe the stress level increased when I joined a more competitive basketball team.\nThe problem has progressed to the point where I find it hard to enjoy the game anymore, constantly focusing on missed opportunities.\nI experience these feelings every time I play basketball, especially in competitive settings.\nI have tried to practice more and seek validation from others but have not been able to shake off these negative feelings.",
+    "reason_seeking_counseling": "I decided to seek counseling when I noticed that my enjoyment of basketball was being significantly impacted by these negative thoughts and emotions.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have experienced similar feelings of failure and disappointment in the past in various competitive settings.\nI have not received treatment or counseling for psychological issues before.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "Not specified\nInterpersonal relationships: Not specified\nDaily life: My negative thoughts surrounding basketball have affected my mood and motivation in other areas of my life.",
+      "social_support_system": "I have a close relationship with my grandparents but find it challenging to talk to them about my struggles with basketball."
+    }
+  },
+  {
+    "idx": 23,
+    "personal_info": {
+      "name": "Kayla Anderson",
+      "age": "25",
+      "gender": "female",
+      "occupation": "Grocery Store Worker",
+      "education": "High School Diploma",
+      "marital_status": "Single",
+      "family_details": "Lives with parents"
+    },
+    "presenting_problem": "I am struggling with the belief that I will never be able to move out of my parents' house on my current salary, leading to feelings of hopelessness and frustration.\nThis belief started when I began working at the grocery store three years ago.\nThe stress level was moderate when this belief first occurred, as I realized the cost of living on my own.\nOver time, this belief has become more intense, especially as I see friends and colleagues moving out and starting their own lives.\nI experience this feeling every time I receive my salary and try to budget for independent living.\nI have attempted to increase my working hours and cut expenses, but it still feels unattainable.",
+    "reason_seeking_counseling": "The acknowledgment that this belief is impacting my mental well-being and overall outlook on the future prompted me to seek counseling.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance at the grocery store has not been affected by this belief.\nInterpersonal relationships: My relationships with friends have been strained as I avoid social gatherings that involve discussions about moving out.\nDaily life: I have been feeling demotivated and stressed about my future plans.",
+      "social_support_system": "I have a supportive group of friends whom I can discuss my concerns with, but they do not fully understand the extent of my worries about moving out."
+    }
+  },
+  {
+    "idx": 2,
+    "personal_info": {
+      "name": "Rebecca Finch",
+      "age": "44",
+      "gender": "female",
+      "occupation": "Veterinarian",
+      "education": "Veterinary degree",
+      "marital_status": "Single",
+      "family_details": "3 dogs and 2 cats"
+    },
+    "presenting_problem": "I called in sick at the veterinarian's office and now I have a strong belief that I will be fired and lose my license. These feelings of impending doom and catastrophic outcomes started right after I made the call.\nI feel extremely stressed about the possibility of losing my job and license, which is affecting my daily life and causing anxiety.\nThe problem has escalated quickly and has not improved despite reassurances from colleagues.\nI constantly worry about the worst-case scenario and jump to conclusions about negative outcomes without concrete evidence.\nI have not taken any steps to address this issue or alleviate the anxiety.",
+    "reason_seeking_counseling": "The fear of losing my job and license has become overwhelming, pushing me to seek counseling to manage my anxiety and address the negative thought patterns.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My work performance has been affected by the anxiety and fear of losing my job and license.\nInterpersonal relationships: My relationships with colleagues have been strained due to my constant worrying and negative outlook.\nDaily life: My anxiety levels have impacted my sleep quality and overall well-being.",
+      "social_support_system": "I have a supportive group of friends who I can talk to, but I haven't discussed these specific fears and anxieties with them."
+    }
+  },
+  {
+    "idx": 11,
+    "personal_info": {
+      "name": "Jennifer Fletcher",
+      "age": "27",
+      "gender": "female",
+      "occupation": "Marketing Specialist",
+      "education": "Master's Degree in Marketing",
+      "marital_status": "Single",
+      "family_details": "Lives alone, no siblings"
+    },
+    "presenting_problem": "I often catastrophize situations, such as being late for work leading me to believe that I will be fired. This has caused me a lot of anxiety and stress.\nThese thoughts started occurring after a particularly stressful project at work about six months ago.\nThe stress level during the onset of these thoughts was very high due to the pressure of the project.\nThe problem has progressed to the point where I constantly fear losing my job over minor mistakes.\nI experience these thoughts daily, especially in work-related situations.\nI have tried mindfulness techniques and relaxation exercises to manage these thoughts but have not found long-term relief.",
+    "reason_seeking_counseling": "The constant fear of being fired and the anxiety it brings have started to affect my job performance and overall well-being, leading me to seek counseling.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance has been impacted due to the anxiety caused by these thoughts.\nInterpersonal relationships: I find it hard to build close relationships with colleagues due to my constant fears and anxieties.\nDaily life: My sleep patterns have been disrupted, and I find it hard to focus on self-care routines.",
+      "social_support_system": "I have a supportive group of friends, but I have not shared these thoughts with them as I feel they might not understand."
+    }
+  },
+  {
+    "idx": 17,
+    "personal_info": {
+      "name": "Clara Mitchell",
+      "age": "47",
+      "gender": "female",
+      "occupation": "Bank Employee",
+      "education": "Bachelor's Degree in Finance",
+      "marital_status": "Divorced",
+      "family_details": "Grandmother lives in the guesthouse"
+    },
+    "presenting_problem": "I have a strong belief that being a cat person means I will never find a husband and will die alone, leading to feelings of hopelessness and sadness.\nThese feelings started after my divorce 2 years ago and have been persistent since then.\nThe stress levels were high during my divorce, and I think this belief stems from the fear of being alone.\nOver time, this belief has become more ingrained, especially after failed attempts at dating.\nI experience these feelings frequently, especially when I see happy couples or attend family events.\nI have tried dating apps and meeting new people, but the belief persists.",
+    "reason_seeking_counseling": "I realized that this belief was impacting my mental health and hindering my ability to form new relationships, prompting me to seek counseling.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance has not been significantly impacted.\nInterpersonal relationships: My relationships with potential partners have been affected by my belief of dying alone.\nDaily life: My daily life is functioning relatively well, but the belief affects my mood and outlook on the future.",
+      "social_support_system": "I have friends and colleagues I can talk to, but I find it challenging to discuss my fear of being alone with them."
+    }
+  },
+  {
+    "idx": 5,
+    "personal_info": {
+      "name": "David Johnson",
+      "age": "22",
+      "gender": "male",
+      "occupation": "Student (almost finished with degree)",
+      "education": "Pursuing degree",
+      "marital_status": "Not specified",
+      "family_details": "Lives with mother, father, sister, niece, and nephew"
+    },
+    "presenting_problem": "I constantly worry that something will go wrong just before I finish my degree, leading to high levels of anxiety and stress.\nThese feelings of impending doom started a few months ago as I neared the completion of my degree.\nI believe the stress is due to past experiences of setbacks when close to achieving a goal.\nThe problem has intensified as my graduation date approaches, and I find it hard to focus on the present.\nI experience these feelings daily, especially when thinking about upcoming exams or graduation requirements.\nI have not actively tried to address this issue as I believed it was temporary.",
+    "reason_seeking_counseling": "The growing anxiety and stress have started to affect my ability to concentrate on my studies, making me consider seeking counseling for the first time.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My academic performance has been affected by the increased anxiety and stress.\nInterpersonal relationships: I am supportive of my family but have not shared my academic worries with them.\nDaily life: The constant worry has disrupted my sleep patterns and affected my eating habits.",
+      "social_support_system": "I have family members I can talk to, but I have not discussed my academic-related stress with them."
+    }
+  },
+  {
+    "idx": 14,
+    "personal_info": {
+      "name": "Lauren Audrey",
+      "age": "17",
+      "gender": "female",
+      "occupation": "Research Scientist at Google",
+      "education": "Master's Degree in Computer Science",
+      "marital_status": "Single",
+      "family_details": "No information provided"
+    },
+    "presenting_problem": "I have been struggling with feeling like a social outcast and useless due to being considered a nerd by many people.\nThese feelings started when I began working at Google last week and realized that my interests and skills are not as socially valued as others.\nThe stress level was high when I started my new job and received comments from colleagues about being a nerd.\nThe problem has progressed as I find it challenging to interact with my colleagues and feel isolated in social situations.\nI experience these feelings daily at work and in social settings where I feel judged for being a nerd.\nI have tried to fit in by suppressing my interests and skills but have not felt successful in doing so.",
+    "reason_seeking_counseling": "I decided to seek counseling because these feelings of being a social outcast and useless have started affecting my self-esteem and overall well-being.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance at Google has not been impacted, but my social interactions have been challenging.\nInterpersonal relationships: I struggle to connect with colleagues and feel isolated in social settings.\nDaily life: My feelings of being a social outcast have affected my self-care routine and sleep patterns.",
+      "social_support_system": "I have a few friends I can talk to, but I have not shared these feelings with them as I feel they may not understand."
+    }
+  },
+  {
+    "idx": 20,
+    "personal_info": {
+      "name": "Julia Johnson",
+      "age": "42",
+      "gender": "female",
+      "occupation": "Navy Personnel",
+      "education": "Degree in Communication from a Community College",
+      "marital_status": "Single",
+      "family_details": "Orphan who was in the foster care system"
+    },
+    "presenting_problem": "I feel like a failure because I only have a bachelor's degree and not a master's degree like many of my friends. This has led to feelings of inadequacy and self-doubt.\nThese feelings started after I completed my degree and saw my friends pursuing higher education.\nI believe the cause is my upbringing in the foster care system, where I didn't have the same opportunities for higher education.\nThe problem has gradually escalated, especially when I compare myself to my friends' achievements.\nI experience these feelings regularly, especially when conversations about higher education arise.\nI have tried to focus on my strengths and accomplishments, but the negative thoughts persist.",
+    "reason_seeking_counseling": "I decided to seek counseling because these feelings of inadequacy have been affecting my self-esteem and overall well-being.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance in the Navy has been affected due to the constant feelings of inadequacy.\nInterpersonal relationships: I struggle to connect with others due to my self-doubt and feelings of failure.\nDaily life: My negative thoughts have impacted my sleep and eating habits.",
+      "social_support_system": "I have a few colleagues in the Navy I can talk to, but I find it challenging to open up about my feelings of inadequacy with them."
+    }
+  },
+  {
+    "idx": 8,
+    "personal_info": {
+      "name": "Paul Rupert",
+      "age": "55",
+      "gender": "male",
+      "occupation": "Hospital Worker",
+      "education": "Not specified",
+      "marital_status": "Not specified",
+      "family_details": "Not specified"
+    },
+    "presenting_problem": "I am experiencing feelings of frustration and resentment towards my job due to long working hours and lack of free time. These feelings have been bothering me for a while now.\nThe problem started when I began working at the hospital and had to adjust to the demanding hours and schedule.\nThe stress level was high from the beginning as I struggled to cope with the long hours and limited personal time.\nThe problem has progressed to a point where I constantly feel overwhelmed and unhappy with my job. I find myself focusing only on the negative aspects of my work life.\nI experience these negative feelings daily, especially when I have to work late hours or during weekends.\nI have tried to cope by venting to friends and distracting myself with hobbies, but the feelings persist.",
+    "reason_seeking_counseling": "I have realized that my feelings towards my job are affecting my overall well-being and mental health, which is why I have decided to seek counseling.",
+    "patterns": [],
+    "attitude": "neutral",
+    "emotional_recovery": "moderate",
+    "more_information": {
+      "past_history": "(including medical history)\nI have not experienced similar problems before.\nI have not received treatment or counseling for psychological problems in the past.\nI do not have any significant physical illnesses.",
+      "academic_occupational_functioning": "My job performance has been affected due to my negative feelings towards work and lack of motivation.\nInterpersonal relationships: My relationships with friends and family have been strained due to my constant venting about work.\nDaily life: My lack of enjoyment in my job has impacted my daily routines, including sleep and self-care.",
+      "social_support_system": "I have friends and family members I can talk to about my job-related stress, but I feel the need for professional help to address the root of the problem."
+    }
+  }
+]

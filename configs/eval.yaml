@@ -23,8 +23,9 @@ topic_exploration:
 env:
   max_turns: 100
   min_turns: 60
-  output_dir: /outs
+  output_dir: /outs/eval_full_catus
   verbose: true
   resume_file:
+  resistance: true
   resistance_handling: none
   long_session_turn_threshold: 70

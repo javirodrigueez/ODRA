@@ -53,7 +53,7 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _json_files(path: Path) -> list[Path]:
   if not path.is_dir():
     return []
-  return sorted(file for file in path.glob("*.json") if file.is_file())
+  return sorted(file for file in path.glob("*.json") if file.is_file() and 'negative' in file.name)
 
 
 def _mean(values: list[float]) -> float | None:
