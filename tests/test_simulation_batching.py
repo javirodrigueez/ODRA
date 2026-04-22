@@ -98,7 +98,7 @@ from simulation import (
   _advance_progress_bar,
   _deduplicate_profiles,
   _handle_completed_multiprocessing_result,
-  _initialize_manifests,
+  _initialize_manifest,
   _manifest_path,
   _mark_profile_result,
   _matching_simulation_files,
@@ -133,19 +133,19 @@ class SimulationBatchingTest(unittest.TestCase):
     self.assertEqual([profile["idx"] for profile in profiles], [10, 3])
     self.assertEqual(duplicates, ["10"])
 
-  def test_manifest_path_uses_output_dir_prefix_and_attitude(self) -> None:
+  def test_manifest_path_uses_output_dir_prefix(self) -> None:
     self.assertEqual(
-      _manifest_path("out/16_04-rh_none", "neutral"),
-      Path("out/16_04-rh_none/out_16_04-rh_none_neutral.json"),
+      _manifest_path("out/16_04-rh_none"),
+      Path("out/16_04-rh_none/out_16_04-rh_none.json"),
     )
 
-  def test_initialize_manifests_creates_one_manifest_per_attitude(self) -> None:
+  def test_initialize_manifest_creates_one_manifest_for_all_attitudes(self) -> None:
     with _temporary_workspace_dir() as tmp:
       profiles = [
         {"idx": 1, "attitude": "neutral"},
         {"idx": 2, "attitude": "negative"},
       ]
-      manifests = _initialize_manifests(
+      manifest = _initialize_manifest(
         cfg_path="configs/test.yaml",
         profiles_path="profiles.json",
         output_dir=tmp,
@@ -154,9 +154,10 @@ class SimulationBatchingTest(unittest.TestCase):
         resume_from_json=None,
       )
 
-      self.assertEqual(set(manifests), {"neutral", "negative"})
-      self.assertEqual(set(manifests["neutral"]["profiles"]), {"1"})
-      self.assertEqual(set(manifests["negative"]["profiles"]), {"2"})
+      self.assertEqual(set(manifest["profiles"]), {"1", "2"})
+      self.assertEqual(manifest["profiles"]["1"]["attitude"], "neutral")
+      self.assertEqual(manifest["profiles"]["2"]["attitude"], "negative")
+      self.assertEqual(manifest["metadata"]["attitudes"], ["negative", "neutral"])
 
   def test_select_profiles_to_execute_skips_executed_and_limits_new_profiles(self) -> None:
     with _temporary_workspace_dir() as tmp:
@@ -165,7 +166,7 @@ class SimulationBatchingTest(unittest.TestCase):
         {"idx": 2, "attitude": "negative"},
         {"idx": 3, "attitude": "neutral"},
       ]
-      manifests = _initialize_manifests(
+      manifest = _initialize_manifest(
         cfg_path="configs/test.yaml",
         profiles_path="profiles.json",
         output_dir=tmp,
@@ -173,16 +174,16 @@ class SimulationBatchingTest(unittest.TestCase):
         duplicate_idxs=[],
         resume_from_json=None,
       )
-      manifests["neutral"]["profiles"]["1"]["executed"] = True
+      manifest["profiles"]["1"]["executed"] = True
 
-      selected = _select_profiles_to_execute(profiles, manifests, n_profiles=2)
+      selected = _select_profiles_to_execute(profiles, manifest, n_profiles=2)
 
       self.assertEqual([profile["idx"] for profile in selected], [2, 3])
 
   def test_mark_profile_result_and_write_manifest_records_error_status(self) -> None:
     with _temporary_workspace_dir() as tmp:
       profile = {"idx": 1, "attitude": "neutral"}
-      manifests = _initialize_manifests(
+      manifest = _initialize_manifest(
         cfg_path="configs/test.yaml",
         profiles_path="profiles.json",
         output_dir=tmp,
@@ -190,12 +191,11 @@ class SimulationBatchingTest(unittest.TestCase):
         duplicate_idxs=[],
         resume_from_json=None,
       )
-      manifest = manifests["neutral"]
 
       _mark_profile_result(manifest, profile, tmp, {"conversation_error": "boom"})
-      _write_manifest(_manifest_path(tmp, "neutral"), manifest)
+      _write_manifest(_manifest_path(tmp), manifest)
 
-      with _manifest_path(tmp, "neutral").open("r", encoding="utf-8") as f:
+      with _manifest_path(tmp).open("r", encoding="utf-8") as f:
         saved = json.load(f)
       self.assertTrue(saved["profiles"]["1"]["executed"])
       self.assertFalse(saved["profiles"]["1"]["success"])
@@ -289,7 +289,7 @@ class SimulationBatchingTest(unittest.TestCase):
     with _temporary_workspace_dir() as tmp:
       first_profile = {"idx": 1, "attitude": "neutral"}
       second_profile = {"idx": 2, "attitude": "negative"}
-      manifests = _initialize_manifests(
+      manifest = _initialize_manifest(
         cfg_path="configs/test.yaml",
         profiles_path="profiles.json",
         output_dir=tmp,
@@ -307,7 +307,7 @@ class SimulationBatchingTest(unittest.TestCase):
         },
         total_to_run=2,
         output_dir=tmp,
-        manifests=manifests,
+        manifest=manifest,
         writer=written_lines.append,
       )
       _handle_completed_multiprocessing_result(
@@ -318,15 +318,15 @@ class SimulationBatchingTest(unittest.TestCase):
         },
         total_to_run=2,
         output_dir=tmp,
-        manifests=manifests,
+        manifest=manifest,
         writer=written_lines.append,
       )
 
       simulation_headers = [line for line in written_lines if line.startswith("Simulation ")]
       self.assertEqual(simulation_headers[0], "Simulation 2/2 \u2014 idx: 2 \u2014 attitude: negative")
       self.assertEqual(simulation_headers[1], "Simulation 1/2 \u2014 idx: 1 \u2014 attitude: neutral")
-      self.assertTrue(manifests["negative"]["profiles"]["2"]["executed"])
-      self.assertTrue(manifests["neutral"]["profiles"]["1"]["executed"])
+      self.assertTrue(manifest["profiles"]["2"]["executed"])
+      self.assertTrue(manifest["profiles"]["1"]["executed"])
 
 
 class _FakeChain:

@@ -14,7 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 from simulation import (
   _deduplicate_profiles,
   _group_profiles_by_attitude,
-  _initialize_manifests,
+  _initialize_manifest,
   _load_profiles,
   _manifest_path,
   _mark_profile_result,
@@ -35,7 +35,7 @@ def _load_result_json(path: Path) -> dict[str, Any]:
 
 
 def _mark_existing_outputs(
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   profiles: list[dict[str, Any]],
   output_dir: str | Path,
 ) -> tuple[int, list[str]]:
@@ -43,7 +43,6 @@ def _mark_existing_outputs(
   unreadable: list[str] = []
 
   for profile in profiles:
-    attitude = _profile_attitude(profile)
     _transcript_file, json_file = _simulation_output_paths(output_dir, profile)
     if not json_file.exists():
       continue
@@ -54,7 +53,8 @@ def _mark_existing_outputs(
       unreadable.append(f"{json_file}: {exc}")
       idx = _profile_idx(profile)
       transcript_file, _json_file = _simulation_output_paths(output_dir, profile)
-      manifests[attitude]["profiles"][idx] = {
+      manifest["profiles"][idx] = {
+        "attitude": _profile_attitude(profile),
         "executed": True,
         "success": False,
         "output_json": str(json_file),
@@ -63,7 +63,7 @@ def _mark_existing_outputs(
       }
       continue
 
-    _mark_profile_result(manifests[attitude], profile, output_dir, result)
+    _mark_profile_result(manifest, profile, output_dir, result)
     restored += 1
 
   return restored, unreadable
@@ -87,7 +87,7 @@ def rebuild_manifests(
 
   profiles, duplicate_idxs = _deduplicate_profiles(_load_profiles(resolved_profiles_path))
   grouped = _group_profiles_by_attitude(profiles)
-  manifests = _initialize_manifests(
+  manifest = _initialize_manifest(
     cfg_path=cfg_path,
     profiles_path=resolved_profiles_path,
     output_dir=resolved_output_dir,
@@ -99,13 +99,11 @@ def rebuild_manifests(
   restored = 0
   unreadable: list[str] = []
   if scan_existing:
-    restored, unreadable = _mark_existing_outputs(manifests, profiles, resolved_output_dir)
+    restored, unreadable = _mark_existing_outputs(manifest, profiles, resolved_output_dir)
 
-  written_paths: list[Path] = []
-  for attitude in sorted(grouped):
-    manifest_path = _manifest_path(resolved_output_dir, attitude)
-    _write_manifest(manifest_path, manifests[attitude])
-    written_paths.append(manifest_path)
+  manifest_path = _manifest_path(resolved_output_dir)
+  _write_manifest(manifest_path, manifest)
+  written_paths = [manifest_path]
 
   print(f"Loaded {len(profiles)} unique profiles from {resolved_profiles_path}")
   if duplicate_idxs:

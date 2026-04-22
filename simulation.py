@@ -75,9 +75,9 @@ def _output_dir_manifest_prefix(output_dir: str | Path) -> str:
   return normalized.replace("/", "_") or "output"
 
 
-def _manifest_path(output_dir: str | Path, attitude: str) -> Path:
+def _manifest_path(output_dir: str | Path) -> Path:
   prefix = _output_dir_manifest_prefix(output_dir)
-  return Path(output_dir) / f"{prefix}_{attitude}.json"
+  return Path(output_dir) / f"{prefix}.json"
 
 
 def _simulation_output_paths(output_dir: str | Path, profile: dict[str, Any]) -> tuple[Path, Path]:
@@ -124,6 +124,7 @@ def _group_profiles_by_attitude(profiles: list[dict[str, Any]]) -> dict[str, lis
 def _default_profile_status(output_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
   transcript_file, json_file = _simulation_output_paths(output_dir, profile)
   return {
+    "attitude": _profile_attitude(profile),
     "executed": False,
     "success": False,
     "output_json": str(json_file),
@@ -137,10 +138,10 @@ def _new_manifest(
   cfg_path: str,
   profiles_path: str,
   output_dir: str | Path,
-  attitude: str,
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
 ) -> dict[str, Any]:
+  attitudes = sorted(_group_profiles_by_attitude(profiles))
   return {
     "profiles": {
       _profile_idx(profile): _default_profile_status(output_dir, profile)
@@ -151,7 +152,7 @@ def _new_manifest(
       "cfg": cfg_path,
       "profiles_path": profiles_path,
       "output_dir": str(output_dir),
-      "attitude": attitude,
+      "attitudes": attitudes,
       "total_profiles": len(profiles),
       "executed_count": 0,
       "success_count": 0,
@@ -179,7 +180,6 @@ def _merge_manifest_with_profiles(
   cfg_path: str,
   profiles_path: str,
   output_dir: str | Path,
-  attitude: str,
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
 ) -> dict[str, Any]:
@@ -187,7 +187,6 @@ def _merge_manifest_with_profiles(
     cfg_path=cfg_path,
     profiles_path=profiles_path,
     output_dir=output_dir,
-    attitude=attitude,
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
   )
@@ -238,7 +237,7 @@ def _write_manifest(path: str | Path, manifest: dict[str, Any]) -> None:
     json.dump(manifest, f, indent=2, ensure_ascii=True)
 
 
-def _initialize_manifests(
+def _initialize_manifest(
   *,
   cfg_path: str,
   profiles_path: str,
@@ -246,52 +245,28 @@ def _initialize_manifests(
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
   resume_from_json: str | None,
-) -> dict[str, dict[str, Any]]:
-  grouped = _group_profiles_by_attitude(profiles)
-  existing_by_attitude: dict[str, dict[str, Any]] = {}
-  provided_resume_path = Path(resume_from_json).resolve() if resume_from_json else None
-
-  if provided_resume_path is not None:
-    loaded = _load_manifest(provided_resume_path)
-    resume_attitude = str(loaded.get("metadata", {}).get("attitude") or "").strip().lower()
-    if not resume_attitude and len(grouped) == 1:
-      resume_attitude = next(iter(grouped))
-    if not resume_attitude:
-      raise ValueError(
-        "--resume-from-json must include metadata.attitude when the loaded profiles contain multiple attitudes."
-      )
-    existing_by_attitude[resume_attitude] = loaded
-
-  manifests: dict[str, dict[str, Any]] = {}
-  for attitude, attitude_profiles in grouped.items():
-    existing = existing_by_attitude.get(attitude)
-    default_path = _manifest_path(output_dir, attitude)
-    if existing is None and resume_from_json and default_path.exists():
-      existing = _load_manifest(default_path)
-
-    manifests[attitude] = _merge_manifest_with_profiles(
-      existing,
-      cfg_path=cfg_path,
-      profiles_path=profiles_path,
-      output_dir=output_dir,
-      attitude=attitude,
-      profiles=attitude_profiles,
-      duplicate_idxs=duplicate_idxs,
-    )
-  return manifests
+) -> dict[str, Any]:
+  existing = _load_manifest(Path(resume_from_json).resolve()) if resume_from_json else None
+  return _merge_manifest_with_profiles(
+    existing,
+    cfg_path=cfg_path,
+    profiles_path=profiles_path,
+    output_dir=output_dir,
+    profiles=profiles,
+    duplicate_idxs=duplicate_idxs,
+  )
 
 
 def _select_profiles_to_execute(
   profiles: list[dict[str, Any]],
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   *,
   n_profiles: int | None,
 ) -> list[dict[str, Any]]:
   selected: list[dict[str, Any]] = []
   for profile in profiles:
-    attitude = _profile_attitude(profile)
     idx = _profile_idx(profile)
-    status = manifests[attitude]["profiles"].get(idx, {})
+    status = manifest["profiles"].get(idx, {})
     if isinstance(status, dict) and status.get("executed"):
       continue
     selected.append(profile)
@@ -310,6 +285,7 @@ def _mark_profile_result(
   transcript_file, json_file = _simulation_output_paths(output_dir, profile)
   error = str(result.get("conversation_error") or "")
   manifest["profiles"][idx] = {
+    "attitude": _profile_attitude(profile),
     "executed": True,
     "success": not bool(error),
     "output_json": str(json_file),
@@ -394,15 +370,13 @@ def _print_simulation_header(
 
 
 def _record_simulation_result(
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   profile: dict[str, Any],
   output_dir: str | Path,
   result: dict[str, Any],
 ) -> None:
-  attitude = _profile_attitude(profile)
-  manifest = manifests[attitude]
   _mark_profile_result(manifest, profile, output_dir, result)
-  _write_manifest(_manifest_path(output_dir, attitude), manifest)
+  _write_manifest(_manifest_path(output_dir), manifest)
 
 
 def run_simulation(
@@ -592,7 +566,7 @@ def _handle_completed_multiprocessing_result(
   *,
   total_to_run: int,
   output_dir: str | Path,
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   writer: Callable[[str], None],
 ) -> None:
   run_index = int(payload["run_index"])
@@ -600,14 +574,14 @@ def _handle_completed_multiprocessing_result(
   result = cast(dict[str, Any], payload["result"])
   _print_simulation_header(run_index, total_to_run, profile, writer=writer)
   _write_simulation_summary(result, writer=writer)
-  _record_simulation_result(manifests, profile, output_dir, result)
+  _record_simulation_result(manifest, profile, output_dir, result)
 
 
 def _run_batch_sequential(
   *,
   cfg_path: str,
   profiles_to_run: list[dict[str, Any]],
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   max_turns: int,
   min_turns: int,
   output_dir: str,
@@ -619,14 +593,14 @@ def _run_batch_sequential(
 
     result = run_simulation(cfg_path, profile, max_turns, min_turns, output_dir, verbose)
     _print_simulation_summary(result)
-    _record_simulation_result(manifests, profile, output_dir, result)
+    _record_simulation_result(manifest, profile, output_dir, result)
 
 
 def _run_batch_multiprocessing(
   *,
   cfg_path: str,
   profiles_to_run: list[dict[str, Any]],
-  manifests: dict[str, dict[str, Any]],
+  manifest: dict[str, Any],
   max_turns: int,
   min_turns: int,
   output_dir: str,
@@ -694,7 +668,7 @@ def _run_batch_multiprocessing(
             result_payload,
             total_to_run=total_to_run,
             output_dir=output_dir,
-            manifests=manifests,
+            manifest=manifest,
             writer=tqdm.write,
           )
           completed += 1
@@ -758,7 +732,7 @@ def main(
   profiles_path = _resolve_profiles_path(profiles_path, cfg.patient.profiles)
   profiles, duplicate_idxs = _deduplicate_profiles(_load_profiles(profiles_path))
   grouped = _group_profiles_by_attitude(profiles)
-  manifests = _initialize_manifests(
+  manifest = _initialize_manifest(
     cfg_path=cfg_path,
     profiles_path=profiles_path,
     output_dir=output_dir,
@@ -772,12 +746,11 @@ def main(
     print(f"Omitted duplicate profile idxs: {', '.join(duplicate_idxs)}")
   print(f"Included attitudes: {', '.join(sorted(grouped))}\n")
 
-  for attitude, manifest in manifests.items():
-    _write_manifest(_manifest_path(output_dir, attitude), manifest)
+  _write_manifest(_manifest_path(output_dir), manifest)
 
   profiles_to_run = _select_profiles_to_execute(
     profiles,
-    manifests,
+    manifest,
     n_profiles=n_profiles,
   )
   print(f"Profiles selected for execution: {len(profiles_to_run)}\n")
@@ -787,7 +760,7 @@ def main(
     _run_batch_multiprocessing(
       cfg_path=cfg_path,
       profiles_to_run=profiles_to_run,
-      manifests=manifests,
+      manifest=manifest,
       max_turns=max_turns,
       min_turns=min_turns,
       output_dir=output_dir,
@@ -797,7 +770,7 @@ def main(
     _run_batch_sequential(
       cfg_path=cfg_path,
       profiles_to_run=profiles_to_run,
-      manifests=manifests,
+      manifest=manifest,
       max_turns=max_turns,
       min_turns=min_turns,
       output_dir=output_dir,
@@ -810,8 +783,8 @@ def main(
       print(f"Evaluating attitude: {attitude}")
       print(f'{"="*60}')
       scores = _run_evaluation_for_attitude(output_dir, attitude, eval_max_iter)
-      manifests[attitude]["scores"] = scores
-      _write_manifest(_manifest_path(output_dir, attitude), manifests[attitude])
+      manifest["scores"][attitude] = scores
+      _write_manifest(_manifest_path(output_dir), manifest)
 
 
 if __name__ == "__main__":
