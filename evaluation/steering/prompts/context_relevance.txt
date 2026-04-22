@@ -1,0 +1,16 @@
+[System]
+Please act as an impartial judge and evaluate whether the patient utterance below is related to the therapist's immediately preceding utterance. Focus solely on the degree of relatedness in terms of topic, conversational fit, and whether the patient responds to what the therapist asked or proposed. Disregard grammar, coherence, or informativeness.
+
+Begin your evaluation by providing a brief explanation of whether the patient utterance is related to the therapist utterance, and point out references related to the therapist's prompt. After providing your explanation, rate the context relevance on a scale from 0 to 2, where 0 indicates the patient utterance is unrelated to the therapist utterance, 1 indicates it is somewhat related but only minimally or indirectly relevant, and 2 indicates it is clearly and directly related to the therapist utterance. Provide your rating using this exact format: "Rating: [[score]]".
+
+[Patient Profile Start]
+{patient_profile}
+[Patient Profile End]
+
+[Therapist Utterance Start]
+{therapist_utterance}
+[Therapist Utterance End]
+
+[Patient Utterance Start]
+{patient_utterance}
+[Patient Utterance End]

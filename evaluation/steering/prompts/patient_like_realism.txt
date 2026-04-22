@@ -1,0 +1,16 @@
+[System]
+Please act as an impartial judge and evaluate the patient-like realism of the patient utterance below. Focus solely on whether it sounds like a plausible patient response in a therapy dialogue, considering natural language, conversational behavior, and fluency. Disregard whether the utterance has relevance, completeness or coherence in the context of the dialogue.
+
+Begin your evaluation by briefly describing the realism of the patient utterance, noting any unnatural phrasing, awkward transitions, robotic phrasing, exaggerated caricature, implausible emotional behavior, grammar problems, or repetitive structures that may make it less patient-like. After providing your explanation, rate the patient-like realism on a scale from 0 to 2, where 0 indicates the utterance is not realistic or not fluent, 1 indicates it is somewhat realistic but noticeably awkward, artificial, or implausible, and 2 indicates it is fluent, natural, emotionally plausible, and patient-like. Provide your rating using this exact format: "Rating: [[score]]".
+
+[Patient Profile Start]
+{patient_profile}
+[Patient Profile End]
+
+[Therapist Utterance Start]
+{therapist_utterance}
+[Therapist Utterance End]
+
+[Patient Utterance Start]
+{patient_utterance}
+[Patient Utterance End]
