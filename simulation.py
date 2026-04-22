@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from collections import defaultdict
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from copy import deepcopy
@@ -538,6 +538,10 @@ def _advance_progress_bar(
   utterance_index: int,
   max_turns: int,
 ) -> None:
+  bar = bars.get(run_index)
+  if bar is None:
+    return
+
   current = progress_counts.get(run_index, 0)
   if utterance_index <= current:
     return
@@ -546,7 +550,7 @@ def _advance_progress_bar(
   next_capped = min(utterance_index, max_turns)
   delta = next_capped - current_capped
   if delta > 0:
-    bars[run_index].update(delta)
+    bar.update(delta)
   progress_counts[run_index] = utterance_index
 
 
@@ -559,6 +563,14 @@ def _drain_progress_events(progress_queue: Any, progress_counts: dict[int, int],
     except (EOFError, OSError):
       return
     _advance_progress_bar(progress_counts, bars, int(run_index), int(utterance_index), max_turns)
+
+
+def _profile_run_batches(
+  profiles_to_run: list[dict[str, Any]],
+  batch_size: int,
+) -> Iterator[tuple[int, list[dict[str, Any]]]]:
+  for start in range(0, len(profiles_to_run), batch_size):
+    yield start + 1, profiles_to_run[start : start + batch_size]
 
 
 def _handle_completed_multiprocessing_result(
@@ -611,70 +623,75 @@ def _run_batch_multiprocessing(
 
   tqdm = _load_tqdm()
   total_to_run = len(profiles_to_run)
-  bars: dict[int, Any] = {}
-  progress_counts = {run_index: 0 for run_index in range(1, total_to_run + 1)}
 
-  for run_index, profile in enumerate(profiles_to_run, start=1):
-    desc = f"{run_index}/{total_to_run} idx:{_profile_idx(profile)} {_profile_attitude(profile)}"
-    bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
+  with multiprocessing.Manager() as manager:
+    progress_queue = manager.Queue()
+    with multiprocessing.Pool(processes=n_processes) as pool:
+      for batch_start, batch_profiles in _profile_run_batches(profiles_to_run, n_processes):
+        bars: dict[int, Any] = {}
+        progress_counts = {
+          batch_start + batch_offset: 0
+          for batch_offset in range(len(batch_profiles))
+        }
+        completion_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
-  try:
-    with multiprocessing.Manager() as manager:
-      progress_queue = manager.Queue()
-      completion_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        def on_success(payload: dict[str, Any]) -> None:
+          completion_queue.put(("result", payload))
 
-      def on_success(payload: dict[str, Any]) -> None:
-        completion_queue.put(("result", payload))
+        def on_error(exc: BaseException) -> None:
+          completion_queue.put(("error", exc))
 
-      def on_error(exc: BaseException) -> None:
-        completion_queue.put(("error", exc))
+        try:
+          for batch_offset, profile in enumerate(batch_profiles):
+            run_index = batch_start + batch_offset
+            desc = f"{run_index}/{total_to_run} idx:{_profile_idx(profile)} {_profile_attitude(profile)}"
+            bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
+            pool.apply_async(
+              _run_simulation_batch_worker,
+              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue),),
+              callback=on_success,
+              error_callback=on_error,
+            )
 
-      with multiprocessing.Pool(processes=n_processes) as pool:
-        for run_index, profile in enumerate(profiles_to_run, start=1):
-          pool.apply_async(
-            _run_simulation_batch_worker,
-            args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue),),
-            callback=on_success,
-            error_callback=on_error,
-          )
+          completed = 0
+          while completed < len(batch_profiles):
+            _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
+            try:
+              kind, payload = completion_queue.get(timeout=0.1)
+            except queue.Empty:
+              continue
 
-        completed = 0
-        while completed < total_to_run:
+            _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
+            if kind == "error":
+              raise RuntimeError(f"Multiprocessing simulation worker failed: {payload}") from payload
+
+            result_payload = cast(dict[str, Any], payload)
+            run_index = int(result_payload["run_index"])
+            result = cast(dict[str, Any], result_payload["result"])
+            _advance_progress_bar(
+              progress_counts,
+              bars,
+              run_index,
+              int(result.get("utterance_index", 0) or 0),
+              max_turns,
+            )
+            status = "error" if result.get("conversation_error") else "done"
+            bars[run_index].set_postfix_str(status)
+            bars[run_index].refresh()
+
+            _handle_completed_multiprocessing_result(
+              result_payload,
+              total_to_run=total_to_run,
+              output_dir=output_dir,
+              manifest=manifest,
+              writer=tqdm.write,
+            )
+            completed += 1
+
           _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
-          try:
-            kind, payload = completion_queue.get(timeout=0.1)
-          except queue.Empty:
-            continue
-
-          _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
-          if kind == "error":
-            raise RuntimeError(f"Multiprocessing simulation worker failed: {payload}") from payload
-
-          result_payload = cast(dict[str, Any], payload)
-          run_index = int(result_payload["run_index"])
-          result = cast(dict[str, Any], result_payload["result"])
-          _advance_progress_bar(
-            progress_counts,
-            bars,
-            run_index,
-            int(result.get("utterance_index", 0) or 0),
-            max_turns,
-          )
-          status = "error" if result.get("conversation_error") else "done"
-          bars[run_index].set_postfix_str(status)
-          bars[run_index].refresh()
-
-          _handle_completed_multiprocessing_result(
-            result_payload,
-            total_to_run=total_to_run,
-            output_dir=output_dir,
-            manifest=manifest,
-            writer=tqdm.write,
-          )
-          completed += 1
-  finally:
-    for bar in bars.values():
-      bar.close()
+        finally:
+          for bar in bars.values():
+            bar.close()
 
 
 def main(

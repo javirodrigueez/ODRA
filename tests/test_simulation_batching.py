@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import queue
 import shutil
 import sys
 import types
@@ -102,7 +103,9 @@ from simulation import (
   _manifest_path,
   _mark_profile_result,
   _matching_simulation_files,
+  _profile_run_batches,
   _resolve_profiles_path,
+  _run_batch_multiprocessing,
   _select_profiles_to_execute,
   _validate_multiprocessing_options,
   _write_manifest,
@@ -285,6 +288,45 @@ class SimulationBatchingTest(unittest.TestCase):
     self.assertEqual(bar.updates, [2, 2])
     self.assertEqual(progress_counts[1], 4)
 
+  def test_profile_run_batches_preserve_global_run_indices(self) -> None:
+    profiles = [{"idx": idx, "attitude": "neutral"} for idx in range(1, 6)]
+
+    batches = list(_profile_run_batches(profiles, batch_size=2))
+
+    self.assertEqual([batch_start for batch_start, _batch in batches], [1, 3, 5])
+    self.assertEqual([[profile["idx"] for profile in batch] for _start, batch in batches], [[1, 2], [3, 4], [5]])
+
+  def test_multiprocessing_progress_bars_are_created_by_process_batches(self) -> None:
+    with _temporary_workspace_dir() as tmp:
+      profiles = [{"idx": idx, "attitude": "neutral"} for idx in range(1, 6)]
+      manifest = _initialize_manifest(
+        cfg_path="configs/test.yaml",
+        profiles_path="profiles.json",
+        output_dir=tmp,
+        profiles=profiles,
+        duplicate_idxs=[],
+        resume_from_json=None,
+      )
+      _FakeTqdm.reset()
+
+      with mock.patch("simulation._load_tqdm", return_value=_FakeTqdm):
+        with mock.patch("simulation.multiprocessing.Manager", _FakeManager):
+          with mock.patch("simulation.multiprocessing.Pool", _FakePool):
+            _run_batch_multiprocessing(
+              cfg_path="configs/test.yaml",
+              profiles_to_run=profiles,
+              manifest=manifest,
+              max_turns=10,
+              min_turns=0,
+              output_dir=tmp,
+              n_processes=2,
+            )
+
+      self.assertLessEqual(_FakeTqdm.max_active, 2)
+      self.assertEqual([bar.position for bar in _FakeTqdm.instances], [0, 1, 2, 3, 4])
+      self.assertTrue(all(bar.leave for bar in _FakeTqdm.instances))
+      self.assertTrue(all(manifest["profiles"][str(idx)]["executed"] for idx in range(1, 6)))
+
   def test_completed_multiprocessing_result_records_in_completion_order(self) -> None:
     with _temporary_workspace_dir() as tmp:
       first_profile = {"idx": 1, "attitude": "neutral"}
@@ -372,6 +414,97 @@ class _FakeProgressBar:
   def update(self, delta: int) -> None:
     self.updates.append(delta)
     self.total_updated += delta
+
+
+class _FakeTqdm:
+  instances: list["_FakeTqdm"] = []
+  active = 0
+  max_active = 0
+  writes: list[str] = []
+
+  @classmethod
+  def reset(cls) -> None:
+    cls.instances = []
+    cls.active = 0
+    cls.max_active = 0
+    cls.writes = []
+
+  def __init__(self, *, total, desc, position, leave, unit) -> None:
+    self.total = total
+    self.desc = desc
+    self.position = position
+    self.leave = leave
+    self.unit = unit
+    self.closed = False
+    self.postfix = ""
+    self.refreshed = False
+    self.updates: list[int] = []
+    type(self).instances.append(self)
+    type(self).active += 1
+    type(self).max_active = max(type(self).max_active, type(self).active)
+
+  def update(self, delta: int) -> None:
+    self.updates.append(delta)
+
+  def set_postfix_str(self, status: str) -> None:
+    self.postfix = status
+
+  def refresh(self) -> None:
+    self.refreshed = True
+
+  def close(self) -> None:
+    if self.closed:
+      return
+    self.closed = True
+    type(self).active -= 1
+
+  @staticmethod
+  def write(line: str) -> None:
+    _FakeTqdm.writes.append(line)
+
+
+class _FakeProgressQueue:
+  def get_nowait(self):
+    raise queue.Empty
+
+
+class _FakeManager:
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc, traceback) -> bool:
+    return False
+
+  def Queue(self) -> _FakeProgressQueue:
+    return _FakeProgressQueue()
+
+
+class _FakePool:
+  def __init__(self, processes: int) -> None:
+    self.processes = processes
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc, traceback) -> bool:
+    return False
+
+  def apply_async(self, func, args, callback, error_callback) -> None:
+    worker_args = args[0]
+    run_index = worker_args[0]
+    profile = worker_args[2]
+    callback(
+      {
+        "run_index": run_index,
+        "profile": profile,
+        "result": {
+          "utterance_index": run_index,
+          "exchange_counts": {},
+          "session_ended_reason": "done",
+          "conversation_error": "",
+        },
+      }
+    )
 
 
 def _fake_builder_factory(fake_chain: _FakeChain):
