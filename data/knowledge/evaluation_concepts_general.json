@@ -1,0 +1,11 @@
+{
+  "positive": [
+    "Positive towards the therapeutic process, showing openness and willingness to engage with the therapist's approach"
+  ],
+  "neutral": [
+    "Neutral towards the therapeutic process, showing some hesitation or ambivalence but still engaging with the therapist's approach"
+  ],
+  "negative": [
+    "Negative towards the therapeutic process, showing clear disengagement, resistance, or rejection of the therapist's approach"
+  ]
+}
