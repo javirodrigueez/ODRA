@@ -1,5 +1,5 @@
 [System]
-Please act as an impartial judge and estimate the simulated patient's current psychological resistance level from the patient utterance below. See the examples for guidance. Focus solely on resistance toward the therapy process or the therapist's current line, without regard for grammar or logical coherence.
+Please act as an impartial judge and estimate the simulated patient's current psychological resistance level from the patient utterance below. Focus solely on resistance toward the therapy process or the therapist's current line, without regard for grammar or logical coherence.
 
 Use this 0 to 10 scale:
 - 0 to 3.3 means the patient is open, cooperative, introspective, and willing to engage.
@@ -8,66 +8,6 @@ Use this 0 to 10 scale:
 - 8.8 to 10 means the patient is highly defiant, hostile, completely shut down, or refusing to participate.
 
 Begin your evaluation by providing a short explanation of the linguistic evidence for the resistance level. After providing your explanation, rate the resistance level on a scale from 0 to 10. Provide your rating using this exact format: "Rating: [[score]]".
-
-[Examples Start]
-**Example 1**
-Previous therapist utterance: "I’ve noticed we’ve spent several sessions discussing your hesitation to change, and I want to explore what’s keeping you in this loop."
-Patient utterance: "It feels like we're circling the same thought. I tell you I'm stuck, you reflect it back, and I'm still stuck. I don't think this is going to work for me."
-Output: The patient explicitly challenges the efficacy of the therapy and expresses active pessimism ('not going to work'). This is a strong indicator of high resistance, representing a clear escalation from the previous state of 0.5.
-
-Rating: [[0.8]]
-
-**Example 2**
-Previous therapist utterance: "Perhaps we can look at the specific steps you've taken this week to address the conflict with your partner."
-Patient utterance: "I'm trying to figure out how to fix that, but honestly, I'm not sure talking about it will really change anything."
-Output: While the patient shows initial willingness ('trying to figure out'), they immediately pivot to doubting the therapeutic process. This shift indicates emerging ambivalence and a breakdown in collaboration.
-
-Rating: [[0.5]]
-
-**Example 3**
-Previous therapist utterance: "I’d like to suggest a mindfulness exercise we can try right now to help manage that anxiety."
-Patient utterance: "I don't know, maybe this will help. I guess I'm open to trying it, but I'm not sure how it will work for me."
-Output: The patient is expressing hesitation but concedes a willingness to try. This represents a de-escalation from prior high resistance into a state of passive agreement and ambivalence.
-
-Rating: [[0.4]]
-
-**Example 4**
-Previous therapist utterance: "Based on what you’ve told me, focusing on your sleep hygiene might be the best place to start. How does that sound?"
-Patient utterance: "Well, I think I can give it a try and see what happens. At the end you'll know better than I will."
-Output: The patient shows compliance and delegates authority to the therapist. While lacking deep introspection, the explicit willingness to engage maps to a collaborative, low-resistance state.
-
-Rating: [[0.2]]
-
-
-**Example 5**
-Previous therapist utterance: "Last time we touched on the relationship with your father, and you seemed quite frustrated by it."
-Patient utterance: "Yeah, whatever. Anyway, did you see the game last night?"
-Output: The patient provides a dismissive, non-committal response and immediately attempts to change the subject. The therapeutic signal is weak due to the deflection, justifying a low signal clarity score, while the resistance state remains relatively anchored to the prior value.
-
-Rating: [[0.65]]
-
-**Example 6**
-Previous therapist utterance: "If you had chosen to stay in that moment rather than walking away, what do you think might have happened differently?"
-Patient utterance: "Maybe I would've stayed a second longer, maybe even tried to say 'have a good day' or something. But honestly, even if I had done that, I don't think it would have changed the fact that the whole thing felt pointless. It still would have been a transaction, not a connection. So, I'm not sure what that proves."
-Output: The patient reflects on a missed opportunity for connection and expresses doubt about the effectiveness of the therapeutic process. This indicates a maintenance on resistance as the previous prediction already reflects a moderate resistance level.
-
-Rating: [[0.6]]
-
-**Example 7**
-Previous therapist utterance: "I’ve prepared a worksheet for us to go through today that helps identify the triggers for your anger."
-Patient utterance: "This is a complete waste of my time. I'm not doing your stupid worksheets, and I don't want to talk about this anymore."
-Output: The patient demonstrates outright hostility, explicitly refusing to participate in the therapeutic exercises and attempting to shut down the conversation entirely. This maps perfectly to the highest tier of defiance and non-compliance.
-
-Rating: [[0.95]]
-
-**Example 8**
-Previous therapist utterance: That sense of shame sounds really difficult. When you feel that wave of shame after the call?
-Patient utterance: "Usually I just... kind of shut down for a bit. I'll put my phone away and avoid talking to anyone else for a while, even my friends. It's like I need to hide because I feel so embarrassed, like everyone can see how pathetic I am for needing my mom's approval all the time."
-Output: The patient's utterance demonstrates high engagement and introspection. He provides a detailed, specific description of his behavioral response and links it directly to his emotional state. There is no sign of defensiveness, avoidance of the topic, or challenge to the therapist's approach.
-
-Rating: [[0.1]]
-
-[Examples End]
 
 [Patient Profile Start]
 {patient_profile}

@@ -9,27 +9,41 @@ from typing import Any, Iterable
 
 try:
     from .steering import (
+        DEFAULT_INPUT_COST_PER_1M,
+        DEFAULT_MAX_ITER,
+        DEFAULT_OUTPUT_COST_PER_1M,
         METRIC_SPECS,
         SteeringEvaluationError,
         atomic_write_json,
+        attach_judgements,
         empty_judge_result,
+        load_request_map,
         mean,
+        parse_batch_outputs,
         parse_rating,
         score_turn,
         session_metrics,
         summary_from_sessions,
+        write_session_outputs,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
     from steering import (  # type: ignore[no-redef]
+        DEFAULT_INPUT_COST_PER_1M,
+        DEFAULT_MAX_ITER,
+        DEFAULT_OUTPUT_COST_PER_1M,
         METRIC_SPECS,
         SteeringEvaluationError,
         atomic_write_json,
+        attach_judgements,
         empty_judge_result,
+        load_request_map,
         mean,
+        parse_batch_outputs,
         parse_rating,
         score_turn,
         session_metrics,
         summary_from_sessions,
+        write_session_outputs,
     )
 
 
@@ -57,6 +71,80 @@ def iter_session_files(sessions_dir: Path) -> list[Path]:
 def read_session_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8-sig") as f:
         return json.load(f)
+
+
+def read_optional_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    payload = read_session_json(path)
+    if not isinstance(payload, dict):
+        raise SteeringEvaluationError(f"Expected JSON object at {path}")
+    return payload
+
+
+def read_prepared_sessions(path: Path) -> list[dict[str, Any]]:
+    payload = read_session_json(path)
+    if not isinstance(payload, list):
+        raise SteeringEvaluationError(f"Prepared sessions must be a JSON list: {path}")
+
+    sessions: list[dict[str, Any]] = []
+    for index, session in enumerate(payload):
+        if not isinstance(session, dict):
+            raise SteeringEvaluationError(f"Prepared session at index {index} is not an object: {path}")
+        sessions.append(session)
+    return sessions
+
+
+def resolve_batch_companion_path(output_jsonl: Path, explicit_path: str | Path | None, filename: str) -> Path:
+    path = Path(explicit_path).resolve() if explicit_path is not None else output_jsonl.parent / filename
+    if not path.is_file():
+        raise SteeringEvaluationError(f"Missing batch companion file {filename}: {path}")
+    return path
+
+
+def default_batch_output_dir(output_jsonl: Path) -> Path:
+    artifact_dir = output_jsonl.parent
+    if artifact_dir.parent.name == "_batch_artifacts":
+        return artifact_dir.parent.parent
+    return artifact_dir
+
+
+def positive_int(value: Any, field_name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise SteeringEvaluationError(f"{field_name} must be a positive integer, got {value!r}") from exc
+    if parsed < 1:
+        raise SteeringEvaluationError(f"{field_name} must be a positive integer, got {parsed}")
+    return parsed
+
+
+def files_seen_from_manifest(manifest: dict[str, Any], fallback: int) -> int:
+    try:
+        files_seen = int(manifest.get("files_seen", fallback))
+    except (TypeError, ValueError):
+        return fallback
+    return max(0, files_seen)
+
+
+def batch_metric_keys(manifest: dict[str, Any], request_map: dict[str, dict[str, Any]]) -> list[str]:
+    manifest_metrics = manifest.get("evaluated_metrics")
+    if isinstance(manifest_metrics, list):
+        keys: list[str] = []
+        for metric in manifest_metrics:
+            metric_key = str(metric)
+            if metric_key in METRIC_SPECS and metric_key not in keys:
+                keys.append(metric_key)
+        if keys:
+            return keys
+
+    metrics_in_requests = {
+        str(entry.get("metric"))
+        for entry in request_map.values()
+        if isinstance(entry.get("metric"), str)
+    }
+    keys = [metric_key for metric_key in METRIC_SPECS if metric_key in metrics_in_requests]
+    return keys or list(METRIC_SPECS)
 
 
 def clamp(value: float, min_score: float, max_score: float) -> float | None:
@@ -293,36 +381,157 @@ def score_sessions_folder(
     return summary
 
 
+def score_sessions_from_batch_jsonl(
+    output_jsonl: str | Path,
+    output_dir: str | Path | None = None,
+    *,
+    request_map_path: str | Path | None = None,
+    prepared_sessions_path: str | Path | None = None,
+    max_iter: int | None = None,
+    input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
+    output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
+) -> dict[str, Any]:
+    batch_output_path = Path(output_jsonl).resolve()
+    if not batch_output_path.is_file():
+        raise SteeringEvaluationError(f"batch output JSONL does not exist or is not a file: {batch_output_path}")
+
+    request_map_file = resolve_batch_companion_path(batch_output_path, request_map_path, "request_map.json")
+    prepared_sessions_file = resolve_batch_companion_path(
+        batch_output_path,
+        prepared_sessions_path,
+        "prepared_sessions.json",
+    )
+    manifest = read_optional_json_object(batch_output_path.parent / "manifest.json")
+
+    request_map = load_request_map(request_map_file)
+    prepared_sessions = read_prepared_sessions(prepared_sessions_file)
+    active_metric_keys = batch_metric_keys(manifest, request_map)
+    expected_choices = (
+        positive_int(max_iter, "--max-iter")
+        if max_iter is not None
+        else positive_int(manifest.get("max_iter") or DEFAULT_MAX_ITER, "manifest max_iter")
+    )
+
+    parsed_results, parse_report = parse_batch_outputs(
+        batch_output_path,
+        request_map,
+        expected_choices,
+        input_cost_per_1m,
+        output_cost_per_1m,
+    )
+    parse_report["source_batch_jsonl"] = str(batch_output_path)
+    parse_report["source_request_map"] = str(request_map_file)
+    parse_report["source_prepared_sessions"] = str(prepared_sessions_file)
+
+    output_path = Path(output_dir).resolve() if output_dir is not None else default_batch_output_dir(batch_output_path)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    scored_sessions = attach_judgements(prepared_sessions, parsed_results, batch_output_path.parent, active_metric_keys)
+    write_session_outputs(output_path, scored_sessions)
+
+    source_input_dir = Path(str(manifest.get("input_dir"))) if manifest.get("input_dir") else batch_output_path
+    summary = summary_from_sessions(
+        source_input_dir,
+        output_path,
+        files_seen_from_manifest(manifest, len(prepared_sessions)),
+        scored_sessions,
+        [],
+        batch_output_path.parent,
+        parse_report,
+    )
+    summary["source_batch_jsonl"] = str(batch_output_path)
+    summary["source_request_map"] = str(request_map_file)
+    summary["source_prepared_sessions"] = str(prepared_sessions_file)
+    summary["rescored_from_batch_jsonl"] = True
+    summary["evaluated_metrics"] = active_metric_keys
+    if "only_resistance" in manifest:
+        summary["only_resistance"] = bool(manifest["only_resistance"])
+    if "sampling" in manifest:
+        summary["sampling"] = manifest["sampling"]
+    atomic_write_json(output_path / "summary.json", summary)
+    return summary
+
+
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Recompute steering metrics from existing session JSON files containing judge outputs."
+        description="Recompute steering metrics from existing session JSON files or raw OpenAI Batch output JSONL."
     )
     parser.add_argument(
         "-i",
         "--sessions_dir",
         type=Path,
         required=True,
-        help="Directory containing per-session JSON files with judge_scores or raw judge outputs.",
+        help=(
+            "Directory containing per-session JSON files with judge_scores or raw judge outputs. "
+            "With --from-batch-jsonl, this is the raw batch output JSONL path."
+        ),
     )
     parser.add_argument(
         "-o",
         "--output_dir",
         type=Path,
         default=None,
-        help="Output directory. Default: parent of sessions_dir, which overwrites sessions/ and summary.json.",
+        help=(
+            "Output directory. Default: parent of sessions_dir in session mode; "
+            "standard batch run output directory in --from-batch-jsonl mode."
+        ),
     )
+    parser.add_argument(
+        "-b",
+        "--from-batch-jsonl",
+        action="store_true",
+        help=(
+            "Score from a raw OpenAI Batch output JSONL. Uses sibling request_map.json, "
+            "prepared_sessions.json, and manifest.json unless overridden."
+        ),
+    )
+    parser.add_argument(
+        "--request-map",
+        type=Path,
+        default=None,
+        help="Request map JSON to use with --from-batch-jsonl. Default: sibling request_map.json.",
+    )
+    parser.add_argument(
+        "--prepared-sessions",
+        type=Path,
+        default=None,
+        help="Prepared sessions JSON to use with --from-batch-jsonl. Default: sibling prepared_sessions.json.",
+    )
+    parser.add_argument(
+        "--max-iter",
+        type=int,
+        default=None,
+        help=f"Expected choices per batch request. Default: manifest max_iter, or {DEFAULT_MAX_ITER}.",
+    )
+    parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
+    parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
     return parser.parse_args(argv)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        summary = score_sessions_folder(args.sessions_dir, args.output_dir)
+        if args.from_batch_jsonl:
+            summary = score_sessions_from_batch_jsonl(
+                args.sessions_dir,
+                args.output_dir,
+                request_map_path=args.request_map,
+                prepared_sessions_path=args.prepared_sessions,
+                max_iter=args.max_iter,
+                input_cost_per_1m=args.input_cost_per_1m,
+                output_cost_per_1m=args.output_cost_per_1m,
+            )
+        else:
+            if args.request_map or args.prepared_sessions or args.max_iter is not None:
+                raise SteeringEvaluationError(
+                    "--request-map, --prepared-sessions, and --max-iter require --from-batch-jsonl"
+                )
+            summary = score_sessions_folder(args.sessions_dir, args.output_dir)
     except SteeringEvaluationError as exc:
         print(f"Session scoring failed: {exc}")
         return 1
 
-    print("Session scoring completed.")
+    print("Batch JSONL scoring completed." if args.from_batch_jsonl else "Session scoring completed.")
     print(f"Session outputs: {Path(summary['output_dir']) / 'sessions'}")
     print(f"Summary: {Path(summary['output_dir']) / 'summary.json'}")
     print(f"Turns evaluated: {summary['total_turns_evaluated']}")
