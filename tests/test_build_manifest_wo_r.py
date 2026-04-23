@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import uuid
 
-from misc.build_manifest_wo_r.build_manifest import build_manifest
+from scripts.helpers.build_manifest import build_manifest
 
 
 class BuildManifestWithoutResistanceTest(unittest.TestCase):

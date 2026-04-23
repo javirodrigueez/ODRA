@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -18,7 +18,7 @@ _SUBDIR_SUFFIXES = {
 
 
 @dataclass(frozen=True)
-class RenamePlan:
+class CopyPlan:
   source: Path
   target: Path
   old_idx: str
@@ -26,8 +26,8 @@ class RenamePlan:
 
 
 @dataclass(frozen=True)
-class RenameResult:
-  plans: list[RenamePlan]
+class CopyResult:
+  plans: list[CopyPlan]
   missing_old_idxs: list[str]
 
 
@@ -76,20 +76,27 @@ def _subdir(input_dir: Path, name: str) -> Path:
   return path
 
 
-def build_rename_plan(input_dir: str | Path, idx_mapping: Mapping[str, str]) -> RenameResult:
-  base = Path(input_dir)
-  if not base.is_dir():
-    raise ValueError(f"Input directory does not exist or is not a directory: {base}")
+def build_copy_plan(
+  input_dir: str | Path,
+  output_dir: str | Path,
+  idx_mapping: Mapping[Any, Any],
+) -> CopyResult:
+  input_base = Path(input_dir)
+  output_base = Path(output_dir)
+  if not input_base.is_dir():
+    raise ValueError(f"Input directory does not exist or is not a directory: {input_base}")
+  if input_base.resolve() == output_base.resolve():
+    raise ValueError("--output-dir must be different from --input-dir.")
 
   normalized_mapping = {
     _coerce_idx(old_idx, "Idx mapping key"): _coerce_idx(new_idx, f"Idx mapping value for {old_idx!r}")
     for old_idx, new_idx in idx_mapping.items()
   }
 
-  plans: list[RenamePlan] = []
+  plans: list[CopyPlan] = []
   found_old_idxs: set[str] = set()
   for subdir_name, suffix in _SUBDIR_SUFFIXES.items():
-    directory = _subdir(base, subdir_name)
+    directory = _subdir(input_base, subdir_name)
     for source in sorted(directory.iterdir()):
       if not source.is_file():
         continue
@@ -103,87 +110,57 @@ def build_rename_plan(input_dir: str | Path, idx_mapping: Mapping[str, str]) -> 
         continue
 
       found_old_idxs.add(old_idx)
-      if old_idx == new_idx:
-        continue
 
-      target = source.with_name(f"simulation_{new_idx}_{label}{suffix}")
-      plans.append(RenamePlan(source=source, target=target, old_idx=old_idx, new_idx=new_idx))
+      target = output_base / subdir_name / f"simulation_{new_idx}_{label}{suffix}"
+      plans.append(CopyPlan(source=source, target=target, old_idx=old_idx, new_idx=new_idx))
 
   _validate_plan(plans)
   missing_old_idxs = sorted(
     set(normalized_mapping) - found_old_idxs,
     key=lambda item: int(item),
   )
-  return RenameResult(plans=plans, missing_old_idxs=missing_old_idxs)
+  return CopyResult(plans=plans, missing_old_idxs=missing_old_idxs)
 
 
-def _validate_plan(plans: list[RenamePlan]) -> None:
-  sources = {plan.source for plan in plans}
+def _validate_plan(plans: list[CopyPlan]) -> None:
   targets: dict[Path, Path] = {}
   for plan in plans:
     previous_source = targets.get(plan.target)
     if previous_source is not None:
       raise ValueError(
-        f"Multiple files would be renamed to {plan.target}: {previous_source} and {plan.source}"
+        f"Multiple files would be copied to {plan.target}: {previous_source} and {plan.source}"
       )
     targets[plan.target] = plan.source
 
   for plan in plans:
-    if plan.target.exists() and plan.target not in sources:
+    if plan.target.exists():
       raise ValueError(f"Refusing to overwrite existing file: {plan.target}")
 
 
-def rename_simulation_idx_files(
+def copy_simulation_idx_files(
   input_dir: str | Path,
-  idx_mapping: Mapping[str, str],
+  output_dir: str | Path,
+  idx_mapping: Mapping[Any, Any],
   *,
   dry_run: bool = False,
   require_all: bool = False,
-) -> RenameResult:
-  result = build_rename_plan(input_dir, idx_mapping)
+) -> CopyResult:
+  result = build_copy_plan(input_dir, output_dir, idx_mapping)
   if require_all and result.missing_old_idxs:
     missing = ", ".join(result.missing_old_idxs)
     raise ValueError(f"Mapping contains old idxs that were not found in filenames: {missing}")
   if dry_run or not result.plans:
     return result
 
-  staged: list[tuple[RenamePlan, Path]] = []
-  finalized: list[RenamePlan] = []
-  try:
-    for plan in result.plans:
-      temp = _temporary_path(plan.source)
-      plan.source.rename(temp)
-      staged.append((plan, temp))
-
-    for plan, temp in staged:
-      temp.rename(plan.target)
-      finalized.append(plan)
-  except Exception:
-    _rollback_renames(staged, finalized)
-    raise
+  for plan in result.plans:
+    plan.target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(plan.source, plan.target)
 
   return result
 
 
-def _temporary_path(source: Path) -> Path:
-  while True:
-    candidate = source.with_name(f".{source.name}.idx-rename-{uuid.uuid4().hex}")
-    if not candidate.exists():
-      return candidate
-
-
-def _rollback_renames(staged: list[tuple[RenamePlan, Path]], finalized: list[RenamePlan]) -> None:
-  for plan in reversed(finalized):
-    if plan.target.exists() and not plan.source.exists():
-      plan.target.rename(plan.source)
-
-  for plan, temp in reversed(staged):
-    if temp.exists() and not plan.source.exists():
-      temp.rename(plan.source)
-
-
-def _print_result(result: RenameResult, *, dry_run: bool) -> None:
-  verb = "Would rename" if dry_run else "Renamed"
+def _print_result(result: CopyResult, *, dry_run: bool) -> None:
+  verb = "Would copy" if dry_run else "Copied"
   for plan in result.plans:
     print(f"{verb}: {plan.source} -> {plan.target}")
 
@@ -197,7 +174,7 @@ def _print_result(result: RenameResult, *, dry_run: bool) -> None:
 
 def main() -> None:
   parser = argparse.ArgumentParser(
-    description="Rename simulation output files under json/ and transcripts/ using an old-idx to new-idx JSON mapping."
+    description="Copy simulation output files under json/ and transcripts/ using an old-idx to new-idx JSON mapping."
   )
   parser.add_argument(
     "--idx-mapping",
@@ -210,9 +187,14 @@ def main() -> None:
     help="Directory containing json/ and transcripts/ subdirectories.",
   )
   parser.add_argument(
+    "--output-dir",
+    required=True,
+    help="Directory where copied json/ and transcripts/ subdirectories will be written.",
+  )
+  parser.add_argument(
     "--dry-run",
     action="store_true",
-    help="Print the planned renames without changing files.",
+    help="Print the planned copies without changing files.",
   )
   parser.add_argument(
     "--require-all",
@@ -222,14 +204,15 @@ def main() -> None:
   parser.add_argument(
     "--quiet",
     action="store_true",
-    help="Suppress normal rename output.",
+    help="Suppress normal copy output.",
   )
   args = parser.parse_args()
 
   try:
     idx_mapping = load_idx_mapping(args.idx_mapping)
-    result = rename_simulation_idx_files(
+    result = copy_simulation_idx_files(
       args.input_dir,
+      args.output_dir,
       idx_mapping,
       dry_run=args.dry_run,
       require_all=args.require_all,
