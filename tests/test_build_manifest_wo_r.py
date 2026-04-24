@@ -46,7 +46,7 @@ class BuildManifestWithoutResistanceTest(unittest.TestCase):
     self.assertEqual(manifest["metadata"]["idx_mapping_count"], 1)
     self.assertEqual(
       manifest["metadata"]["prompt_ablation"],
-      {"prompt_variant": "full", "prompt_intervals": "3_with_calib"},
+      {"prompt_variant": "base"},
     )
 
   def test_idx_matching_marks_matching_target_idx(self) -> None:
@@ -68,7 +68,7 @@ class BuildManifestWithoutResistanceTest(unittest.TestCase):
     self.assertEqual(idx_mapping, {"2": "2"})
     self.assertEqual(
       manifest["metadata"]["prompt_ablation"],
-      {"prompt_variant": "full", "prompt_intervals": "3_with_calib"},
+      {"prompt_variant": "base"},
     )
 
 

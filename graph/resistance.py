@@ -7,13 +7,13 @@ from typing import Any, Literal, Mapping, NotRequired, TypeAlias, TypedDict, cas
 EmotionalRecovery = Literal["high", "moderate", "low"]
 ResistanceInterval = Literal["positive", "neutral", "negative"]
 PromptVariant = Literal[
-  "full",
+  "base",
   "no_fewshot",
   "no_calibration",
   "no_should_not",
   "no_fewshot_no_calibration",
+  "7_no_calib",
 ]
-PromptIntervals = Literal["3_with_calib", "3_no_calib", "7_no_calib"]
 PatientAction = Literal[
   "Acceptance",
   "Hesitation",
@@ -36,28 +36,23 @@ RESISTANCE_PROMPT_NAME_BY_INTERVAL: dict[ResistanceInterval, str] = {
   "neutral": "r_neutral",
   "negative": "r_negative",
 }
-DEFAULT_PROMPT_VARIANT: PromptVariant = "full"
-DEFAULT_PROMPT_INTERVALS: PromptIntervals = "3_with_calib"
+DEFAULT_PROMPT_VARIANT: PromptVariant = "base"
 PROMPT_VARIANTS: tuple[PromptVariant, ...] = (
-  "full",
+  "base",
   "no_fewshot",
   "no_calibration",
   "no_should_not",
   "no_fewshot_no_calibration",
-)
-PROMPT_INTERVALS: tuple[PromptIntervals, ...] = (
-  "3_with_calib",
-  "3_no_calib",
   "7_no_calib",
 )
-SEVEN_INTERVAL_PROMPT_NAMES: tuple[tuple[float, str], ...] = (
-  (1.1, "r_0_0_to_1_1"),
-  (3.3, "r_1_1_to_3_3"),
-  (4.4, "r_3_3_to_4_4"),
-  (5.5, "r_4_4_to_5_5"),
-  (6.6, "r_5_5_to_6_6"),
-  (8.8, "r_6_6_to_8_8"),
-  (10.1, "r_8_8_to_10_0"),
+SEVEN_BIN_PROMPT_NAMES: tuple[tuple[float, str], ...] = (
+  (1.1, "r_bin_1"),
+  (3.3, "r_bin_2"),
+  (4.4, "r_bin_3"),
+  (5.5, "r_bin_4"),
+  (6.6, "r_bin_5"),
+  (8.8, "r_bin_6"),
+  (10.1, "r_bin_7"),
 )
 PATIENT_NON_TERMINATE_ACTIONS: tuple[PatientAction, ...] = (
   "Acceptance",
@@ -208,18 +203,11 @@ def normalize_prompt_variant(value: Any) -> PromptVariant | None:
   return cast(PromptVariant, candidate) if candidate in PROMPT_VARIANTS else None
 
 
-def normalize_prompt_intervals(value: Any) -> PromptIntervals | None:
-  candidate = str(value or "").strip().lower()
-  return cast(PromptIntervals, candidate) if candidate in PROMPT_INTERVALS else None
-
-
 def resolve_prompt_ablation_settings(
   prompt_variant: Any = None,
-  prompt_intervals: Any = None,
 ) -> dict[str, str]:
   return {
     "prompt_variant": normalize_prompt_variant(prompt_variant) or DEFAULT_PROMPT_VARIANT,
-    "prompt_intervals": normalize_prompt_intervals(prompt_intervals) or DEFAULT_PROMPT_INTERVALS,
   }
 
 
@@ -237,45 +225,37 @@ def resistance_prompt_name_for_level(resistance_level: float) -> str:
   return RESISTANCE_PROMPT_NAME_BY_INTERVAL[interval]
 
 
-def resistance_prompt_name_for_level_and_intervals(
+def resistance_prompt_name_for_variant(
   resistance_level: float,
-  prompt_intervals: Any = DEFAULT_PROMPT_INTERVALS,
+  prompt_variant: Any = DEFAULT_PROMPT_VARIANT,
 ) -> str:
-  normalized_intervals = normalize_prompt_intervals(prompt_intervals)
-  if normalized_intervals is None:
-    allowed = ", ".join(PROMPT_INTERVALS)
-    raise ValueError(f"Unknown patient prompt_intervals {prompt_intervals!r}. Allowed values: {allowed}")
-  if normalized_intervals != "7_no_calib":
+  normalized_variant = normalize_prompt_variant(prompt_variant)
+  if normalized_variant is None:
+    allowed = ", ".join(PROMPT_VARIANTS)
+    raise ValueError(f"Unknown patient prompt_variant {prompt_variant!r}. Allowed values: {allowed}")
+  if normalized_variant != "7_no_calib":
     return resistance_prompt_name_for_level(resistance_level)
 
   scaled = scaled_resistance_value(resistance_level)
-  for upper_bound, prompt_name in SEVEN_INTERVAL_PROMPT_NAMES:
+  for upper_bound, prompt_name in SEVEN_BIN_PROMPT_NAMES:
     if scaled < upper_bound:
       return prompt_name
-  return SEVEN_INTERVAL_PROMPT_NAMES[-1][1]
+  return SEVEN_BIN_PROMPT_NAMES[-1][1]
 
 
 def resistance_prompt_relative_path_for_level(
   resistance_level: float,
   prompt_variant: Any = DEFAULT_PROMPT_VARIANT,
-  prompt_intervals: Any = DEFAULT_PROMPT_INTERVALS,
 ) -> str:
   normalized_variant = normalize_prompt_variant(prompt_variant)
   if normalized_variant is None:
     allowed = ", ".join(PROMPT_VARIANTS)
     raise ValueError(f"Unknown patient prompt_variant {prompt_variant!r}. Allowed values: {allowed}")
 
-  normalized_intervals = normalize_prompt_intervals(prompt_intervals)
-  if normalized_intervals is None:
-    allowed = ", ".join(PROMPT_INTERVALS)
-    raise ValueError(f"Unknown patient prompt_intervals {prompt_intervals!r}. Allowed values: {allowed}")
-
-  prompt_name = resistance_prompt_name_for_level_and_intervals(resistance_level, normalized_intervals)
-  if normalized_variant == DEFAULT_PROMPT_VARIANT and normalized_intervals == DEFAULT_PROMPT_INTERVALS:
+  prompt_name = resistance_prompt_name_for_variant(resistance_level, normalized_variant)
+  if normalized_variant == DEFAULT_PROMPT_VARIANT:
     return f"patient_resistance/{prompt_name}.txt"
-  if normalized_intervals == DEFAULT_PROMPT_INTERVALS:
-    return f"patient_resistance/{normalized_variant}/{prompt_name}.txt"
-  return f"patient_resistance/{normalized_variant}_{normalized_intervals}/{prompt_name}.txt"
+  return f"patient_resistance/{normalized_variant}/{prompt_name}.txt"
 
 
 def is_highest_negative_calibration_interval(resistance_level: float) -> bool:

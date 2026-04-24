@@ -21,7 +21,6 @@ from agents.therapist import TherapistAgent
 
 from .audit_tokens import count_text_tokens, record_large_prompt_request
 from .resistance import (
-  DEFAULT_PROMPT_INTERVALS,
   DEFAULT_PROMPT_VARIANT,
   HomeostaticResistanceUpdate,
   PatientActionDistribution,
@@ -103,11 +102,9 @@ class GraphSupportMixin:
     if isinstance(patient_cfg, dict):
       return resolve_prompt_ablation_settings(
         patient_cfg.get("prompt_variant", DEFAULT_PROMPT_VARIANT),
-        patient_cfg.get("prompt_intervals", DEFAULT_PROMPT_INTERVALS),
       )
     return resolve_prompt_ablation_settings(
       getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
-      getattr(patient_cfg, "prompt_intervals", DEFAULT_PROMPT_INTERVALS),
     )
 
   def _init_agents(self) -> None:
@@ -125,7 +122,6 @@ class GraphSupportMixin:
       generation_defaults=extract_generation_config(self.cfg.patient),
       resistance_enabled=self._resistance_enabled(),
       prompt_variant=prompt_ablation["prompt_variant"],
-      prompt_intervals=prompt_ablation["prompt_intervals"],
     )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:

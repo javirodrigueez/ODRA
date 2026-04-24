@@ -62,14 +62,26 @@ class ResistanceHelpersTest(unittest.TestCase):
 
   def test_resistance_prompt_relative_path_uses_variant_root_for_section_removals(self) -> None:
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.50, prompt_variant="no_fewshot", prompt_intervals="3_with_calib"),
+      resistance_prompt_relative_path_for_level(0.50, prompt_variant="no_fewshot"),
       "patient_resistance/no_fewshot/r_neutral.txt",
     )
 
-  def test_resistance_prompt_relative_path_flattens_three_no_calib_to_sibling_variant_dir(self) -> None:
+  def test_resistance_prompt_relative_path_uses_seven_no_calib_bins(self) -> None:
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.70, prompt_variant="no_calibration", prompt_intervals="3_no_calib"),
-      "patient_resistance/no_calibration_3_no_calib/r_negative.txt",
+      resistance_prompt_relative_path_for_level(0.10, prompt_variant="7_no_calib"),
+      "patient_resistance/7_no_calib/r_bin_1.txt",
+    )
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.11, prompt_variant="7_no_calib"),
+      "patient_resistance/7_no_calib/r_bin_2.txt",
+    )
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.55, prompt_variant="7_no_calib"),
+      "patient_resistance/7_no_calib/r_bin_5.txt",
+    )
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.88, prompt_variant="7_no_calib"),
+      "patient_resistance/7_no_calib/r_bin_7.txt",
     )
 
   def test_predicted_resistance_delta_clip_exempts_initial_prediction(self) -> None:

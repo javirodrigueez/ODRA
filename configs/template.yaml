@@ -13,7 +13,6 @@ patient:
   model_id:
   base_url:
   prompt_variant:
-  prompt_intervals:
   temperature:
   top_p:
   presence_penalty:

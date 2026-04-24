@@ -290,24 +290,42 @@ class PatientPromptTest(unittest.TestCase):
     self.assertNotIn("Selected utterance action", rendered)
     self.assertNotIn("resistance update", rendered.lower())
 
-  def test_unimplemented_three_no_calib_prompt_raises_clear_missing_file_error(self) -> None:
+  def test_seven_no_calib_prompt_isolated_positive_bin_keeps_full_structure(self) -> None:
+    rendered = render_prompt_text(
+      "patient_resistance/7_no_calib/r_bin_2.txt",
+      scaled_resistance="2.4",
+    )
+
+    self.assertIn("Core alignment rule", rendered)
+    self.assertIn("The patient should:", rendered)
+    self.assertIn("The patient should not:", rendered)
+    self.assertIn("If 2.4 is in 1.1-3.3:", rendered)
+    self.assertIn("Scaled resistance 2.4", rendered)
+    self.assertIn("Scaled resistance 2.9", rendered)
+    self.assertNotIn("0.0-1.1", rendered)
+    self.assertNotIn("Scaled resistance 0.6", rendered)
+    self.assertNotIn("Scaled resistance 0.8", rendered)
+
+  def test_seven_no_calib_variant_selects_bin_specific_prompt(self) -> None:
     agent = PatientAgent(
       FakeLLM(),
       dict(TEST_PROFILE),
-      prompt_variant="no_fewshot",
-      prompt_intervals="3_no_calib",
+      prompt_variant="7_no_calib",
     )
 
-    with self.assertRaisesRegex(
-      FileNotFoundError,
-      "patient_resistance/no_fewshot_3_no_calib/r_neutral.txt",
-    ):
-      agent.build_utterance_messages(
-        full_conversation="Therapist: Hello.",
-        last_utterances="Therapist: Hello.",
-        resistance_level=0.50,
-        instruction="Respond naturally.",
-      )
+    messages = agent.build_utterance_messages(
+      full_conversation="Therapist: Hello.",
+      last_utterances="Therapist: Hello.",
+      resistance_level=0.50,
+      instruction="Respond naturally.",
+    )
+
+    user_prompt = messages[1]["content"]
+    self.assertIn("If 5.0 is in 4.4-5.5:", user_prompt)
+    self.assertIn("Scaled resistance 5.1", user_prompt)
+    self.assertIn("Scaled resistance 5.3", user_prompt)
+    self.assertNotIn("Scaled resistance 3.8", user_prompt)
+    self.assertNotIn("Scaled resistance 6.2", user_prompt)
 
 
 if __name__ == "__main__":

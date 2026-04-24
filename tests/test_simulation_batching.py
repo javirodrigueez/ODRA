@@ -163,7 +163,7 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual(manifest["metadata"]["attitudes"], ["negative", "neutral"])
       self.assertEqual(
         manifest["metadata"]["prompt_ablation"],
-        {"prompt_variant": "full", "prompt_intervals": "3_with_calib"},
+        {"prompt_variant": "base"},
       )
 
   def test_select_profiles_to_execute_skips_executed_and_limits_new_profiles(self) -> None:
@@ -211,7 +211,7 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual(saved["metadata"]["success_count"], 0)
       self.assertEqual(
         saved["metadata"]["prompt_ablation"],
-        {"prompt_variant": "full", "prompt_intervals": "3_with_calib"},
+        {"prompt_variant": "base"},
       )
 
   def test_matching_simulation_files_excludes_manifests_and_other_attitudes(self) -> None:

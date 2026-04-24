@@ -245,8 +245,7 @@ class MIRoutingTest(unittest.TestCase):
 
   def test_runtime_config_sets_default_patient_prompt_ablation(self) -> None:
     cfg = normalize_runtime_config({"patient": {}})
-    self.assertEqual(cfg["patient"]["prompt_variant"], "full")
-    self.assertEqual(cfg["patient"]["prompt_intervals"], "3_with_calib")
+    self.assertEqual(cfg["patient"]["prompt_variant"], "base")
 
   def test_runtime_config_preserves_disabled_resistance(self) -> None:
     cfg = normalize_runtime_config({"env": {"resistance": False}})
@@ -256,9 +255,9 @@ class MIRoutingTest(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "prompt_variant"):
       normalize_runtime_config({"patient": {"prompt_variant": "unknown"}})
 
-  def test_runtime_config_rejects_unknown_patient_prompt_intervals(self) -> None:
+  def test_runtime_config_rejects_patient_prompt_intervals_field(self) -> None:
     with self.assertRaisesRegex(ValueError, "prompt_intervals"):
-      normalize_runtime_config({"patient": {"prompt_intervals": "unknown"}})
+      normalize_runtime_config({"patient": {"prompt_intervals": "3_with_calib"}})
 
   def test_disabled_resistance_overrides_resistance_handling_mode(self) -> None:
     builder = self._make_builder(resistance_handling="cami", resistance=False)

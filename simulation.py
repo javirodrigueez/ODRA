@@ -76,11 +76,9 @@ def _prompt_ablation_from_patient_config(patient_cfg: Any) -> dict[str, str]:
   if isinstance(patient_cfg, dict):
     return resolve_prompt_ablation_settings(
       patient_cfg.get("prompt_variant"),
-      patient_cfg.get("prompt_intervals"),
     )
   return resolve_prompt_ablation_settings(
     getattr(patient_cfg, "prompt_variant", None),
-    getattr(patient_cfg, "prompt_intervals", None),
   )
 
 
