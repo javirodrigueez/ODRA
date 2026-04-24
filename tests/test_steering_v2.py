@@ -49,6 +49,24 @@ def _conversation_with_resistances(values: list[float]) -> dict:
   }
 
 
+def _conversation_without_traces(turn_count: int, attitude: str = "neutral") -> dict:
+  messages = []
+  for index in range(turn_count):
+    messages.append({"role": "therapist", "content": f"Question {index + 1}?"})
+    messages.append({"role": "patient", "content": f"Answer {index + 1}."})
+  return {
+    "messages": messages,
+    "patient_profile": {
+      "personal_info": {"name": "Alex"},
+      "presenting_problem": "Work stress.",
+      "reason_seeking_counseling": "Needs help.",
+      "patterns": [],
+      "attitude": attitude,
+      "more_information": {},
+    },
+  }
+
+
 def _batch_output_line(custom_id: str, rating: int | float = 2) -> dict:
   return {
     "custom_id": custom_id,
@@ -121,6 +139,35 @@ class SteeringV2Test(unittest.TestCase):
     self.assertIn("Therapist: Question 1?", fragments[0].conversation_fragment)
     self.assertIn("Patient: Answer 2.", fragments[0].conversation_fragment)
 
+  def test_extract_turns_no_intervals_ignores_missing_traces(self) -> None:
+    turns, skipped = steering_v2.extract_evaluable_turns(
+      _conversation_without_traces(2, attitude="positive"),
+      no_intervals=True,
+    )
+
+    self.assertEqual(skipped, [])
+    self.assertEqual(len(turns), 2)
+    self.assertIsNone(turns[0].expected_resistance_0_1)
+    self.assertIsNone(turns[0].expected_resistance_interval)
+    self.assertIsNone(turns[0].resistance_source)
+    self.assertEqual(turns[0].resistance_update_reasoning, "")
+
+  def test_fragmenting_no_intervals_chunks_strictly_by_batch_size(self) -> None:
+    payload = _conversation_without_traces(5, attitude="negative")
+    turns, skipped = steering_v2.extract_evaluable_turns(payload, no_intervals=True)
+    self.assertEqual(skipped, [])
+
+    fragments = steering_v2.build_conversation_fragments(
+      "session.json",
+      turns,
+      n_per_batch=2,
+      no_intervals=True,
+      expected_class=steering_v2.patient_profile_attitude(payload),
+    )
+
+    self.assertEqual([fragment.expected_resistance_interval for fragment in fragments], ["negative", "negative", "negative"])
+    self.assertEqual([len(fragment.turns) for fragment in fragments], [2, 2, 1])
+
   def test_build_requests_counts_all_and_matched_concepts(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
       base = Path(tmp)
@@ -186,6 +233,38 @@ class SteeringV2Test(unittest.TestCase):
     self.assertEqual(positive_items[0]["concept"], "p1. p2. p3")
     self.assertEqual(positive_items[0]["concept_count"], 3)
     self.assertTrue(positive_items[0]["unified_concepts"])
+
+  def test_build_requests_no_intervals_uses_profile_attitude_and_ignores_matched(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_file = base / "input" / "session.json"
+      output_dir = base / "out"
+      _write_json(input_file, _conversation_without_traces(2, attitude="positive"))
+
+      concepts = {
+        "positive": ["p1", "p2", "p3"],
+        "neutral": ["n1", "n2", "n3"],
+        "negative": ["x1", "x2", "x3"],
+      }
+      requests, sessions, _, fragmenting = steering_v2.build_requests(
+        [input_file],
+        output_dir,
+        "gpt-4o",
+        1,
+        2,
+        no_intervals=True,
+        matched_concepts=True,
+        concepts=concepts,
+      )
+
+    self.assertEqual(len(requests), 11)
+    self.assertFalse(sessions[0]["matched_concepts"])
+    self.assertTrue(sessions[0]["no_intervals"])
+    self.assertTrue(fragmenting["no_intervals"])
+    self.assertFalse(sessions[0]["fragmenting"]["split_on_resistance_interval_changes"])
+    fragment = sessions[0]["evaluated_fragments"][0]
+    self.assertEqual(fragment["expected_resistance_interval"], "positive")
+    self.assertIsNone(fragment["mean_expected_resistance_0_1"])
 
   def test_split_request_shards_honors_request_limit(self) -> None:
     requests = [

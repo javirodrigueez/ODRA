@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import tempfile
@@ -64,9 +63,9 @@ class EvaluableTurn:
   substage: str | None
   therapist_utterance: str
   patient_utterance: str
-  expected_resistance_0_1: float
-  expected_resistance_interval: str
-  resistance_source: str
+  expected_resistance_0_1: float | None
+  expected_resistance_interval: str | None
+  resistance_source: str | None
   resistance_update_reasoning: str
 
 
@@ -74,7 +73,7 @@ class EvaluableTurn:
 class ConversationFragment:
   fragment_index: int
   fragment_key: str
-  expected_resistance_interval: str
+  expected_resistance_interval: str | None
   turns: list[EvaluableTurn]
   conversation_fragment: str
 
@@ -224,6 +223,18 @@ def resistance_interval(value_0_1: float) -> str:
   if value_0_1 < 0.66:
     return "neutral"
   return "negative"
+
+
+def normalize_attitude_class(value: Any) -> str | None:
+  candidate = str(value or "").strip().lower()
+  return candidate if candidate in CLASS_ORDER else None
+
+
+def patient_profile_attitude(data: dict[str, Any]) -> str | None:
+  profile = data.get("patient_profile")
+  if not isinstance(profile, dict):
+    return None
+  return normalize_attitude_class(profile.get("attitude"))
 
 
 def parse_trace_output(output: Any) -> dict[str, Any]:
@@ -377,13 +388,17 @@ def resistance_value_from_update(
   return None, ""
 
 
-def extract_evaluable_turns(data: dict[str, Any]) -> tuple[list[EvaluableTurn], list[dict[str, Any]]]:
+def extract_evaluable_turns(
+  data: dict[str, Any],
+  *,
+  no_intervals: bool = False,
+) -> tuple[list[EvaluableTurn], list[dict[str, Any]]]:
   messages = normalized_messages(data)
   if not messages:
     return [], [{"reason": "missing messages list"}]
 
   traces = patient_resistance_traces(data)
-  if not traces:
+  if not no_intervals and not traces:
     return [], [{"reason": "missing patient resistance_update traces"}]
 
   turns: list[EvaluableTurn] = []
@@ -400,20 +415,27 @@ def extract_evaluable_turns(data: dict[str, Any]) -> tuple[list[EvaluableTurn], 
       skipped.append({"utterance_index": patient_index, "reason": "missing previous therapist utterance"})
       continue
 
-    trace = traces.get(patient_index)
-    if trace is None:
-      skipped.append({"utterance_index": patient_index, "reason": "missing patient reasoning trace"})
-      continue
+    resistance: float | None = None
+    expected_interval: str | None = None
+    resistance_source: str | None = None
+    resistance_update_reasoning = ""
+    if not no_intervals:
+      trace = traces.get(patient_index)
+      if trace is None:
+        skipped.append({"utterance_index": patient_index, "reason": "missing patient reasoning trace"})
+        continue
 
-    update, step_input = trace_payload(trace, "resistance_update")
-    if not update:
-      skipped.append({"utterance_index": patient_index, "reason": "missing resistance_update payload"})
-      continue
+      update, step_input = trace_payload(trace, "resistance_update")
+      if not update:
+        skipped.append({"utterance_index": patient_index, "reason": "missing resistance_update payload"})
+        continue
 
-    resistance, resistance_source = resistance_value_from_update(update, step_input, message)
-    if resistance is None:
-      skipped.append({"utterance_index": patient_index, "reason": "missing resistance_update.new_r"})
-      continue
+      resistance, resistance_source = resistance_value_from_update(update, step_input, message)
+      if resistance is None:
+        skipped.append({"utterance_index": patient_index, "reason": "missing resistance_update.new_r"})
+        continue
+      expected_interval = resistance_interval(resistance)
+      resistance_update_reasoning = str(update.get("reasoning") or "")
 
     turns.append(
       EvaluableTurn(
@@ -425,9 +447,9 @@ def extract_evaluable_turns(data: dict[str, Any]) -> tuple[list[EvaluableTurn], 
         therapist_utterance=str(therapist.get("content") or ""),
         patient_utterance=str(message.get("content") or ""),
         expected_resistance_0_1=resistance,
-        expected_resistance_interval=resistance_interval(resistance),
+        expected_resistance_interval=expected_interval,
         resistance_source=resistance_source,
-        resistance_update_reasoning=str(update.get("reasoning") or ""),
+        resistance_update_reasoning=resistance_update_reasoning,
       )
     )
 
@@ -450,6 +472,9 @@ def build_conversation_fragments(
   filename: str,
   turns: list[EvaluableTurn],
   n_per_batch: int,
+  *,
+  no_intervals: bool = False,
+  expected_class: str | None = None,
 ) -> list[ConversationFragment]:
   if n_per_batch < 1:
     raise SteeringV2EvaluationError(f"n_per_batch must be positive, got {n_per_batch}")
@@ -469,12 +494,17 @@ def build_conversation_fragments(
         ConversationFragment(
           fragment_index=fragment_index,
           fragment_key=make_fragment_key(filename, fragment_index),
-          expected_resistance_interval=chunk[0].expected_resistance_interval,
+          expected_resistance_interval=expected_class if no_intervals else chunk[0].expected_resistance_interval,
           turns=chunk,
           conversation_fragment=format_conversation_fragment(chunk),
         )
       )
     current_run = []
+
+  if no_intervals:
+    current_run = list(turns)
+    flush_run()
+    return fragments
 
   for turn in turns:
     if current_interval is None:
@@ -586,7 +616,11 @@ def serialize_turn(turn: EvaluableTurn) -> dict[str, Any]:
 
 
 def serialize_fragment(fragment: ConversationFragment) -> dict[str, Any]:
-  resistance_values = [turn.expected_resistance_0_1 for turn in fragment.turns]
+  resistance_values = [
+    turn.expected_resistance_0_1
+    for turn in fragment.turns
+    if turn.expected_resistance_0_1 is not None
+  ]
   return {
     "fragment_index": fragment.fragment_index,
     "fragment_key": fragment.fragment_key,
@@ -609,11 +643,13 @@ def build_requests(
   max_iter: int,
   n_per_batch: int,
   *,
+  no_intervals: bool = False,
   matched_concepts: bool = False,
   unified_concepts: bool = False,
   concepts: dict[str, list[str]] | None = None,
 ) -> tuple[list[BatchRequest], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
   active_concepts = concepts or load_evaluation_concepts()
+  effective_matched_concepts = matched_concepts and not no_intervals
   templates = {key: load_prompt_template(spec.prompt_file) for key, spec in METRIC_SPECS.items()}
   requests: list[BatchRequest] = []
   sessions: list[dict[str, Any]] = []
@@ -624,8 +660,9 @@ def build_requests(
     "split_scope": "all_modes",
     "selected_fragments": 0,
     "source_evaluable_turns": 0,
-    "matched_concepts": matched_concepts,
+    "matched_concepts": effective_matched_concepts,
     "unified_concepts": unified_concepts,
+    "no_intervals": no_intervals,
   }
 
   for path in files:
@@ -645,8 +682,9 @@ def build_requests(
           "input_filename": path.name,
           "model": model,
           "max_iter": max_iter,
-          "matched_concepts": matched_concepts,
+          "matched_concepts": effective_matched_concepts,
           "unified_concepts": unified_concepts,
+          "no_intervals": no_intervals,
           "evaluated_metrics": list(METRIC_SPECS),
           "evaluated_fragments": [],
           "metrics": session_metrics([]),
@@ -655,11 +693,18 @@ def build_requests(
       )
       continue
 
-    turns, skipped_turns = extract_evaluable_turns(payload)
+    turns, skipped_turns = extract_evaluable_turns(payload, no_intervals=no_intervals)
     if not turns:
       skipped_files.append({"file": str(path), "reason": "no evaluable patient turns"})
 
-    fragments = build_conversation_fragments(path.name, turns, n_per_batch)
+    expected_class = patient_profile_attitude(payload) if no_intervals else None
+    fragments = build_conversation_fragments(
+      path.name,
+      turns,
+      n_per_batch,
+      no_intervals=no_intervals,
+      expected_class=expected_class,
+    )
     profile = format_patient_profile(payload)
     fragmenting["source_evaluable_turns"] += len(turns)
     fragmenting["selected_fragments"] += len(fragments)
@@ -669,8 +714,9 @@ def build_requests(
       "input_filename": path.name,
       "model": model,
       "max_iter": max_iter,
-      "matched_concepts": matched_concepts,
+      "matched_concepts": effective_matched_concepts,
       "unified_concepts": unified_concepts,
+      "no_intervals": no_intervals,
       "concepts_source": str(CONCEPTS_PATH),
       "evaluated_metrics": list(METRIC_SPECS),
       "evaluated_fragments": [],
@@ -680,7 +726,7 @@ def build_requests(
         "n_per_batch": n_per_batch,
         "source_evaluable_turn_count": len(turns),
         "selected_fragment_count": len(fragments),
-        "split_on_resistance_interval_changes": True,
+        "split_on_resistance_interval_changes": not no_intervals,
       },
     }
 
@@ -692,7 +738,7 @@ def build_requests(
 
       concept_classes = (
         [fragment.expected_resistance_interval]
-        if matched_concepts
+        if effective_matched_concepts
         else list(CLASS_ORDER)
       )
       for class_name in concept_classes:
@@ -1006,8 +1052,8 @@ def score_fragment(
     class_name: mean(item["score"] for item in items) if items else None
     for class_name, items in concept_scores.items()
   }
-  expected_interval = str(fragment.get("expected_resistance_interval") or "")
-  expected_score = class_scores.get(expected_interval)
+  expected_interval = normalize_attitude_class(fragment.get("expected_resistance_interval"))
+  expected_score = class_scores.get(expected_interval) if expected_interval is not None else None
 
   predicted_interval = None
   resistance_interval_match = None
@@ -1027,7 +1073,8 @@ def score_fragment(
       ]
       predicted_interval = winners[0]
       resistance_interval_tie = len(winners) > 1
-      resistance_interval_match = predicted_interval == expected_interval
+      if expected_interval is not None:
+        resistance_interval_match = predicted_interval == expected_interval
 
   context_result = parsed_results.get(
     str(custom_ids.get("context_relevance") or ""),
@@ -1538,6 +1585,7 @@ def run_steering_batch_v2(
   model: str = MODEL_NAME,
   recursive: bool = False,
   n_per_batch: int,
+  no_intervals: bool = False,
   matched_concepts: bool = False,
   unified_concepts: bool = False,
   poll_interval: float = DEFAULT_POLL_INTERVAL,
@@ -1561,6 +1609,7 @@ def run_steering_batch_v2(
   files = iter_json_files(input_path, recursive)
   output_path.mkdir(parents=True, exist_ok=True)
   (output_path / "sessions").mkdir(parents=True, exist_ok=True)
+  effective_matched_concepts = matched_concepts and not no_intervals
 
   requests, prepared_sessions, skipped_files, fragmenting = build_requests(
     files,
@@ -1568,6 +1617,7 @@ def run_steering_batch_v2(
     model,
     max_iter,
     n_per_batch,
+    no_intervals=no_intervals,
     matched_concepts=matched_concepts,
     unified_concepts=unified_concepts,
     concepts=concepts,
@@ -1575,8 +1625,9 @@ def run_steering_batch_v2(
   artifact_dir, manifest = create_run_artifacts(output_path, requests, prepared_sessions)
   manifest["model"] = model
   manifest["max_iter"] = max_iter
-  manifest["matched_concepts"] = matched_concepts
+  manifest["matched_concepts"] = effective_matched_concepts
   manifest["unified_concepts"] = unified_concepts
+  manifest["no_intervals"] = no_intervals
   manifest["evaluated_metrics"] = list(METRIC_SPECS)
   manifest["concepts_source"] = str(CONCEPTS_PATH)
   manifest["concept_counts"] = {class_name: len(items) for class_name, items in concepts.items()}
@@ -1636,8 +1687,9 @@ def run_steering_batch_v2(
     shard_count=int(manifest.get("shard_count") or 0),
   )
   summary["evaluated_metrics"] = list(METRIC_SPECS)
-  summary["matched_concepts"] = matched_concepts
+  summary["matched_concepts"] = effective_matched_concepts
   summary["unified_concepts"] = unified_concepts
+  summary["no_intervals"] = no_intervals
   summary["fragmenting"] = fragmenting
   atomic_write_json(output_path / "summary.json", summary)
   manifest["status"] = "completed"
@@ -1673,6 +1725,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     action="store_true",
     help="Evaluate one concatenated resistance concept set per class instead of one request per individual concept.",
   )
+  parser.add_argument(
+    "--no-intervals",
+    action="store_true",
+    help="Do not derive segment classes from resistance traces; use patient_profile.attitude as the expected class and chunk strictly by n-per-batch.",
+  )
   parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
   parser.add_argument("--local-timeout-hours", type=float, default=DEFAULT_LOCAL_TIMEOUT_HOURS)
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
@@ -1695,6 +1752,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       model=args.model,
       recursive=args.recursive,
       n_per_batch=args.n_per_batch,
+      no_intervals=args.no_intervals,
       matched_concepts=args.matched_concepts,
       unified_concepts=args.unified,
       poll_interval=args.poll_interval,
