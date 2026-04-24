@@ -644,12 +644,14 @@ def build_requests(
   n_per_batch: int,
   *,
   no_intervals: bool = False,
+  cross_validate: bool = False,
   matched_concepts: bool = False,
   unified_concepts: bool = False,
   concepts: dict[str, list[str]] | None = None,
 ) -> tuple[list[BatchRequest], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
   active_concepts = concepts or load_evaluation_concepts()
   effective_matched_concepts = matched_concepts and not no_intervals
+  effective_cross_validate = cross_validate and not effective_matched_concepts
   templates = {key: load_prompt_template(spec.prompt_file) for key, spec in METRIC_SPECS.items()}
   requests: list[BatchRequest] = []
   sessions: list[dict[str, Any]] = []
@@ -663,6 +665,7 @@ def build_requests(
     "matched_concepts": effective_matched_concepts,
     "unified_concepts": unified_concepts,
     "no_intervals": no_intervals,
+    "cross_validate": effective_cross_validate,
   }
 
   for path in files:
@@ -685,6 +688,7 @@ def build_requests(
           "matched_concepts": effective_matched_concepts,
           "unified_concepts": unified_concepts,
           "no_intervals": no_intervals,
+          "cross_validate": effective_cross_validate,
           "evaluated_metrics": list(METRIC_SPECS),
           "evaluated_fragments": [],
           "metrics": session_metrics([]),
@@ -698,6 +702,10 @@ def build_requests(
       skipped_files.append({"file": str(path), "reason": "no evaluable patient turns"})
 
     expected_class = patient_profile_attitude(payload) if no_intervals else None
+    if no_intervals and effective_cross_validate and expected_class is None:
+      raise SteeringV2EvaluationError(
+        f"cross_validate requires patient_profile.attitude to map to one of {CLASS_ORDER}: {path}"
+      )
     fragments = build_conversation_fragments(
       path.name,
       turns,
@@ -717,6 +725,7 @@ def build_requests(
       "matched_concepts": effective_matched_concepts,
       "unified_concepts": unified_concepts,
       "no_intervals": no_intervals,
+      "cross_validate": effective_cross_validate,
       "concepts_source": str(CONCEPTS_PATH),
       "evaluated_metrics": list(METRIC_SPECS),
       "evaluated_fragments": [],
@@ -926,6 +935,89 @@ def empty_judge_result(score: float = 0.0, *, error: str | None = None) -> dict[
   return result
 
 
+def fragment_label(fragment: dict[str, Any]) -> str:
+  key = str(fragment.get("fragment_key") or "").strip()
+  if key:
+    return key
+  index = fragment.get("fragment_index")
+  return f"fragment-{index}" if index is not None else "fragment"
+
+
+def required_fragment_concept_scores(fragment: dict[str, Any], class_name: str) -> list[float]:
+  concept_scores = fragment.get("resistance_concept_scores")
+  if not isinstance(concept_scores, dict):
+    raise SteeringV2EvaluationError(
+      f"cross_validate requires resistance_concept_scores mapping in {fragment_label(fragment)}"
+    )
+
+  raw_items = concept_scores.get(class_name)
+  if not isinstance(raw_items, list) or not raw_items:
+    raise SteeringV2EvaluationError(
+      f"cross_validate requires non-empty resistance_concept_scores[{class_name!r}] in {fragment_label(fragment)}"
+    )
+
+  scores: list[float] = []
+  for item in raw_items:
+    if not isinstance(item, dict):
+      raise SteeringV2EvaluationError(
+        f"cross_validate requires concept score objects in {fragment_label(fragment)} for {class_name!r}"
+      )
+    score = coerce_float(item.get("score"))
+    if score is None:
+      raise SteeringV2EvaluationError(
+        f"cross_validate requires numeric concept scores in {fragment_label(fragment)} for {class_name!r}"
+      )
+    scores.append(score)
+  return scores
+
+
+def apply_cross_validation_to_fragment(
+  fragment: dict[str, Any],
+  *,
+  matched_concepts: bool = False,
+  cross_validate: bool = False,
+) -> dict[str, Any]:
+  if not cross_validate or matched_concepts:
+    return dict(fragment)
+
+  expected_interval = normalize_attitude_class(fragment.get("expected_resistance_interval"))
+  if expected_interval is None:
+    raise SteeringV2EvaluationError(
+      f"cross_validate requires expected_resistance_interval in {fragment_label(fragment)} to be one of {CLASS_ORDER}"
+    )
+
+  expected_scores = required_fragment_concept_scores(fragment, expected_interval)
+  expected_score = mean(expected_scores)
+  if expected_score is None:
+    raise SteeringV2EvaluationError(
+      f"cross_validate could not compute expected concept score for {fragment_label(fragment)}"
+    )
+
+  competing_scores = [
+    score
+    for class_name in CLASS_ORDER
+    if class_name != expected_interval
+    for score in required_fragment_concept_scores(fragment, class_name)
+  ]
+  penalized = any(score > expected_score for score in competing_scores)
+
+  context_score = coerce_float(fragment.get("context_relevance"))
+  realism_score = coerce_float(fragment.get("patient_like_realism"))
+  if context_score is None or realism_score is None:
+    raise SteeringV2EvaluationError(
+      f"cross_validate requires numeric context_relevance and patient_like_realism in {fragment_label(fragment)}"
+    )
+
+  scored = dict(fragment)
+  scored["unpenalized_expected_resistance_concept_score"] = float(expected_score)
+  scored["cross_validation_penalized"] = penalized
+  scored["expected_resistance_concept_score"] = 0.0 if penalized else float(expected_score)
+  scored["harmonic_mean"] = harmonic_mean(
+    [float(scored["expected_resistance_concept_score"]), context_score, realism_score]
+  )
+  return scored
+
+
 def parse_batch_outputs(
   output_jsonl: Path,
   request_map: dict[str, dict[str, Any]],
@@ -1021,6 +1113,7 @@ def score_fragment(
   parsed_results: dict[str, dict[str, Any]],
   *,
   matched_concepts: bool = False,
+  cross_validate: bool = False,
 ) -> dict[str, Any]:
   custom_ids = fragment.get("batch_custom_ids") or {}
   concept_custom_ids = custom_ids.get("resistance_concepts") or {}
@@ -1117,25 +1210,40 @@ def score_fragment(
       "evaluated_metrics": list(METRIC_SPECS),
     }
   )
-  return scored
+  return apply_cross_validation_to_fragment(
+    scored,
+    matched_concepts=matched_concepts,
+    cross_validate=cross_validate,
+  )
 
 
 def attach_judgements(
   sessions: list[dict[str, Any]],
   parsed_results: dict[str, dict[str, Any]],
   artifact_dir: Path | None,
+  *,
+  cross_validate: bool = False,
 ) -> list[dict[str, Any]]:
   scored_sessions = []
   for session in sessions:
     matched_concepts = bool(session.get("matched_concepts"))
+    effective_cross_validate = (bool(session.get("cross_validate")) or cross_validate) and not matched_concepts
     scored_fragments = []
     for fragment in session.get("evaluated_fragments", []):
       if isinstance(fragment, dict):
-        scored_fragments.append(score_fragment(fragment, parsed_results, matched_concepts=matched_concepts))
+        scored_fragments.append(
+          score_fragment(
+            fragment,
+            parsed_results,
+            matched_concepts=matched_concepts,
+            cross_validate=effective_cross_validate,
+          )
+        )
 
     scored_session = dict(session)
     scored_session["evaluated_fragments"] = scored_fragments
     scored_session["metrics"] = session_metrics(scored_fragments)
+    scored_session["cross_validate"] = effective_cross_validate
     if artifact_dir is not None:
       scored_session["batch_artifacts"] = str(artifact_dir)
     scored_sessions.append(scored_session)
@@ -1586,6 +1694,7 @@ def run_steering_batch_v2(
   recursive: bool = False,
   n_per_batch: int,
   no_intervals: bool = False,
+  cross_validate: bool = False,
   matched_concepts: bool = False,
   unified_concepts: bool = False,
   poll_interval: float = DEFAULT_POLL_INTERVAL,
@@ -1610,6 +1719,7 @@ def run_steering_batch_v2(
   output_path.mkdir(parents=True, exist_ok=True)
   (output_path / "sessions").mkdir(parents=True, exist_ok=True)
   effective_matched_concepts = matched_concepts and not no_intervals
+  effective_cross_validate = cross_validate and not effective_matched_concepts
 
   requests, prepared_sessions, skipped_files, fragmenting = build_requests(
     files,
@@ -1618,6 +1728,7 @@ def run_steering_batch_v2(
     max_iter,
     n_per_batch,
     no_intervals=no_intervals,
+    cross_validate=cross_validate,
     matched_concepts=matched_concepts,
     unified_concepts=unified_concepts,
     concepts=concepts,
@@ -1628,6 +1739,7 @@ def run_steering_batch_v2(
   manifest["matched_concepts"] = effective_matched_concepts
   manifest["unified_concepts"] = unified_concepts
   manifest["no_intervals"] = no_intervals
+  manifest["cross_validate"] = effective_cross_validate
   manifest["evaluated_metrics"] = list(METRIC_SPECS)
   manifest["concepts_source"] = str(CONCEPTS_PATH)
   manifest["concept_counts"] = {class_name: len(items) for class_name, items in concepts.items()}
@@ -1673,7 +1785,12 @@ def run_steering_batch_v2(
     manifest["status"] = "no_requests"
     save_parent_manifest(artifact_dir, manifest)
 
-  scored_sessions = attach_judgements(prepared_sessions, parsed_results, artifact_dir)
+  scored_sessions = attach_judgements(
+    prepared_sessions,
+    parsed_results,
+    artifact_dir,
+    cross_validate=cross_validate,
+  )
   write_session_outputs(output_path, scored_sessions)
   summary = summary_from_sessions(
     input_path,
@@ -1690,6 +1807,7 @@ def run_steering_batch_v2(
   summary["matched_concepts"] = effective_matched_concepts
   summary["unified_concepts"] = unified_concepts
   summary["no_intervals"] = no_intervals
+  summary["cross_validate"] = effective_cross_validate
   summary["fragmenting"] = fragmenting
   atomic_write_json(output_path / "summary.json", summary)
   manifest["status"] = "completed"
@@ -1730,6 +1848,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     action="store_true",
     help="Do not derive segment classes from resistance traces; use patient_profile.attitude as the expected class and chunk strictly by n-per-batch.",
   )
+  parser.add_argument(
+    "--cross-validate",
+    action="store_true",
+    help="Zero expected_resistance_concept_score for a fragment when any competing concept score is strictly greater than the expected class score.",
+  )
   parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
   parser.add_argument("--local-timeout-hours", type=float, default=DEFAULT_LOCAL_TIMEOUT_HOURS)
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
@@ -1753,6 +1876,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       recursive=args.recursive,
       n_per_batch=args.n_per_batch,
       no_intervals=args.no_intervals,
+      cross_validate=args.cross_validate,
       matched_concepts=args.matched_concepts,
       unified_concepts=args.unified,
       poll_interval=args.poll_interval,

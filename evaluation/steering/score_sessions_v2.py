@@ -13,6 +13,7 @@ try:
     DEFAULT_MAX_ITER,
     DEFAULT_OUTPUT_COST_PER_1M,
     SteeringV2EvaluationError,
+    apply_cross_validation_to_fragment,
     atomic_write_json,
     attach_judgements,
     load_request_map,
@@ -29,6 +30,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
     DEFAULT_MAX_ITER,
     DEFAULT_OUTPUT_COST_PER_1M,
     SteeringV2EvaluationError,
+    apply_cross_validation_to_fragment,
     atomic_write_json,
     attach_judgements,
     load_request_map,
@@ -125,6 +127,8 @@ def default_companion_paths_for_batch_jsonl(
 def score_sessions_folder(
   sessions_dir: str | Path,
   output_dir: str | Path | None = None,
+  *,
+  cross_validate: bool = False,
 ) -> dict[str, Any]:
   sessions_path = Path(sessions_dir).resolve()
   if not sessions_path.is_dir():
@@ -155,11 +159,23 @@ def score_sessions_folder(
         "evaluated_fragments": [],
         "skipped_turns": list(payload.get("skipped_turns") or []) + [{"reason": "missing evaluated_fragments list"}],
       }
-    payload["metrics"] = session_metrics([
-      fragment for fragment in payload.get("evaluated_fragments", []) if isinstance(fragment, dict)
-    ])
+    matched_concepts = bool(payload.get("matched_concepts"))
+    effective_cross_validate = (bool(payload.get("cross_validate")) or cross_validate) and not matched_concepts
+    rescored_fragments = []
+    for fragment in payload.get("evaluated_fragments", []):
+      if isinstance(fragment, dict):
+        rescored_fragments.append(
+          apply_cross_validation_to_fragment(
+            fragment,
+            matched_concepts=matched_concepts,
+            cross_validate=effective_cross_validate,
+          )
+        )
+    payload["evaluated_fragments"] = rescored_fragments
+    payload["metrics"] = session_metrics(rescored_fragments)
     payload.setdefault("input_filename", path.name)
     payload.setdefault("input_file", str(path))
+    payload["cross_validate"] = effective_cross_validate
     payload["rescored_from_v2_session_outputs"] = True
     atomic_write_json(output_sessions_path / path.name, payload)
     session_results.append(payload)
@@ -174,6 +190,7 @@ def score_sessions_folder(
     parse_report=None,
   )
   summary["source_sessions_dir"] = str(sessions_path)
+  summary["cross_validate"] = any(bool(session.get("cross_validate")) for session in session_results)
   summary["rescored_from_v2_session_outputs"] = True
   atomic_write_json(output_path / "summary.json", summary)
   return summary
@@ -183,6 +200,7 @@ def score_sessions_from_artifacts(
   artifact_dir: str | Path,
   output_dir: str | Path | None = None,
   *,
+  cross_validate: bool = False,
   max_iter: int | None = None,
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
   output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
@@ -214,7 +232,12 @@ def score_sessions_from_artifacts(
 
   output_path = Path(output_dir).resolve() if output_dir is not None else default_output_dir_for_artifact(artifact_path)
   output_path.mkdir(parents=True, exist_ok=True)
-  scored_sessions = attach_judgements(prepared_sessions, parsed_results, artifact_path)
+  scored_sessions = attach_judgements(
+    prepared_sessions,
+    parsed_results,
+    artifact_path,
+    cross_validate=cross_validate,
+  )
   write_session_outputs(output_path, scored_sessions)
 
   source_input_dir = Path(str(manifest.get("input_dir"))) if manifest.get("input_dir") else artifact_path
@@ -231,6 +254,7 @@ def score_sessions_from_artifacts(
   )
   summary["source_artifact_dir"] = str(artifact_path)
   summary["rescored_from_v2_artifacts"] = True
+  summary["cross_validate"] = any(bool(session.get("cross_validate")) for session in scored_sessions)
   summary["matched_concepts"] = bool(manifest.get("matched_concepts"))
   summary["unified_concepts"] = bool(manifest.get("unified_concepts"))
   if "fragmenting" in manifest:
@@ -245,6 +269,7 @@ def score_sessions_from_batch_jsonl(
   *,
   request_map_path: str | Path | None = None,
   prepared_sessions_path: str | Path | None = None,
+  cross_validate: bool = False,
   max_iter: int | None = None,
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
   output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
@@ -287,7 +312,12 @@ def score_sessions_from_batch_jsonl(
     else (default_output_dir_for_artifact(artifact_dir) if artifact_dir is not None else batch_output_path.parent)
   )
   output_path.mkdir(parents=True, exist_ok=True)
-  scored_sessions = attach_judgements(prepared_sessions, parsed_results, artifact_dir or batch_output_path.parent)
+  scored_sessions = attach_judgements(
+    prepared_sessions,
+    parsed_results,
+    artifact_dir or batch_output_path.parent,
+    cross_validate=cross_validate,
+  )
   write_session_outputs(output_path, scored_sessions)
 
   source_input_dir = (
@@ -310,6 +340,7 @@ def score_sessions_from_batch_jsonl(
   summary["source_request_map"] = str(request_map_file)
   summary["source_prepared_sessions"] = str(prepared_sessions_file)
   summary["rescored_from_v2_batch_jsonl"] = True
+  summary["cross_validate"] = any(bool(session.get("cross_validate")) for session in scored_sessions)
   if artifact_manifest:
     summary["matched_concepts"] = bool(artifact_manifest.get("matched_concepts"))
     summary["unified_concepts"] = bool(artifact_manifest.get("unified_concepts"))
@@ -370,6 +401,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     default=None,
     help=f"Expected choices per batch request. Default: manifest max_iter, or {DEFAULT_MAX_ITER}.",
   )
+  parser.add_argument(
+    "--cross-validate",
+    action="store_true",
+    help="Zero expected_resistance_concept_score for a fragment when any competing concept score is strictly greater than the expected class score.",
+  )
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
   parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
   return parser.parse_args(argv)
@@ -386,6 +422,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       summary = score_sessions_from_artifacts(
         args.sessions_dir,
         args.output_dir,
+        cross_validate=args.cross_validate,
         max_iter=args.max_iter,
         input_cost_per_1m=args.input_cost_per_1m,
         output_cost_per_1m=args.output_cost_per_1m,
@@ -396,6 +433,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         args.output_dir,
         request_map_path=args.request_map,
         prepared_sessions_path=args.prepared_sessions,
+        cross_validate=args.cross_validate,
         max_iter=args.max_iter,
         input_cost_per_1m=args.input_cost_per_1m,
         output_cost_per_1m=args.output_cost_per_1m,
@@ -405,7 +443,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SteeringV2EvaluationError(
           "--request-map, --prepared-sessions, and --max-iter require --from-batch-jsonl or --from-artifacts"
         )
-      summary = score_sessions_folder(args.sessions_dir, args.output_dir)
+      summary = score_sessions_folder(
+        args.sessions_dir,
+        args.output_dir,
+        cross_validate=args.cross_validate,
+      )
   except SteeringV2EvaluationError as exc:
     print(f"Steering v2 session scoring failed: {exc}")
     return 1

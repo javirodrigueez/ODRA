@@ -266,6 +266,27 @@ class SteeringV2Test(unittest.TestCase):
     self.assertEqual(fragment["expected_resistance_interval"], "positive")
     self.assertIsNone(fragment["mean_expected_resistance_0_1"])
 
+  def test_build_requests_cross_validate_regular_interval_runs(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_file = base / "input" / "session.json"
+      output_dir = base / "out"
+      _write_json(input_file, _conversation_with_resistances([0.20, 0.25]))
+
+      requests, sessions, _, fragmenting = steering_v2.build_requests(
+        [input_file],
+        output_dir,
+        "gpt-4o",
+        1,
+        2,
+        cross_validate=True,
+      )
+
+    self.assertGreater(len(requests), 0)
+    self.assertTrue(sessions[0]["cross_validate"])
+    self.assertTrue(fragmenting["cross_validate"])
+    self.assertEqual(sessions[0]["evaluated_fragments"][0]["expected_resistance_interval"], "positive")
+
   def test_split_request_shards_honors_request_limit(self) -> None:
     requests = [
       steering_v2.BatchRequest(
@@ -343,6 +364,68 @@ class SteeringV2Test(unittest.TestCase):
     self.assertTrue(scored["resistance_interval_match"])
     self.assertFalse(scored["resistance_interval_tie"])
     self.assertAlmostEqual(scored["cost"], 0.5)
+
+  def test_score_fragment_cross_validate_zeroes_for_stronger_competing_concept(self) -> None:
+    fragment = {
+      "fragment_index": 1,
+      "fragment_key": "session.json#fragment-0001",
+      "turn_count": 1,
+      "expected_resistance_interval": "neutral",
+      "batch_custom_ids": {
+        "resistance_concepts": {
+          "positive": [{"concept_index": 0, "concept": "p", "custom_id": "p"}],
+          "neutral": [
+            {"concept_index": 0, "concept": "n1", "custom_id": "n1"},
+            {"concept_index": 1, "concept": "n2", "custom_id": "n2"},
+          ],
+          "negative": [{"concept_index": 0, "concept": "x", "custom_id": "x"}],
+        },
+        "context_relevance": "context",
+        "patient_like_realism": "realism",
+      },
+    }
+    parsed = {
+      "p": {"score": 1.5, "cost": 0.1, "choices": []},
+      "n1": {"score": 1.0, "cost": 0.1, "choices": []},
+      "n2": {"score": 1.0, "cost": 0.1, "choices": []},
+      "x": {"score": 0.5, "cost": 0.1, "choices": []},
+      "context": {"score": 1.0, "cost": 0.1, "choices": []},
+      "realism": {"score": 2.0, "cost": 0.1, "choices": []},
+    }
+
+    scored = steering_v2.score_fragment(fragment, parsed, cross_validate=True)
+
+    self.assertEqual(scored["unpenalized_expected_resistance_concept_score"], 1.0)
+    self.assertTrue(scored["cross_validation_penalized"])
+    self.assertEqual(scored["expected_resistance_concept_score"], 0.0)
+    self.assertEqual(scored["harmonic_mean"], 0.0)
+
+  def test_score_fragment_cross_validate_ignored_for_matched_concepts(self) -> None:
+    fragment = {
+      "fragment_index": 1,
+      "fragment_key": "session.json#fragment-0001",
+      "turn_count": 1,
+      "expected_resistance_interval": "neutral",
+      "batch_custom_ids": {
+        "resistance_concepts": {
+          "positive": [],
+          "neutral": [{"concept_index": 0, "concept": "n", "custom_id": "n"}],
+          "negative": [],
+        },
+        "context_relevance": "context",
+        "patient_like_realism": "realism",
+      },
+    }
+    parsed = {
+      "n": {"score": 1.25, "cost": 0.1, "choices": []},
+      "context": {"score": 1.0, "cost": 0.1, "choices": []},
+      "realism": {"score": 2.0, "cost": 0.1, "choices": []},
+    }
+
+    scored = steering_v2.score_fragment(fragment, parsed, matched_concepts=True, cross_validate=True)
+
+    self.assertEqual(scored["expected_resistance_concept_score"], 1.25)
+    self.assertNotIn("cross_validation_penalized", scored)
 
   def test_parse_all_shard_outputs_merges_results(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
