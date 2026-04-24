@@ -5,6 +5,15 @@ from typing import Any
 
 from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
 
+from graph.resistance import (
+  DEFAULT_PROMPT_INTERVALS,
+  DEFAULT_PROMPT_VARIANT,
+  PROMPT_INTERVALS,
+  PROMPT_VARIANTS,
+  normalize_prompt_intervals,
+  normalize_prompt_variant,
+)
+
 
 def _to_plain_container(value: Any) -> Any:
   if value is None:
@@ -76,6 +85,20 @@ def normalize_runtime_config(cfg: Any) -> Any:
     raw_cfg.get("patient"),
     include_profiles=True,
   )
+  patient.setdefault("prompt_variant", DEFAULT_PROMPT_VARIANT)
+  patient.setdefault("prompt_intervals", DEFAULT_PROMPT_INTERVALS)
+  normalized_prompt_variant = normalize_prompt_variant(patient.get("prompt_variant"))
+  if normalized_prompt_variant is None:
+    allowed = ", ".join(PROMPT_VARIANTS)
+    raise ValueError(f"Config block 'patient' has invalid prompt_variant {patient.get('prompt_variant')!r}. Allowed values: {allowed}")
+  normalized_prompt_intervals = normalize_prompt_intervals(patient.get("prompt_intervals"))
+  if normalized_prompt_intervals is None:
+    allowed = ", ".join(PROMPT_INTERVALS)
+    raise ValueError(
+      f"Config block 'patient' has invalid prompt_intervals {patient.get('prompt_intervals')!r}. Allowed values: {allowed}"
+    )
+  patient["prompt_variant"] = normalized_prompt_variant
+  patient["prompt_intervals"] = normalized_prompt_intervals
   patient_struct = _normalize_model_block(
     "patient_struct",
     raw_cfg.get("patient_struct"),

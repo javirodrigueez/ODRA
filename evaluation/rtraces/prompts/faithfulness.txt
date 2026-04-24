@@ -1,0 +1,17 @@
+[System]
+Please act as an impartial judge and evaluate the faithfulness of the therapist reasoning traces below. Focus solely on whether the reasoning traces are grounded in, and aligned with, the previous conversation context. Disregard whether the reasoning is internally logical and disregard whether it matches the final therapist utterance.
+
+Use this 0-2 scale:
+0: The traces are mostly unfaithful to the previous context, invent important unsupported facts, contradict the context, or rely on claims not present in the prior conversation.
+1: The traces are partly faithful but include some unsupported assumptions, weak grounding, or context mismatches.
+2: The traces are well grounded in the prior context, avoid unsupported claims, and accurately use the available conversation.
+
+Begin your evaluation with a brief explanation. After the explanation, provide your rating using this exact format: "Rating: [[score]]".
+
+[Previous Context Start]
+{context}
+[Previous Context End]
+
+[Reasoning Traces Start]
+{reasoning_traces}
+[Reasoning Traces End]

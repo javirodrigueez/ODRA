@@ -1,9 +1,7 @@
-import unittest
 import sys
 import types
+import unittest
 from pathlib import Path
-
-from graph.resistance import resistance_prompt_name_for_level
 
 if "dotenv" not in sys.modules:
   dotenv_module = types.ModuleType("dotenv")
@@ -208,6 +206,46 @@ class PatientPromptTest(unittest.TestCase):
     self.assertIn("Use the <engagement> block", rendered)
     self.assertIn("Acceptance", rendered)
 
+  def test_no_fewshot_variant_prompt_omits_examples_only(self) -> None:
+    rendered = render_prompt_text(
+      "patient_resistance/no_fewshot/r_neutral.txt",
+      scaled_resistance="5.0",
+    )
+
+    self.assertIn("Calibration rules", rendered)
+    self.assertNotIn("In-context examples", rendered)
+    self.assertIn("The patient should not", rendered)
+
+  def test_no_calibration_variant_prompt_omits_calibration_only(self) -> None:
+    rendered = render_prompt_text(
+      "patient_resistance/no_calibration/r_neutral.txt",
+      scaled_resistance="5.0",
+    )
+
+    self.assertNotIn("Calibration rules", rendered)
+    self.assertIn("In-context examples", rendered)
+    self.assertIn("The patient should not", rendered)
+
+  def test_no_should_not_variant_prompt_omits_should_not_only(self) -> None:
+    rendered = render_prompt_text(
+      "patient_resistance/no_should_not/r_neutral.txt",
+      scaled_resistance="5.0",
+    )
+
+    self.assertIn("Calibration rules", rendered)
+    self.assertIn("In-context examples", rendered)
+    self.assertNotIn("The patient should not", rendered)
+
+  def test_no_fewshot_no_calibration_variant_prompt_omits_both_sections(self) -> None:
+    rendered = render_prompt_text(
+      "patient_resistance/no_fewshot_no_calibration/r_neutral.txt",
+      scaled_resistance="5.0",
+    )
+
+    self.assertNotIn("Calibration rules", rendered)
+    self.assertNotIn("In-context examples", rendered)
+    self.assertIn("The patient should not", rendered)
+
   def test_weak_patient_prompt_uses_attitude_block_without_resistance_block(self) -> None:
     profile = dict(TEST_PROFILE)
     profile["attitude"] = "very_positive"
@@ -251,6 +289,25 @@ class PatientPromptTest(unittest.TestCase):
     self.assertIn("<attitude_towards_therapy>", rendered)
     self.assertNotIn("Selected utterance action", rendered)
     self.assertNotIn("resistance update", rendered.lower())
+
+  def test_unimplemented_three_no_calib_prompt_raises_clear_missing_file_error(self) -> None:
+    agent = PatientAgent(
+      FakeLLM(),
+      dict(TEST_PROFILE),
+      prompt_variant="no_fewshot",
+      prompt_intervals="3_no_calib",
+    )
+
+    with self.assertRaisesRegex(
+      FileNotFoundError,
+      "patient_resistance/no_fewshot_3_no_calib/r_neutral.txt",
+    ):
+      agent.build_utterance_messages(
+        full_conversation="Therapist: Hello.",
+        last_utterances="Therapist: Hello.",
+        resistance_level=0.50,
+        instruction="Respond naturally.",
+      )
 
 
 if __name__ == "__main__":

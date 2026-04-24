@@ -17,6 +17,8 @@ import sys
 import tempfile
 from typing import Any, cast
 
+from graph.resistance import resolve_prompt_ablation_settings
+
 try:
   from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 except ImportError:
@@ -68,6 +70,30 @@ def _profile_idx(profile: dict[str, Any]) -> str:
 
 def _profile_attitude(profile: dict[str, Any]) -> str:
   return str(profile.get("attitude") or "unknown").strip().lower() or "unknown"
+
+
+def _prompt_ablation_from_patient_config(patient_cfg: Any) -> dict[str, str]:
+  if isinstance(patient_cfg, dict):
+    return resolve_prompt_ablation_settings(
+      patient_cfg.get("prompt_variant"),
+      patient_cfg.get("prompt_intervals"),
+    )
+  return resolve_prompt_ablation_settings(
+    getattr(patient_cfg, "prompt_variant", None),
+    getattr(patient_cfg, "prompt_intervals", None),
+  )
+
+
+def _prompt_ablation_from_cfg_path(cfg_path: str | None) -> dict[str, str]:
+  if not cfg_path:
+    return resolve_prompt_ablation_settings()
+  try:
+    from runtime_config import load_runtime_config
+
+    cfg = load_runtime_config(cfg_path)
+  except Exception:
+    return resolve_prompt_ablation_settings()
+  return _prompt_ablation_from_patient_config(getattr(cfg, "patient", {}))
 
 
 def _output_dir_manifest_prefix(output_dir: str | Path) -> str:
@@ -140,6 +166,7 @@ def _new_manifest(
   output_dir: str | Path,
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
+  prompt_ablation: dict[str, str] | None = None,
 ) -> dict[str, Any]:
   attitudes = sorted(_group_profiles_by_attitude(profiles))
   return {
@@ -157,6 +184,7 @@ def _new_manifest(
       "executed_count": 0,
       "success_count": 0,
       "duplicate_idxs_omitted": duplicate_idxs,
+      "prompt_ablation": dict(prompt_ablation or resolve_prompt_ablation_settings()),
       "updated_at": "",
     },
   }
@@ -182,6 +210,7 @@ def _merge_manifest_with_profiles(
   output_dir: str | Path,
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
+  prompt_ablation: dict[str, str] | None = None,
 ) -> dict[str, Any]:
   fresh = _new_manifest(
     cfg_path=cfg_path,
@@ -189,6 +218,7 @@ def _merge_manifest_with_profiles(
     output_dir=output_dir,
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
+    prompt_ablation=prompt_ablation,
   )
   if existing is None:
     return fresh
@@ -245,6 +275,7 @@ def _initialize_manifest(
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
   resume_from_json: str | None,
+  prompt_ablation: dict[str, str] | None = None,
 ) -> dict[str, Any]:
   existing = _load_manifest(Path(resume_from_json).resolve()) if resume_from_json else None
   return _merge_manifest_with_profiles(
@@ -254,6 +285,7 @@ def _initialize_manifest(
     output_dir=output_dir,
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
+    prompt_ablation=prompt_ablation,
   )
 
 
@@ -401,6 +433,7 @@ def run_simulation(
     "session_ended_reason": "",
     "conversation_error": "",
     "patient_profile": profile,
+    "prompt_ablation": _prompt_ablation_from_cfg_path(cfg_path),
   }
   error_printed = False
   last_reported_utterance = 0
@@ -716,6 +749,7 @@ def main(
   output_dir = str(cfg.env.output_dir or "")
   verbose = bool(cfg.env.verbose)
   resume_file = cfg.env.get("resume_file")
+  prompt_ablation = _prompt_ablation_from_patient_config(cfg.patient)
 
   if resume_file and resume_from_json:
     raise ValueError("env.resume_file cannot be combined with --resume-from-json.")
@@ -756,6 +790,7 @@ def main(
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
     resume_from_json=resume_from_json,
+    prompt_ablation=prompt_ablation,
   )
 
   print(f"Loaded {len(profiles)} unique profiles from {profiles_path}")

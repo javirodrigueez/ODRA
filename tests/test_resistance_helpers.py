@@ -10,6 +10,7 @@ from graph.resistance import (
   is_highest_negative_calibration_interval,
   merge_action_distributions,
   resistance_interval_for_level,
+  resistance_prompt_relative_path_for_level,
   sample_patient_action,
   scaled_resistance_value,
   validate_action_distribution,
@@ -48,6 +49,28 @@ class ResistanceHelpersTest(unittest.TestCase):
     for raw_value, expected in cases.items():
       with self.subTest(raw_value=raw_value):
         self.assertEqual(resistance_interval_for_level(raw_value), expected)
+
+  def test_resistance_prompt_relative_path_uses_root_files_for_default_baseline(self) -> None:
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.20),
+      "patient_resistance/r_positive.txt",
+    )
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.50),
+      "patient_resistance/r_neutral.txt",
+    )
+
+  def test_resistance_prompt_relative_path_uses_variant_root_for_section_removals(self) -> None:
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.50, prompt_variant="no_fewshot", prompt_intervals="3_with_calib"),
+      "patient_resistance/no_fewshot/r_neutral.txt",
+    )
+
+  def test_resistance_prompt_relative_path_flattens_three_no_calib_to_sibling_variant_dir(self) -> None:
+    self.assertEqual(
+      resistance_prompt_relative_path_for_level(0.70, prompt_variant="no_calibration", prompt_intervals="3_no_calib"),
+      "patient_resistance/no_calibration_3_no_calib/r_negative.txt",
+    )
 
   def test_predicted_resistance_delta_clip_exempts_initial_prediction(self) -> None:
     update = apply_predicted_resistance_delta_clip(

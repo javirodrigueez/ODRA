@@ -21,6 +21,8 @@ from agents.therapist import TherapistAgent
 
 from .audit_tokens import count_text_tokens, record_large_prompt_request
 from .resistance import (
+  DEFAULT_PROMPT_INTERVALS,
+  DEFAULT_PROMPT_VARIANT,
   HomeostaticResistanceUpdate,
   PatientActionDistribution,
   TherapistResistanceUpdate,
@@ -28,6 +30,7 @@ from .resistance import (
   apply_bayesian_predicted_resistance_update,
   apply_predicted_resistance_delta_clip,
   normalize_predicted_resistance_state_fields,
+  resolve_prompt_ablation_settings,
   normalize_resistance_state_fields,
 )
 from .state import (
@@ -95,9 +98,22 @@ class GraphSupportMixin:
   def _resistance_enabled(self) -> bool:
     return self._env_bool("resistance", True)
 
+  def _patient_prompt_ablation(self) -> dict[str, str]:
+    patient_cfg = getattr(self.cfg, "patient", {})
+    if isinstance(patient_cfg, dict):
+      return resolve_prompt_ablation_settings(
+        patient_cfg.get("prompt_variant", DEFAULT_PROMPT_VARIANT),
+        patient_cfg.get("prompt_intervals", DEFAULT_PROMPT_INTERVALS),
+      )
+    return resolve_prompt_ablation_settings(
+      getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
+      getattr(patient_cfg, "prompt_intervals", DEFAULT_PROMPT_INTERVALS),
+    )
+
   def _init_agents(self) -> None:
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
+    prompt_ablation = self._patient_prompt_ablation()
     self.therapist = TherapistAgent(
       therapist_llm,
       self.profile,
@@ -108,6 +124,8 @@ class GraphSupportMixin:
       self.profile,
       generation_defaults=extract_generation_config(self.cfg.patient),
       resistance_enabled=self._resistance_enabled(),
+      prompt_variant=prompt_ablation["prompt_variant"],
+      prompt_intervals=prompt_ablation["prompt_intervals"],
     )
 
   def _load_stage_prompt(self, stage: str, name: str, **values: Any) -> str:
@@ -611,6 +629,7 @@ class GraphSupportMixin:
 
     s = cast(SessionState, cast(object, normalize_resistance_state_fields(dict(s), deepcopy(self.profile))))
     s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(dict(s))))
+    s["prompt_ablation"] = self._patient_prompt_ablation()
 
     s.setdefault("last_patient_resistance_update_reasoning", "")
     s.setdefault("last_patient_action", "")

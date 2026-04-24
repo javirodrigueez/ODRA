@@ -6,9 +6,17 @@ from typing import Any
 
 from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
 
-from graph.resistance import resistance_prompt_name_for_level, scaled_resistance_value
+from graph.resistance import (
+  DEFAULT_PROMPT_INTERVALS,
+  DEFAULT_PROMPT_VARIANT,
+  normalize_prompt_intervals,
+  normalize_prompt_variant,
+  resistance_prompt_name_for_level_and_intervals,
+  resistance_prompt_relative_path_for_level,
+  scaled_resistance_value,
+)
 
-from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response, render_prompt
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response
 
 class PatientAgent(Agent):
   def __init__(
@@ -17,6 +25,8 @@ class PatientAgent(Agent):
     profile: dict[str, Any],
     generation_defaults: dict[str, Any] | None = None,
     resistance_enabled: bool = True,
+    prompt_variant: str = DEFAULT_PROMPT_VARIANT,
+    prompt_intervals: str = DEFAULT_PROMPT_INTERVALS,
   ):
     super().__init__(
       llm,
@@ -24,6 +34,14 @@ class PatientAgent(Agent):
     )
     self.profile = profile
     self.resistance_enabled = bool(resistance_enabled)
+    normalized_prompt_variant = normalize_prompt_variant(prompt_variant)
+    if normalized_prompt_variant is None:
+      raise ValueError(f"Unknown patient prompt_variant: {prompt_variant!r}")
+    normalized_prompt_intervals = normalize_prompt_intervals(prompt_intervals)
+    if normalized_prompt_intervals is None:
+      raise ValueError(f"Unknown patient prompt_intervals: {prompt_intervals!r}")
+    self.prompt_variant = normalized_prompt_variant
+    self.prompt_intervals = normalized_prompt_intervals
     system_filename = "patient_system.txt" if self.resistance_enabled else "patient_system_weak.txt"
     system_structured_filename = (
       "patient_system_structured.txt" if self.resistance_enabled else "patient_system_structured_weak.txt"
@@ -65,15 +83,40 @@ class PatientAgent(Agent):
     return "\n".join(f"- {p}" for p in self.profile["patterns"])
 
   def _resistance_prompt_name(self, resistance_level: float) -> str:
-    return resistance_prompt_name_for_level(resistance_level)
+    return resistance_prompt_name_for_level_and_intervals(resistance_level, self.prompt_intervals)
 
   def _prompt_resistance_level(self, resistance_level: float) -> float:
     return scaled_resistance_value(resistance_level)
 
+  def prompt_ablation_settings(self) -> dict[str, str]:
+    return {
+      "prompt_variant": self.prompt_variant,
+      "prompt_intervals": self.prompt_intervals,
+    }
+
+  def _resistance_prompt_relative_path(self, resistance_level: float) -> str:
+    return resistance_prompt_relative_path_for_level(
+      resistance_level,
+      prompt_variant=self.prompt_variant,
+      prompt_intervals=self.prompt_intervals,
+    )
+
   def _render_resistance_prompt(self, resistance_level: float) -> str:
-    prompt_name = self._resistance_prompt_name(float(resistance_level))
-    return render_prompt(
-      f"patient_resistance/{prompt_name}.txt",
+    relative_path = self._resistance_prompt_relative_path(float(resistance_level))
+    try:
+      template = load_prompt(relative_path)
+    except FileNotFoundError as exc:
+      raise FileNotFoundError(
+        f"Missing patient resistance prompt for prompt_variant='{self.prompt_variant}' and "
+        f"prompt_intervals='{self.prompt_intervals}': {relative_path}"
+      ) from exc
+    if not template:
+      raise ValueError(
+        f"Selected patient resistance prompt is empty for prompt_variant='{self.prompt_variant}' and "
+        f"prompt_intervals='{self.prompt_intervals}': {relative_path}"
+      )
+    prompt_template = PromptTemplate.from_template(template)
+    return prompt_template.format(
       scaled_resistance=f"{self._prompt_resistance_level(resistance_level):.1f}",
     )
 

@@ -16,6 +16,7 @@ from simulation import (  # noqa: E402
   _load_profiles,
   _profile_attitude,
   _profile_idx,
+  _prompt_ablation_from_cfg_path,
   _refresh_manifest_metadata,
   _write_manifest,
 )
@@ -179,6 +180,7 @@ def _new_manifest(
   duplicate_idxs: list[str],
 ) -> dict[str, Any]:
   attitudes = sorted({_profile_attitude(profile) for profile in profiles})
+  prompt_ablation = _prompt_ablation_from_cfg_path(cfg_path)
   return {
     "profiles": {
       _profile_idx(profile): _default_profile_status(output_dir, profile)
@@ -194,6 +196,7 @@ def _new_manifest(
       "executed_count": 0,
       "success_count": 0,
       "duplicate_idxs_omitted": duplicate_idxs,
+      "prompt_ablation": dict(prompt_ablation),
       "updated_at": "",
     },
   }

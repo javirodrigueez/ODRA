@@ -1,0 +1,13 @@
+[System]
+Please act as an impartial judge and evaluate the internal logic consistency of the therapist reasoning traces below. Focus solely on whether the traces are logically sound as a chain of intermediate decisions: the steps should be coherent with each other, avoid self-contradiction, and support later trace conclusions from earlier trace conclusions. Disregard whether the traces are faithful to the conversation context and disregard whether they match the final therapist utterance.
+
+Use this 0-2 scale:
+0: The traces are logically incoherent, self-contradictory, or the later conclusions do not follow from the earlier trace content.
+1: The traces are partly coherent but contain noticeable gaps, tension, or weak transitions between reasoning steps.
+2: The traces are internally coherent, logically connected, and the reasoning steps support each other.
+
+Begin your evaluation with a brief explanation. After the explanation, provide your rating using this exact format: "Rating: [[score]]".
+
+[Reasoning Traces Start]
+{reasoning_traces}
+[Reasoning Traces End]

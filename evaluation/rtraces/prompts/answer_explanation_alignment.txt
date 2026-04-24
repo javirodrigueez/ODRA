@@ -1,0 +1,17 @@
+[System]
+Please act as an impartial judge and evaluate whether the therapist reasoning traces align with the final therapist utterance. Focus solely on whether the final utterance follows from the reasoning traces and reflects their stated decisions, plans, and conclusions. Disregard whether the traces are faithful to earlier context and disregard whether the traces are internally logical except as needed to compare them with the final utterance.
+
+Use this 0-2 scale:
+0: The final therapist utterance is mostly disconnected from, or contradicts, the reasoning traces.
+1: The final therapist utterance is partly aligned but omits or shifts important trace conclusions, or only loosely follows the traces.
+2: The final therapist utterance clearly follows from and reflects the reasoning traces.
+
+Begin your evaluation with a brief explanation. After the explanation, provide your rating using this exact format: "Rating: [[score]]".
+
+[Reasoning Traces Start]
+{reasoning_traces}
+[Reasoning Traces End]
+
+[Final Therapist Utterance Start]
+{therapist_utterance}
+[Final Therapist Utterance End]
