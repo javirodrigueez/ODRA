@@ -292,7 +292,7 @@ class PatientPromptTest(unittest.TestCase):
 
   def test_seven_no_calib_prompt_isolated_positive_bin_keeps_full_structure(self) -> None:
     rendered = render_prompt_text(
-      "patient_resistance/7_no_calib/r_bin_2.txt",
+      "patient_resistance/7_no_calibration/r_bin_2.txt",
       scaled_resistance="2.4",
     )
 
@@ -310,7 +310,7 @@ class PatientPromptTest(unittest.TestCase):
     agent = PatientAgent(
       FakeLLM(),
       dict(TEST_PROFILE),
-      prompt_variant="7_no_calib",
+      prompt_variant="7_no_calibration",
     )
 
     messages = agent.build_utterance_messages(

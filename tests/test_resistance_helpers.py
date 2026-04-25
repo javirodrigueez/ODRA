@@ -68,20 +68,20 @@ class ResistanceHelpersTest(unittest.TestCase):
 
   def test_resistance_prompt_relative_path_uses_seven_no_calib_bins(self) -> None:
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.10, prompt_variant="7_no_calib"),
-      "patient_resistance/7_no_calib/r_bin_1.txt",
+      resistance_prompt_relative_path_for_level(0.10, prompt_variant="7_no_calibration"),
+      "patient_resistance/7_no_calibration/r_bin_1.txt",
     )
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.11, prompt_variant="7_no_calib"),
-      "patient_resistance/7_no_calib/r_bin_2.txt",
+      resistance_prompt_relative_path_for_level(0.11, prompt_variant="7_no_calibration"),
+      "patient_resistance/7_no_calibration/r_bin_2.txt",
     )
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.55, prompt_variant="7_no_calib"),
-      "patient_resistance/7_no_calib/r_bin_5.txt",
+      resistance_prompt_relative_path_for_level(0.55, prompt_variant="7_no_calibration"),
+      "patient_resistance/7_no_calibration/r_bin_5.txt",
     )
     self.assertEqual(
-      resistance_prompt_relative_path_for_level(0.88, prompt_variant="7_no_calib"),
-      "patient_resistance/7_no_calib/r_bin_7.txt",
+      resistance_prompt_relative_path_for_level(0.88, prompt_variant="7_no_calibration"),
+      "patient_resistance/7_no_calibration/r_bin_7.txt",
     )
 
   def test_predicted_resistance_delta_clip_exempts_initial_prediction(self) -> None:

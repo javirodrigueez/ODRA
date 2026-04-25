@@ -23,7 +23,7 @@ topic_exploration:
 env:
   max_turns: 100
   min_turns: 60
-  output_dir: /outs/eval_30_catus
+  output_dir: /outs/eval_full_catus_wo_r
   verbose: true
   resume_file:
   resistance: false

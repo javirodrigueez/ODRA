@@ -12,7 +12,7 @@ PromptVariant = Literal[
   "no_calibration",
   "no_should_not",
   "no_fewshot_no_calibration",
-  "7_no_calib",
+  "7_no_calibration",
 ]
 PatientAction = Literal[
   "Acceptance",
@@ -43,7 +43,7 @@ PROMPT_VARIANTS: tuple[PromptVariant, ...] = (
   "no_calibration",
   "no_should_not",
   "no_fewshot_no_calibration",
-  "7_no_calib",
+  "7_no_calibration",
 )
 SEVEN_BIN_PROMPT_NAMES: tuple[tuple[float, str], ...] = (
   (1.1, "r_bin_1"),
@@ -233,7 +233,7 @@ def resistance_prompt_name_for_variant(
   if normalized_variant is None:
     allowed = ", ".join(PROMPT_VARIANTS)
     raise ValueError(f"Unknown patient prompt_variant {prompt_variant!r}. Allowed values: {allowed}")
-  if normalized_variant != "7_no_calib":
+  if normalized_variant != "7_no_calibration":
     return resistance_prompt_name_for_level(resistance_level)
 
   scaled = scaled_resistance_value(resistance_level)

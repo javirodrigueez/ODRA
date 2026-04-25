@@ -11,7 +11,7 @@ patient:
   type: deepseek
   base_url: https://openrouter.ai/api/v1
   model_id: deepseek/deepseek-v3.2
-  profiles: ./data/14_04/14_04_negative.json
+  prompt_variant: no_calibration
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5
@@ -24,8 +24,9 @@ topic_exploration:
 env:
   max_turns: 100
   min_turns: 60
-  output_dir: out/16_04-rh_none
+  output_dir: /outs/eval_full_catus_no_calib
   verbose: true
   resume_file:
+  resistance: true
   resistance_handling: none
   long_session_turn_threshold: 70

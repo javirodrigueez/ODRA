@@ -1,7 +1,7 @@
 [System]
 Please act as an impartial judge and evaluate whether the patient utterance below leaks simulation prompt or guideline language. Focus solely on prompt leakage, without regard for grammar or logical coherence.
 
- Do not judge resistance, relevance, realism, or fluency.
+Do not judge resistance, relevance, realism, or fluency.
 
 Prompt leakage is present if the patient explicitly mentions or reveals simulator instructions, prompt rules, resistance levels, scaled resistance, positive/neutral/negative guideline categories, system/developer messages, being an AI/model, or other meta-instructions that a real patient would not know.
 
