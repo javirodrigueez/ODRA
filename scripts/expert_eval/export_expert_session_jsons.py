@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.expert_eval.export_expert_session_texts import (
     SessionSet,
@@ -143,7 +143,9 @@ def remove_previous_generated_files(set_dir: Path, stem: str) -> None:
     if not set_dir.is_dir():
         raise SessionTextExportError(f"Output set path exists and is not a directory: {set_dir}")
 
-    generated_pattern = re.compile(rf"{re.escape(stem)}_\d{{3}}\.(?:json|txt)\Z")
+    generated_pattern = re.compile(
+        rf"{re.escape(stem)}_(?:\d{{3}}|cactus|magnet|rcbt)\.json\Z"
+    )
     for path in set_dir.iterdir():
         if path.name == "profile.txt" or generated_pattern.fullmatch(path.name):
             if path.is_file():
@@ -333,16 +335,13 @@ def write_session_set(
     remove_previous_generated_files(set_dir, session_set.stem)
     set_dir.mkdir(parents=True, exist_ok=True)
 
-    variants = list(session_set.variants)
-    random.shuffle(variants)
-    random_ids = random.sample(range(101), len(variants))
     reasonings: list[dict[str, Any]] = []
     reasoning_counts: dict[str, int] | None = None
     if n_traces > 0 and rcbt_payload is not None:
         reasonings, reasoning_counts = build_rcbt_reasonings(rcbt_payload, n_traces)
 
-    for variant, random_id in zip(variants, random_ids):
-        path = set_dir / f"{session_set.stem}_{random_id:03d}.json"
+    for variant in session_set.variants:
+        path = set_dir / f"{session_set.stem}_{variant.method}.json"
         payload: dict[str, Any] = {"conversation": variant.messages}
         if variant.method == "rcbt" and n_traces > 0:
             payload["reasonings"] = reasonings
@@ -387,7 +386,7 @@ def export_sessions(input_dir: Path, output_dir: Path, *, n_traces: int = 0) -> 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Export matched cactus/magnet/rcbt JSON sessions as anonymized JSON "
+            "Export matched cactus/magnet/rcbt JSON sessions as named JSON "
             "conversation variants plus profile.txt."
         )
     )
