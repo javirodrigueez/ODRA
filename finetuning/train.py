@@ -6,30 +6,63 @@ from datasets import load_dataset
 import argparse
 import wandb
 import os
+from pathlib import Path
 import time
 
-def get_model_name(model):
-    if model == "qwen3-high":
-        return "unsloth/Qwen3-32B"
-    elif model == "qwen3-medium":
-        return "unsloth/Qwen3-32B-FP8"
-    elif model == "qwen3-low":
-        return "unsloth/Qwen3-32B-unsloth-bnb-4bit"
-    elif model == "qwen3-moe":
-        return "unsloth/Qwen3-30B-A3B"
-    elif model == "qwen3-thinking":
-        return "Qwen/Qwen3-30B-A3B-Thinking-2507"
-    else:
-        raise ValueError(f"Invalid model name: {model}. Choose from: qwen3-high, qwen3-medium, qwen3-low, qwen3-moe")
+MODEL_REPO_FALLBACKS = {
+    "qwen3-high": "unsloth/Qwen3-32B",
+    "qwen3-medium": "unsloth/Qwen3-32B-FP8",
+    "qwen3-low": "unsloth/Qwen3-32B-unsloth-bnb-4bit",
+    "qwen3-moe": "unsloth/Qwen3-30B-A3B",
+    "qwen3-thinking": "Qwen/Qwen3-30B-A3B-Thinking-2507",
+}
 
-def create_model(model, max_seq_length, load_in_4bit = False):
+
+def local_models_dir():
+    return Path(__file__).resolve().parent.parent / "models"
+
+
+def is_local_model_available(model_dir):
+    return model_dir.is_dir() and any(model_dir.iterdir())
+
+
+def resolve_hf_repo_id(model_name, model_repo=None):
+    return model_repo or MODEL_REPO_FALLBACKS.get(model_name, model_name)
+
+
+def ensure_local_model(model_name, model_repo=None, models_dir=None):
+    models_dir = Path(models_dir) if models_dir is not None else local_models_dir()
+    model_dir = models_dir / model_name
+    if is_local_model_available(model_dir):
+        print(f"Using local model from: {model_dir}")
+        return model_dir
+
+    repo_id = resolve_hf_repo_id(model_name, model_repo)
+    print(f"Local model not found at {model_dir}. Downloading {repo_id} from Hugging Face...")
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise RuntimeError(
+            "huggingface_hub is required to download missing models. "
+            "Install it or place the model under models/<model-name>."
+        ) from exc
+
+    path = snapshot_download(
+        repo_id=repo_id,
+        local_dir=str(model_dir),
+        ignore_patterns=["*.bin", "*.pth", "*.msgpack"],
+    )
+    print(f"Model available at: {path}")
+    return Path(path)
+
+def create_model(model, max_seq_length, load_in_4bit = False, model_repo=None):
     # 1. Configuration
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
     # 2. Load Model & Tokenizer
-    model_name = get_model_name(model)
+    model_path = ensure_local_model(model, model_repo=model_repo)
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name = model_name,
+        model_name = str(model_path),
         max_seq_length = max_seq_length,
         dtype = dtype,
         load_in_4bit = load_in_4bit,  # param to control qlora
@@ -132,7 +165,8 @@ def save_model(model, tokenizer, save_directory, save_merged=False):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Recursive therapy parser using readlines() and conditional logic.")
-    parser.add_argument("--model", type=str, required=True, help="Model name from options: qwen3-high, qwen3-medium, qwen3-low, qwen3-moe")
+    parser.add_argument("--model", type=str, required=True, help="Local model directory name under models/. If missing, it is downloaded from Hugging Face.")
+    parser.add_argument("--model-repo", type=str, help="Optional Hugging Face repo ID to use when models/<model> is missing. Defaults to known aliases or --model.")
     parser.add_argument("--input-data", type=str, required=True, help="JSONL file containing training data with fields: instruction, input, output")
     parser.add_argument("--eval-data", type=str, required=True, help="JSONL file containing eval data with fields: instruction, input, output")
     parser.add_argument("--max-seq-length", type=int, default=4096, help="Maximum sequence length for training")
@@ -150,7 +184,7 @@ if __name__ == "__main__":
     dataset = create_dataset(args.input_data)
     eval_dataset = create_dataset(args.eval_data)
     print(f"Dataset loaded with {len(dataset)} samples.")
-    model, tokenizer = create_model(args.model, args.max_seq_length, load_in_4bit=args.qlora)
+    model, tokenizer = create_model(args.model, args.max_seq_length, load_in_4bit=args.qlora, model_repo=args.model_repo)
     print("Model and tokenizer loaded successfully.")
     start_time = time.time()
     train_model(model, tokenizer, dataset, eval_dataset, args.max_seq_length)

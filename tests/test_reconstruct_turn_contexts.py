@@ -48,6 +48,13 @@ def _probabilities(keys: list[str], best: str) -> dict:
 
 def _sample_session() -> dict:
   return {
+    "patient_profile": {
+      "idx": 10020,
+      "personal_info": {
+        "name": "Jason Crawford",
+      },
+      "presenting_problem": "Commute stress.",
+    },
     "messages": [
       _therapist(1, "Hi.", "opening", "open_mood"),
       _patient(2, "I feel stuck.", "opening", "open_mood"),
@@ -182,6 +189,7 @@ class ReconstructTurnContextsTest(unittest.TestCase):
       reconstructed = reconstruct_turn_contexts.reconstruct_session(path)
 
     self.assertEqual(reconstructed["warnings"], [])
+    self.assertEqual(reconstructed["patient_profile"], _sample_session()["patient_profile"])
     self.assertEqual(len(reconstructed["turns"]), 6)
 
     first_context = reconstructed["turns"][0]["context_before_therapist_turn"]

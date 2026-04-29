@@ -734,6 +734,7 @@ def reconstruct_session(path: Path) -> dict[str, Any]:
   return {
     "source_file": path.name,
     "reconstruction_mode": "deterministic_forward_from_traces",
+    "patient_profile": deepcopy(payload.get("patient_profile")),
     "turns": reconstructed_turns,
     "skipped_turns": skipped_turns,
     "warnings": warnings,

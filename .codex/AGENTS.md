@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
 ```
 
-- When generating scripts aimed at data management, always add as CLI args the arguments --input and --output to indicate the input/output folders
+- When generating scripts aimed at data management, always add as CLI args the arguments --input and --output to indicate the input/output folders (follow STRICTLY that args naming for input/output)
 
 ## FEATURES CREATION
 - If I include the title "# FEATURE" in a question, it indicates that we are creating a new important feature/script for the system
