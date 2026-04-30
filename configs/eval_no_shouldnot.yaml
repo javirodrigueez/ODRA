@@ -1,0 +1,32 @@
+therapist:
+  type: deepseek
+  base_url: https://openrouter.ai/api/v1
+  model_id: deepseek/deepseek-v3.2
+  temperature: 0.7
+  # top_p: 0.95
+  # presence_penalty: 1.5
+  # frequency_penalty: 1.0
+
+patient:
+  type: deepseek
+  base_url: https://openrouter.ai/api/v1
+  model_id: deepseek/deepseek-v3.2
+  prompt_variant: no_should_not
+  temperature: 0.7
+  # top_p: 0.95
+  # presence_penalty: 1.5
+  # frequency_penalty: 1.0
+
+topic_exploration:
+  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_wikipedia_dir: data/wikipedias
+
+env:
+  max_turns: 100
+  min_turns: 60
+  output_dir: /outs/eval_full_catus_no_shouldnot
+  verbose: true
+  resume_file:
+  resistance: true
+  resistance_handling: none
+  long_session_turn_threshold: 70

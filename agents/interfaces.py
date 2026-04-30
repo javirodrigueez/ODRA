@@ -145,6 +145,12 @@ class LLM(ABC):
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     pass
 
+  def generate_with_reasoning(self, messages: list[ChatMessage], **kwargs: Any) -> dict[str, str]:
+    return {
+      "content": self.generate(messages, **kwargs),
+      "reasoning": "",
+    }
+
 class HuggingFaceLLM(LLM):
   def __init__(self, model_id: str, generation_config: dict[str, Any] | None = None):
     generation_config = generation_config or {}
@@ -207,7 +213,7 @@ class LocalLLM(LLM):
     self.chat_model = OpenAI(api_key="test", base_url=host)
     self.model_id = model_id
 
-  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
+  def _create_chat_completion(self, messages: list[ChatMessage], **kwargs: Any) -> Any:
     create_kwargs: dict[str, Any] = {
       "model": self.model_id,
       "messages": messages,
@@ -219,11 +225,43 @@ class LocalLLM(LLM):
       create_kwargs["enable_thinking"] = kwargs["enable_thinking"]
     if "response_format" in kwargs:
       create_kwargs["response_format"] = kwargs["response_format"]
-    response = self.chat_model.chat.completions.create(**create_kwargs)
-    response = response.choices[0].message.content
-    if '</think>' in response:
-      response = response.split('</think>')[-1].strip()
-    return response
+    if "extra_body" in kwargs:
+      create_kwargs["extra_body"] = kwargs["extra_body"]
+    return self.chat_model.chat.completions.create(**create_kwargs)
+
+  def _message_field(self, message: Any, field_name: str) -> Any:
+    if isinstance(message, dict):
+      return message.get(field_name)
+    value = getattr(message, field_name, None)
+    if value is not None:
+      return value
+    model_extra = getattr(message, "model_extra", None)
+    if isinstance(model_extra, dict):
+      return model_extra.get(field_name)
+    return None
+
+  def _response_message(self, response: Any) -> Any:
+    return response.choices[0].message
+
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
+    strip_thinking = coerce_bool(kwargs.get("strip_thinking"), True)
+    response = self._create_chat_completion(messages, **kwargs)
+    message = self._response_message(response)
+    content = ensure_str(self._message_field(message, "content"))
+    if strip_thinking and '</think>' in content:
+      content = content.split('</think>')[-1].strip()
+    return content
+
+  def generate_with_reasoning(self, messages: list[ChatMessage], **kwargs: Any) -> dict[str, str]:
+    response = self._create_chat_completion(messages, **kwargs)
+    message = self._response_message(response)
+    return {
+      "content": ensure_str(self._message_field(message, "content")),
+      "reasoning": ensure_str(
+        self._message_field(message, "reasoning")
+        or self._message_field(message, "reasoning_content")
+      ),
+    }
 
 class DeepseekLLM(LLM):
   def __init__(self, model_id: str = "deepseek-chat", base_url: str = "https://api.deepseek.com/v1"):

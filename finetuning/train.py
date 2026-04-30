@@ -127,7 +127,7 @@ def create_dataset(input_file):
     dataset = dataset.map(formatting_prompts_func, batched = True,)
     return dataset
 
-def train_model(model, tokenizer, dataset, eval_dataset, max_seq_length):
+def train_model(model, tokenizer, dataset, eval_dataset, max_seq_length, trainer_output_dir):
     trainer = SFTTrainer(
         model = model,
         tokenizer = tokenizer,
@@ -154,7 +154,7 @@ def train_model(model, tokenizer, dataset, eval_dataset, max_seq_length):
             report_to = "wandb",
             run_name = f"{model}_{int(time.time())}",
             # For saving best model, not latest
-            # output_dir = "tmp_trainer",
+            output_dir = str(trainer_output_dir),
             # eval_strategy = "steps",
             # eval_steps = 10,
             # save_strategy = "steps",
@@ -167,21 +167,22 @@ def train_model(model, tokenizer, dataset, eval_dataset, max_seq_length):
     )
     trainer.train()
 
-def save_model(model, tokenizer, save_directory, save_merged=False):
+def save_model(model, tokenizer, output_dir, save_merged=False):
+  output_dir = Path(output_dir)
   print("Saving LoRA adapters in 16-bit format...")
-  output_dir = os.path.abspath(save_directory+'_lora')
-  model.save_pretrained(output_dir); tokenizer.save_pretrained(output_dir)
+  lora_output_dir = output_dir / "lora_adapters"
+  model.save_pretrained(str(lora_output_dir)); tokenizer.save_pretrained(str(lora_output_dir))
   os.sync()
 
   #print("Exporting to GGUF format for llama.cpp/Ollama...")
-  #output_dir = os.path.abspath(save_directory+'_gguf')
-  #model.save_pretrained_gguf(output_dir, tokenizer, quantization_method = "q4_k_m")
+  #gguf_output_dir = output_dir / "gguf"
+  #model.save_pretrained_gguf(gguf_output_dir, tokenizer, quantization_method = "q4_k_m")
   #os.sync()
   
   if save_merged:
     print("Saving merged model in 16-bit format...")
-    output_dir = os.path.abspath(save_directory)
-    model.save_pretrained_merged(output_dir, tokenizer, save_method = "merged_16bit")
+    merged_output_dir = output_dir / "merged_model"
+    model.save_pretrained_merged(str(merged_output_dir), tokenizer, save_method = "merged_16bit")
     os.sync()
     
     
@@ -191,12 +192,19 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True, help="Local model directory name under models/. If missing, it is downloaded from Hugging Face.")
     parser.add_argument("--model-repo", type=str, help="Optional Hugging Face repo ID to use when models/<model> is missing. Defaults to known aliases or --model.")
     parser.add_argument("--input-data", type=str, required=True, help="JSONL file containing training data with fields: instruction, input, output")
-    parser.add_argument("--eval-data", type=str, required=True, help="JSONL file containing eval data with fields: instruction, input, output")
+    parser.add_argument("--eval-data", type=str, required=False, help="JSONL file containing eval data with fields: instruction, input, output")
     parser.add_argument("--max-seq-length", type=int, default=20000, help="Maximum sequence length for training")
     parser.add_argument("--disable-wandb", action="store_true", help="Disable Weights & Biases logging")
     parser.add_argument("--qlora", action="store_true", help="Load model in 4-bit mode (for QLoRA training)")
     parser.add_argument("--save-merged", action="store_true", help="Save merged model in 16-bit format")
+    parser.add_argument("--output-dir", "--output_dir", type=str, help="Directory for all training artifacts. Defaults to models/<model>_<timestamp>.")
     args = parser.parse_args()
+
+    run_timestamp = int(time.time())
+    output_dir = Path(args.output_dir) if args.output_dir else Path("models") / f"{args.model}_{run_timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    trainer_output_dir = output_dir / "trainer_output"
+    print(f"Training artifacts will be saved under: {output_dir.resolve()}")
     
     if not args.disable_wandb:
       os.environ["WANDB_PROJECT"] = "qwen3-finetuning"
@@ -205,15 +213,15 @@ if __name__ == "__main__":
       os.environ["WANDB_MODE"] = "disabled"
     
     dataset = create_dataset(args.input_data)
-    eval_dataset = create_dataset(args.eval_data)
+    eval_dataset = create_dataset(args.eval_data) if args.eval_data else None
     print(f"Dataset loaded with {len(dataset)} samples.")
     model, tokenizer = create_model(args.model, args.max_seq_length, load_in_4bit=args.qlora, model_repo=args.model_repo)
     print("Model and tokenizer loaded successfully.")
     start_time = time.time()
-    train_model(model, tokenizer, dataset, eval_dataset, args.max_seq_length)
+    train_model(model, tokenizer, dataset, eval_dataset, args.max_seq_length, trainer_output_dir)
     end_time = time.time()
     print(f"Training complete in {end_time - start_time:.2f} seconds. Saving model...")
-    save_model(model, tokenizer, f"models/{args.model}_{int(time.time())}", args.save_merged)
+    save_model(model, tokenizer, output_dir, args.save_merged)
     
     if not args.disable_wandb:
       wandb.finish()

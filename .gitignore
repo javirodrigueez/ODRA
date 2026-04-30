@@ -21,5 +21,5 @@ myenv
 /models
 /cactus
 /axbench
-/trainer_output
+/ft_models
 /unsloth_compiled_cache

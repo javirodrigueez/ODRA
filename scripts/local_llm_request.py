@@ -30,7 +30,7 @@ def main() -> None:
         description="Send a file-backed request to a local OpenAI-compatible LLM."
     )
     parser.add_argument("request_file", type=Path, help="Prompt text or JSON request file.")
-    parser.add_argument("--model", default=os.getenv("LOCAL_LLM_MODEL", "local-model"))
+    parser.add_argument("--model", default=os.getenv("LOCAL_LLM_MODEL", "ft_models/Qwen3.6-27B-ctxt_rtraces/ft_merged/"))
     parser.add_argument("--base-url", default=os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1"))
     parser.add_argument("--api-key", default=os.getenv("LOCAL_LLM_API_KEY", "local-no-key-required"))
     args = parser.parse_args()
