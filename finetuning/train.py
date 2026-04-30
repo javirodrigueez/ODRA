@@ -1,3 +1,27 @@
+import os
+import builtins
+
+# Torch Inductor can fail on Unsloth's dynamic compiled kernels for long,
+# padded sequences. Prefer stable eager/Xformers kernels unless overridden.
+os.environ.setdefault("UNSLOTH_COMPILE_DISABLE", "1") # TODO: Quitar y reparar con transformers<5 o stack que funcione como lo hacia con CAMI
+
+
+def _identity_decorator(*args, **kwargs):
+    if args and len(args) == 1 and callable(args[0]) and not kwargs:
+        return args[0]
+    return lambda value: value
+
+
+def _interval_validator(**_kwargs):
+    return lambda **kwargs: kwargs.get("default")
+
+
+# Unsloth 2026.2.x re-executes Transformers 5 config classes without importing
+# their decorators. Supplying these names keeps the import path working.
+builtins.auto_docstring = _identity_decorator
+builtins.strict = _identity_decorator
+builtins.interval = _interval_validator
+
 from unsloth import FastLanguageModel
 import torch
 from trl import SFTTrainer
@@ -5,7 +29,6 @@ from transformers import TrainingArguments
 from datasets import load_dataset
 import argparse
 import wandb
-import os
 from pathlib import Path
 import time
 
@@ -119,7 +142,7 @@ def train_model(model, tokenizer, dataset, eval_dataset, max_seq_length):
             gradient_accumulation_steps = 4, # Increase this if you run OOM
             gradient_checkpointing = True,
             warmup_steps = 5,
-            num_train_epochs = 1,
+            num_train_epochs = 2,
             learning_rate = 2e-4,
             fp16 = not torch.cuda.is_bf16_supported(),
             bf16 = torch.cuda.is_bf16_supported(),
@@ -169,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-repo", type=str, help="Optional Hugging Face repo ID to use when models/<model> is missing. Defaults to known aliases or --model.")
     parser.add_argument("--input-data", type=str, required=True, help="JSONL file containing training data with fields: instruction, input, output")
     parser.add_argument("--eval-data", type=str, required=True, help="JSONL file containing eval data with fields: instruction, input, output")
-    parser.add_argument("--max-seq-length", type=int, default=4096, help="Maximum sequence length for training")
+    parser.add_argument("--max-seq-length", type=int, default=20000, help="Maximum sequence length for training")
     parser.add_argument("--disable-wandb", action="store_true", help="Disable Weights & Biases logging")
     parser.add_argument("--qlora", action="store_true", help="Load model in 4-bit mode (for QLoRA training)")
     parser.add_argument("--save-merged", action="store_true", help="Save merged model in 16-bit format")

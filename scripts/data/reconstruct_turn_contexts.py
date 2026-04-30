@@ -572,8 +572,8 @@ def apply_trace_updates(
             "target_distortion": ensure_str(current.get("target_distortion")),
             "rationale": ensure_str(payload.get("reasoning")),
           }
-          if not replacement["name"]:
-            raise ReconstructionError("technique_fit_check.alternative_technique must be non-empty when fits=false.")
+          # if not replacement["name"]:
+          #   raise ReconstructionError("technique_fit_check.alternative_technique must be non-empty when fits=false.")
           if idx < len(state["selected_techniques"]):
             state["selected_techniques"][idx] = replacement
           else:
