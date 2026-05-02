@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.data import create_reasoning_instruction_dataset as builder
+from scripts.ft import create_reasoning_instruction_dataset as builder
 
 
 def _message(idx: int, role: str, content: str, stage: str = "opening", substage: str = "open_mood") -> dict:

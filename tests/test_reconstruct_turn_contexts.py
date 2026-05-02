@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.data import reconstruct_turn_contexts
+from scripts.ft import reconstruct_turn_contexts
 
 
 def _trace_step(step: str, output: object) -> dict:

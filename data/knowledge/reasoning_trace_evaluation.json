@@ -235,6 +235,16 @@
     "address_tib_repeat_inline_suppressed",
     "tib_avoidance_new_cognitive_set",
     "tib_avoidance_new_technique",
+    "anticipated_closing",
+    "meta_conversation_end_session_redirect",
+    "meta_conversation_turn_cap",
+    "meta_conversation_end_session_repeat",
+    "address_tib_enter",
+    "address_tib_replaced",
+    "address_tib_exit",
+    "address_tib_repeat_inline_suppressed",
+    "tib_avoidance_new_cognitive_set",
+    "tib_avoidance_new_technique",
     "anticipated_closing"
   ]
 }

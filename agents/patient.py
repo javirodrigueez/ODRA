@@ -24,6 +24,7 @@ class PatientAgent(Agent):
     generation_defaults: dict[str, Any] | None = None,
     resistance_enabled: bool = True,
     prompt_variant: str = DEFAULT_PROMPT_VARIANT,
+    utterance_system_prompt_path: str | Path | None = None,
   ):
     super().__init__(
       llm,
@@ -39,7 +40,11 @@ class PatientAgent(Agent):
     system_structured_filename = (
       "patient_system_structured.txt" if self.resistance_enabled else "patient_system_structured_weak.txt"
     )
-    system_path = Path(__file__).parent.parent / "prompts" / system_filename
+    system_path = (
+      Path(utterance_system_prompt_path)
+      if utterance_system_prompt_path is not None
+      else Path(__file__).parent.parent / "prompts" / system_filename
+    )
     system_structured_path = Path(__file__).parent.parent / "prompts" / system_structured_filename
     self.system_prompt = self._build_system_prompt(system_path)
     self.system_prompt_structured = self._build_system_prompt(system_structured_path)
@@ -173,6 +178,7 @@ class PatientAgent(Agent):
       suffix=suffix,
       engagement_block=engagement_block,
     )
+    #breakpoint() #devlog
     return [
       {"role": "system", "content": self.system_prompt},
       {"role": "user", "content": user_prompt},

@@ -1,0 +1,31 @@
+# Stable finetuning stack for Python 3.13 on CUDA 12.8.
+#
+# Do not install latest TRL/datasets on top of this file: Unsloth 2026.4.x
+# intentionally caps those packages. vLLM is intentionally excluded from this
+# finetuning environment because current vLLM releases reject transformers 5.5.0,
+# while the local Qwen3.6/qwen3_5 checkpoint needs it.
+torch==2.10.0
+torchvision==0.25.0
+torchaudio==2.10.0
+transformers==5.5.0
+huggingface-hub==1.13.0
+datasets==4.3.0
+trl==0.24.0
+unsloth==2026.4.8
+unsloth-zoo==2026.4.9
+numpy==2.2.6
+numba==0.61.2
+bitsandbytes==0.49.2
+accelerate==1.12.0
+peft==0.18.1
+#causal-conv1d==1.6.1
+flash-linear-attention==0.5.0
+fla-core==0.5.0
+wandb
+backoff
+openai
+omegaconf
+langgraph
+langchain
+langchain_aws
+langchain_huggingface

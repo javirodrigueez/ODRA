@@ -21,18 +21,6 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python
 
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
 
-RUN pip install backoff \
-    openai \
-    numpy \
-    torch \
-    transformers \
-    unsloth \
-    wandb
+COPY requirements-finetuning.txt /tmp/requirements-finetuning.txt
 
-RUN pip install \
-    omegaconf \
-    langgraph \
-    langchain \
-    langchain_aws \
-    langchain_huggingface \
-    openai
+RUN pip install --no-cache-dir -r /tmp/requirements-finetuning.txt

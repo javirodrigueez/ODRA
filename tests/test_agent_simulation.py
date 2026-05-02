@@ -96,8 +96,12 @@ if "openai" not in sys.modules:
 
 
 import agent_simulation
-from agents.interfaces import LocalLLM
-from agents.therapist import TherapistAgent, parse_agent_therapist_response
+from agents.patient import PatientAgent
+from agents.therapist import (
+  LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+  TherapistAgent,
+  parse_agent_therapist_response,
+)
 from graph.agent_graph import AgentTherapyGraphBuilder
 
 
@@ -117,16 +121,11 @@ def _profile() -> dict:
 class _FakeLLM:
   def __init__(self, response: str = "") -> None:
     self.response = response
-    self.reasoning = ""
     self.calls: list[tuple[list[dict], dict]] = []
 
   def generate(self, messages, **kwargs):
     self.calls.append((messages, kwargs))
     return self.response
-
-  def generate_with_reasoning(self, messages, **kwargs):
-    self.calls.append((messages, kwargs))
-    return {"content": self.response, "reasoning": self.reasoning}
 
 
 class AgentTherapistPromptTest(unittest.TestCase):
@@ -159,8 +158,50 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertIn("AGENT SYSTEM", messages[0]["content"])
     self.assertEqual(messages[1]["content"], expected_prompt)
 
+  def test_builds_local_agent_initial_prompt_with_ft_system_prompt(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      regular_prompt_path = Path(tmp) / "therapist_system.txt"
+      ft_prompt_path = Path(tmp) / "therapist_system_ft.txt"
+      regular_prompt_path.write_text("REGULAR SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      ft_prompt_path.write_text("FT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", regular_prompt_path):
+        with mock.patch("agents.therapist.AGENT_THERAPIST_FT_SYSTEM_PROMPT", ft_prompt_path):
+          agent = TherapistAgent(_FakeLLM(), _profile())
+          messages = agent.build_agent_initial_utterance_messages(use_ft_system_prompt=True)
+
+    expected_prompt = (Path(__file__).resolve().parents[1] / "prompts" / "opening" / "initial_greeting.txt").read_text(
+      encoding="utf-8"
+    ).strip()
+    self.assertIn("FT SYSTEM", messages[0]["content"])
+    self.assertNotIn("REGULAR SYSTEM", messages[0]["content"])
+    self.assertEqual(messages[1]["content"], expected_prompt)
+
+  def test_builds_local_chatml_messages_with_ft_system_prompt(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      regular_prompt_path = Path(tmp) / "therapist_system.txt"
+      ft_prompt_path = Path(tmp) / "therapist_system_ft.txt"
+      regular_prompt_path.write_text("REGULAR SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      ft_prompt_path.write_text("FT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", regular_prompt_path):
+        with mock.patch("agents.therapist.AGENT_THERAPIST_FT_SYSTEM_PROMPT", ft_prompt_path):
+          agent = TherapistAgent(_FakeLLM(), _profile())
+          messages = agent.build_agent_chatml_messages(
+            [{"role": "user", "content": "I am stuck."}],
+            use_ft_system_prompt=True,
+          )
+
+    self.assertIn("FT SYSTEM", messages[0]["content"])
+    self.assertNotIn("REGULAR SYSTEM", messages[0]["content"])
+    self.assertEqual(messages[1], {"role": "user", "content": "I am stuck."})
+
   def test_parses_reasoning_block_without_leaking_into_utterance(self) -> None:
     reasoning, utterance = parse_agent_therapist_response("<think>plan\nline</think>Hi there.")
+
+    self.assertEqual(reasoning, "plan\nline")
+    self.assertEqual(utterance, "Hi there.")
+
+  def test_parses_lone_closing_think_delimiter(self) -> None:
+    reasoning, utterance = parse_agent_therapist_response("plan\nline</think>\nHi there.")
 
     self.assertEqual(reasoning, "plan\nline")
     self.assertEqual(utterance, "Hi there.")
@@ -186,41 +227,35 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertEqual(raw, "<think>reason</think>Hello")
     self.assertFalse(llm.calls[0][1]["strip_thinking"])
 
-  def test_agent_generation_prefers_vllm_reasoning_field(self) -> None:
+  def test_local_agent_default_max_tokens_can_be_overridden_by_config(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
-      prompt_path = Path(tmp) / "therapist_system.txt"
-      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
-      llm = _FakeLLM("Hello from content")
-      llm.reasoning = "Parsed vLLM reasoning"
-      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+      prompt_path = Path(tmp) / "therapist_system_ft.txt"
+      prompt_path.write_text("FT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM("<think>reason</think>Hello")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_FT_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile(), generation_defaults={"max_tokens": 123})
+        agent.generate_agent_messages(
+          [{"role": "user", "content": "hi"}],
+          default_max_tokens=LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+        )
+
+    self.assertEqual(llm.calls[0][1]["max_tokens"], 123)
+    self.assertFalse(llm.calls[0][1]["strip_thinking"])
+
+  def test_local_agent_default_max_tokens_is_large_without_config_override(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system_ft.txt"
+      prompt_path.write_text("FT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM("<think>reason</think>Hello")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_FT_SYSTEM_PROMPT", prompt_path):
         agent = TherapistAgent(llm, _profile())
-        utterance, reasoning, raw = agent.generate_agent_utterance("none")
+        agent.generate_agent_messages(
+          [{"role": "user", "content": "hi"}],
+          default_max_tokens=LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+        )
 
-    self.assertEqual(utterance, "Hello from content")
-    self.assertEqual(reasoning, "Parsed vLLM reasoning")
-    self.assertEqual(raw, "Hello from content")
-
-  def test_local_llm_extracts_vllm_reasoning_fields(self) -> None:
-    llm = LocalLLM.__new__(LocalLLM)
-    llm.model_id = "local-model"
-    llm.chat_model = _FakeOpenAIChatModel(
-      _FakeMessage(content="Final answer", reasoning="New reasoning", reasoning_content="Old reasoning")
-    )
-
-    response = llm.generate_with_reasoning([{"role": "user", "content": "hi"}])
-
-    self.assertEqual(response, {"content": "Final answer", "reasoning": "New reasoning"})
-
-  def test_local_llm_supports_legacy_reasoning_content_field(self) -> None:
-    llm = LocalLLM.__new__(LocalLLM)
-    llm.model_id = "local-model"
-    llm.chat_model = _FakeOpenAIChatModel(
-      _FakeMessage(content="Final answer", reasoning_content="Legacy reasoning")
-    )
-
-    response = llm.generate_with_reasoning([{"role": "user", "content": "hi"}])
-
-    self.assertEqual(response, {"content": "Final answer", "reasoning": "Legacy reasoning"})
+    self.assertEqual(llm.calls[0][1]["max_tokens"], LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS)
+    self.assertFalse(llm.calls[0][1]["strip_thinking"])
 
 
 class AgentGraphTest(unittest.TestCase):
@@ -228,6 +263,7 @@ class AgentGraphTest(unittest.TestCase):
     builder = AgentTherapyGraphBuilder.__new__(AgentTherapyGraphBuilder)
     builder.profile = _profile()
     builder.cfg = SimpleNamespace(
+      therapist={"type": "deepseek"},
       patient={"prompt_variant": "base"},
       env={"resistance": resistance, "max_turns": 8, "min_turns": 0},
     )
@@ -264,6 +300,141 @@ class AgentGraphTest(unittest.TestCase):
     self.assertIn("Therapist: <think>Reason 11</think> M11", context)
     self.assertEqual(len(context_lines), 10)
 
+  def test_builds_full_local_chatml_history_with_therapist_reasoning(self) -> None:
+    builder = self._builder()
+    messages = [
+      {"utterance_index": idx, "role": "patient" if idx % 2 == 0 else "therapist", "content": f"M{idx}"}
+      for idx in range(1, 13)
+    ]
+    state = {
+      "messages": messages,
+      "reasoning_traces": [
+        {
+          "utterance_index": 3,
+          "speaker": "therapist",
+          "traces": [{"step": "agent_reasoning", "input": "old", "output": "Reason 3"}],
+        },
+        {
+          "utterance_index": 11,
+          "speaker": "therapist",
+          "traces": [{"step": "agent_reasoning", "input": "new", "output": "Reason 11"}],
+        },
+      ],
+    }
+
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system_ft.txt"
+      prompt_path.write_text("FT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_FT_SYSTEM_PROMPT", prompt_path):
+        builder.therapist = TherapistAgent(_FakeLLM(), _profile())
+        request_messages = builder._build_local_therapist_request_messages(state)
+
+    self.assertEqual(request_messages[0]["role"], "system")
+    self.assertIn("FT SYSTEM", request_messages[0]["content"])
+    self.assertEqual(len(request_messages), 13)
+    self.assertEqual(request_messages[1], {"role": "assistant", "content": "M1"})
+    self.assertEqual(request_messages[2], {"role": "user", "content": "M2"})
+    self.assertEqual(
+      request_messages[3],
+      {"role": "assistant", "content": "<think>\nReason 3\n</think>\nM3"},
+    )
+    self.assertEqual(
+      request_messages[11],
+      {"role": "assistant", "content": "<think>\nReason 11\n</think>\nM11"},
+    )
+    self.assertEqual(request_messages[12], {"role": "user", "content": "M12"})
+
+  def test_local_therapist_turn_uses_chatml_messages_without_continuation_instruction(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.cfg.therapist = {"type": "local"}
+    builder.therapist = _FakeLocalTherapist()
+    builder.patient = _FakePatient()
+    state = builder.initial_state(max_turns=6)
+    state["messages"] = [{"utterance_index": 1, "role": "patient", "content": "I am stuck."}]
+    state["utterance_index"] = 1
+
+    result = builder.therapist_turn(state)
+
+    self.assertEqual(result["messages"][-1]["content"], "Let's explore that.")
+    self.assertEqual(builder.therapist.request_messages, [
+      {"role": "system", "content": "SYSTEM"},
+      {"role": "user", "content": "I am stuck."},
+    ])
+    self.assertTrue(builder.therapist.used_ft_system_prompt)
+    self.assertEqual(builder.therapist.generation_kwargs["default_max_tokens"], LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS)
+    self.assertIsNone(builder.therapist.legacy_context)
+
+  def test_local_therapist_first_turn_uses_initial_greeting_prompt(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.cfg.therapist = {"type": "local"}
+    builder.therapist = _FakeLocalInitialTherapist()
+    builder.patient = _FakePatient()
+
+    result = builder.therapist_turn(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["messages"][0]["content"], "Hello.")
+    self.assertTrue(builder.therapist.initial_called)
+    self.assertTrue(builder.therapist.used_ft_system_prompt)
+    self.assertEqual(builder.therapist.generation_kwargs["default_max_tokens"], LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS)
+    self.assertFalse(builder.therapist.chatml_called)
+
+  def test_therapist_reasoning_is_not_saved_or_shown_to_patient(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = TherapistAgent(
+      _FakeLLM("Private therapist reasoning</think>\nVisible therapist utterance."),
+      _profile(),
+    )
+    builder.patient = _RecordingPatient("Patient response.")
+    state = builder.initial_state(max_turns=6)
+    state["messages"] = [{"utterance_index": 1, "role": "patient", "content": "I am stuck."}]
+    state["utterance_index"] = 1
+
+    after_therapist = builder.therapist_turn(state)
+    therapist_message = after_therapist["messages"][-1]
+    therapist_trace = next(
+      trace_group["traces"][0]
+      for trace_group in after_therapist["reasoning_traces"]
+      if trace_group["speaker"] == "therapist"
+    )
+    after_patient = builder.patient_turn(after_therapist)
+
+    self.assertEqual(therapist_message["content"], "Visible therapist utterance.")
+    self.assertNotIn("Private therapist reasoning", therapist_message["content"])
+    self.assertEqual(therapist_trace["input"], "")
+    self.assertEqual(therapist_trace["output"], "Private therapist reasoning")
+    self.assertNotIn("Private therapist reasoning", builder.patient.last_kwargs["full_conversation"])
+    self.assertNotIn("Private therapist reasoning", builder.patient.last_kwargs["last_utterances"])
+    self.assertEqual(after_patient["messages"][-1]["content"], "Patient response.")
+
+  def test_agent_patient_prompt_is_agent_only(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      agent_patient_prompt = Path(tmp) / "patient_system.txt"
+      agent_patient_prompt.write_text(
+        "AGENT PATIENT [/END]\n{persona}\n{more_info}\n{patterns}\n{presenting_problem}\n{reason_seeking_counseling}",
+        encoding="utf-8",
+      )
+      builder = self._builder(resistance=False)
+      builder.cfg = SimpleNamespace(
+        therapist={"type": "deepseek"},
+        patient={"type": "deepseek", "prompt_variant": "base"},
+        env={"resistance": False, "max_turns": 8, "min_turns": 0},
+      )
+      with mock.patch("graph.agent_graph.AGENT_PATIENT_SYSTEM_PROMPT", agent_patient_prompt):
+        with mock.patch("graph.agent_graph.LLMFactory.create_from_config", return_value=_FakeLLM()):
+          builder._init_agents()
+
+    standard_patient = PatientAgent(_FakeLLM(), _profile(), resistance_enabled=False)
+    self.assertIn("AGENT PATIENT [/END]", builder.patient.system_prompt)
+    self.assertNotIn("AGENT PATIENT [/END]", builder.patient.system_prompt_structured)
+    self.assertNotIn("[/END]", standard_patient.system_prompt)
+
+  def test_rejects_local_patient_config(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.cfg.patient = {"type": "local", "prompt_variant": "base"}
+
+    with self.assertRaisesRegex(ValueError, "patient.type: local"):
+      builder._init_agents()
+
   def test_generic_patient_instruction_depends_only_on_resistance_mode(self) -> None:
     self.assertEqual(
       self._builder(resistance=True)._patient_utterance_instruction(),
@@ -283,11 +454,32 @@ class AgentGraphTest(unittest.TestCase):
 
     self.assertEqual(result["session_ended_reason"], "therapist_requested_end")
     self.assertEqual([message["role"] for message in result["messages"]], ["therapist", "patient"])
-    self.assertEqual(result["messages"][0]["content"], "Let's stop here for today.")
+    self.assertEqual(result["messages"][0]["content"], "Let's stop here for today. [/END]")
     self.assertEqual(result["messages"][1]["content"], "Okay, bye.")
     self.assertNotIn("stage", result["messages"][0])
     self.assertNotIn("substage", result["messages"][0])
     self.assertEqual(result["reasoning_traces"][0]["traces"][0]["output"], "Closing reason")
+
+  def test_patient_end_tag_ends_session_and_is_preserved(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeContinuingTherapist()
+    builder.patient = _EndingPatient()
+
+    result = builder.create_chain().invoke(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["session_ended_reason"], "patient_requested_end")
+    self.assertEqual([message["role"] for message in result["messages"]], ["therapist", "patient"])
+    self.assertEqual(result["messages"][-1]["content"], "I think this is enough for today. [/END]")
+
+  def test_patient_end_tag_takes_precedence_after_therapist_requested_end(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeTherapist()
+    builder.patient = _EndingPatient()
+
+    result = builder.create_chain().invoke(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["session_ended_reason"], "patient_requested_end")
+    self.assertEqual(result["messages"][-1]["content"], "I think this is enough for today. [/END]")
 
 
 class AgentTranscriptAndBatchTest(unittest.TestCase):
@@ -358,46 +550,71 @@ class _FakeTherapist:
     return "Let's stop here for today. [/END]", "Closing reason", "<think>Closing reason</think>Let's stop here for today. [/END]"
 
 
+class _FakeContinuingTherapist:
+  def generate_agent_initial_utterance(self):
+    return "Hello.", "Greeting reason", "<think>Greeting reason</think>Hello."
+
+  def generate_agent_utterance(self, context: str):
+    return "Let's keep going.", "Continuing reason", "<think>Continuing reason</think>Let's keep going."
+
+
+class _FakeLocalTherapist:
+  def __init__(self) -> None:
+    self.request_messages = []
+    self.legacy_context = None
+    self.used_ft_system_prompt = False
+    self.generation_kwargs = {}
+
+  def build_agent_chatml_messages(self, history, use_ft_system_prompt=False):
+    self.used_ft_system_prompt = use_ft_system_prompt
+    return [{"role": "system", "content": "SYSTEM"}, *history]
+
+  def generate_agent_messages(self, messages, **kwargs):
+    self.request_messages = messages
+    self.generation_kwargs = kwargs
+    return "Let's explore that.", "Local reason", "<think>Local reason</think>Let's explore that."
+
+  def generate_agent_utterance(self, context: str):
+    self.legacy_context = context
+    raise AssertionError("local therapist turn should not use legacy context prompts")
+
+
+class _FakeLocalInitialTherapist:
+  def __init__(self) -> None:
+    self.initial_called = False
+    self.chatml_called = False
+    self.used_ft_system_prompt = False
+    self.generation_kwargs = {}
+
+  def generate_agent_initial_utterance(self, **kwargs):
+    self.initial_called = True
+    self.used_ft_system_prompt = bool(kwargs.get("use_ft_system_prompt"))
+    self.generation_kwargs = kwargs
+    return "Hello.", "Opening reason", "<think>Opening reason</think>Hello."
+
+  def generate_agent_messages(self, messages):
+    self.chatml_called = True
+    raise AssertionError("first local therapist turn should use the initial greeting prompt")
+
+
 class _FakePatient:
   def generate_utterance(self, **kwargs):
     return "Okay, bye."
 
 
-class _FakeMessage:
-  def __init__(self, **fields) -> None:
-    self.model_extra = {}
-    for key, value in fields.items():
-      setattr(self, key, value)
+class _RecordingPatient:
+  def __init__(self, response: str) -> None:
+    self.response = response
+    self.last_kwargs = {}
+
+  def generate_utterance(self, **kwargs):
+    self.last_kwargs = kwargs
+    return self.response
 
 
-class _FakeChoice:
-  def __init__(self, message) -> None:
-    self.message = message
-
-
-class _FakeResponse:
-  def __init__(self, message) -> None:
-    self.choices = [_FakeChoice(message)]
-
-
-class _FakeChatCompletions:
-  def __init__(self, message) -> None:
-    self.message = message
-    self.calls: list[dict] = []
-
-  def create(self, **kwargs):
-    self.calls.append(kwargs)
-    return _FakeResponse(self.message)
-
-
-class _FakeChat:
-  def __init__(self, message) -> None:
-    self.completions = _FakeChatCompletions(message)
-
-
-class _FakeOpenAIChatModel:
-  def __init__(self, message) -> None:
-    self.chat = _FakeChat(message)
+class _EndingPatient:
+  def generate_utterance(self, **kwargs):
+    return "I think this is enough for today. [/END]"
 
 
 class _FakeProgressQueue:

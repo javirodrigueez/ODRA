@@ -23,3 +23,4 @@ myenv
 /axbench
 /ft_models
 /unsloth_compiled_cache
+/wandb

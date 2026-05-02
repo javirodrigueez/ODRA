@@ -4,22 +4,33 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, ensure_str, load_prompt, parse_json_response, render_prompt
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response, render_prompt
 
 
 AGENT_THERAPIST_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system.txt"
+AGENT_THERAPIST_FT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system_ft.txt"
 AGENT_THERAPIST_CONTINUATION = "Continue with the ongoing therapy session."
 AGENT_INITIAL_GREETING_PROMPT = "opening/initial_greeting.txt"
+AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 8192
+LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 65536
 THINK_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
+THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 
 
 def parse_agent_therapist_response(raw_text: str) -> tuple[str, str]:
   text = (raw_text or "").strip()
   match = THINK_BLOCK_RE.search(text)
-  if match is None:
+  if match is not None:
+    reasoning = match.group(1).strip()
+    utterance = f"{text[:match.start()]}{text[match.end():]}".strip()
+    return reasoning, utterance
+
+  close_match = THINK_CLOSE_RE.search(text)
+  if close_match is None:
     return "", text
-  reasoning = match.group(1).strip()
-  utterance = f"{text[:match.start()]}{text[match.end():]}".strip()
+
+  reasoning = text[:close_match.start()].strip()
+  utterance = text[close_match.end():].strip()
   return reasoning, utterance
 
 
@@ -44,15 +55,29 @@ class TherapistAgent(Agent):
       patient_intake_form=self._format_patient_intake_form(),
     )
     self.agent_system_prompt: str | None = None
+    self.agent_ft_system_prompt: str | None = None
 
-  def _build_agent_system_prompt(self) -> str:
-    if self.agent_system_prompt is None:
-      template = load_prompt(AGENT_THERAPIST_SYSTEM_PROMPT)
-      self.agent_system_prompt = template.replace(
+  def _render_agent_system_prompt(self, prompt_path: Path) -> str:
+    template = load_prompt(prompt_path)
+    return template.replace(
         "{patient_intake_form}",
         self._format_patient_intake_form(),
       )
+
+  def _build_agent_system_prompt(self) -> str:
+    if self.agent_system_prompt is None:
+      self.agent_system_prompt = self._render_agent_system_prompt(AGENT_THERAPIST_SYSTEM_PROMPT)
     return self.agent_system_prompt
+
+  def _build_agent_ft_system_prompt(self) -> str:
+    if self.agent_ft_system_prompt is None:
+      self.agent_ft_system_prompt = self._render_agent_system_prompt(AGENT_THERAPIST_FT_SYSTEM_PROMPT)
+    return self.agent_ft_system_prompt
+
+  def _build_agent_system_prompt_for_mode(self, use_ft_system_prompt: bool) -> str:
+    if use_ft_system_prompt:
+      return self._build_agent_ft_system_prompt()
+    return self._build_agent_system_prompt()
 
   def _format_patient_intake_form(self) -> str:
     personal_info = self.profile.get("personal_info", {})
@@ -146,15 +171,26 @@ class TherapistAgent(Agent):
       {"role": "user", "content": user_prompt},
     ]
 
-  def build_agent_initial_utterance_messages(self) -> list[ChatMessage]:
+  def build_agent_initial_utterance_messages(self, use_ft_system_prompt: bool = False) -> list[ChatMessage]:
     return [
-      {"role": "system", "content": self._build_agent_system_prompt()},
+      {"role": "system", "content": self._build_agent_system_prompt_for_mode(use_ft_system_prompt)},
       {"role": "user", "content": load_prompt(AGENT_INITIAL_GREETING_PROMPT)},
+    ]
+
+  def build_agent_chatml_messages(
+    self,
+    history: list[ChatMessage],
+    use_ft_system_prompt: bool = False,
+  ) -> list[ChatMessage]:
+    return [
+      {"role": "system", "content": self._build_agent_system_prompt_for_mode(use_ft_system_prompt)},
+      *history,
     ]
 
   def _generate_agent_response(
     self,
     messages: list[ChatMessage],
+    default_max_tokens: int = AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -165,7 +201,7 @@ class TherapistAgent(Agent):
     repetition_penalty: float | None = None,
   ) -> tuple[str, str, str]:
     generation_kwargs = self._build_generation_kwargs(
-      default_values={"max_tokens": 8192, "temperature": 0.7},
+      default_values={"max_tokens": default_max_tokens, "temperature": 0.7},
       override_values={
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -178,14 +214,14 @@ class TherapistAgent(Agent):
       },
     )
     generation_kwargs["strip_thinking"] = False
-    response = self.llm.generate_with_reasoning(messages, **generation_kwargs)
-    raw = ensure_str(response.get("content"))
-    parsed_reasoning, utterance = parse_agent_therapist_response(raw)
-    reasoning = ensure_str(response.get("reasoning")) or parsed_reasoning
+    raw = self.llm.generate(messages, **generation_kwargs).strip()
+    reasoning, utterance = parse_agent_therapist_response(raw)
     return utterance, reasoning, raw
 
-  def generate_agent_initial_utterance(
+  def generate_agent_messages(
     self,
+    messages: list[ChatMessage],
+    default_max_tokens: int = AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -196,7 +232,34 @@ class TherapistAgent(Agent):
     repetition_penalty: float | None = None,
   ) -> tuple[str, str, str]:
     return self._generate_agent_response(
-      self.build_agent_initial_utterance_messages(),
+      messages,
+      default_max_tokens=default_max_tokens,
+      max_tokens=max_tokens,
+      temperature=temperature,
+      top_p=top_p,
+      top_k=top_k,
+      min_p=min_p,
+      presence_penalty=presence_penalty,
+      frequency_penalty=frequency_penalty,
+      repetition_penalty=repetition_penalty,
+    )
+
+  def generate_agent_initial_utterance(
+    self,
+    use_ft_system_prompt: bool = False,
+    default_max_tokens: int = AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: float | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
+    repetition_penalty: float | None = None,
+  ) -> tuple[str, str, str]:
+    return self._generate_agent_response(
+      self.build_agent_initial_utterance_messages(use_ft_system_prompt=use_ft_system_prompt),
+      default_max_tokens=default_max_tokens,
       max_tokens=max_tokens,
       temperature=temperature,
       top_p=top_p,

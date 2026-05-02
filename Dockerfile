@@ -21,6 +21,10 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python
 
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
 
+COPY requirements-finetuning.txt /tmp/requirements-finetuning.txt
+
+RUN pip install --no-cache-dir -r /tmp/requirements-finetuning.txt
+
 # llama.cpp
 ## env vars
 #ENV LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda/lib64/stubs
@@ -33,21 +37,4 @@ RUN cd llama.cpp && \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH} \
     cmake --build build --config Release -j 24
 
-RUN pip install backoff \
-    openai \
-    numpy \
-    torch \
-    transformers \
-    unsloth \
-    wandb
-
 RUN cd llama.cpp && pip install -r requirements/requirements-convert_hf_to_gguf.txt
-
-RUN pip install \
-    omegaconf \
-    vllm \
-    langgraph \
-    langchain \
-    langchain_aws \
-    langchain_huggingface \
-    openai

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
 from typing import Any, Iterator, Literal, Mapping, cast
 
 from agents.interfaces import (
+  ChatMessage,
   LLMFactory,
   StructuredOutputError,
   ensure_str,
@@ -12,7 +14,7 @@ from agents.interfaces import (
   render_prompt,
 )
 from agents.patient import PatientAgent
-from agents.therapist import TherapistAgent
+from agents.therapist import LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS, TherapistAgent
 from runtime_config import load_runtime_config
 
 from .resistance import (
@@ -35,6 +37,7 @@ from .resistance import (
 
 
 AGENT_END_TAG = "[/END]"
+AGENT_PATIENT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "patient_system.txt"
 THERAPIST_ROLE = "therapist"
 PATIENT_ROLE = "patient"
 CONVERSATION_ROLES = {THERAPIST_ROLE, PATIENT_ROLE}
@@ -143,7 +146,23 @@ class AgentTherapyGraphBuilder:
       getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
     )
 
+  def _config_value(self, block: Any, name: str, default: Any = None) -> Any:
+    if isinstance(block, dict):
+      return block.get(name, default)
+    return getattr(block, name, default)
+
+  def _model_type(self, block: Any) -> str:
+    return ensure_str(self._config_value(block, "type")).strip().lower()
+
+  def _therapist_uses_local_chatml(self) -> bool:
+    return self._model_type(getattr(self.cfg, "therapist", {})) == "local"
+
+  def _patient_uses_local_model(self) -> bool:
+    return self._model_type(getattr(self.cfg, "patient", {})) == "local"
+
   def _init_agents(self) -> None:
+    if self._patient_uses_local_model():
+      raise ValueError("AgentTherapyGraphBuilder does not support patient.type: local.")
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
     prompt_ablation = self._patient_prompt_ablation()
@@ -158,6 +177,7 @@ class AgentTherapyGraphBuilder:
       generation_defaults=extract_generation_config(self.cfg.patient),
       resistance_enabled=self._resistance_enabled(),
       prompt_variant=prompt_ablation["prompt_variant"],
+      utterance_system_prompt_path=AGENT_PATIENT_SYSTEM_PROMPT,
     )
 
   def initial_state(self, max_turns: int, min_turns: int = 0) -> dict[str, Any]:
@@ -306,6 +326,46 @@ class AgentTherapyGraphBuilder:
       if isinstance(message, dict)
     )
 
+  def _local_therapist_chatml_content(self, state: dict[str, Any], message: dict[str, Any]) -> str:
+    content = ensure_str(message.get("content"))
+    if ensure_str(message.get("role")).strip().lower() != THERAPIST_ROLE:
+      return content
+    reasoning = self._therapist_reasoning_for_message(state, message)
+    if not reasoning:
+      return content
+    return f"<think>\n{reasoning}\n</think>\n{content}"
+
+  def _build_local_therapist_chatml_history(self, state: dict[str, Any]) -> list[ChatMessage]:
+    history: list[ChatMessage] = []
+    raw_messages = state.get("messages", [])
+    if not isinstance(raw_messages, list):
+      return history
+    for message in raw_messages:
+      if not isinstance(message, dict):
+        continue
+      role = ensure_str(message.get("role")).strip().lower()
+      if role == THERAPIST_ROLE:
+        history.append(
+          {
+            "role": "assistant",
+            "content": self._local_therapist_chatml_content(state, message),
+          }
+        )
+      elif role == PATIENT_ROLE:
+        history.append(
+          {
+            "role": "user",
+            "content": self._local_therapist_chatml_content(state, message),
+          }
+        )
+    return history
+
+  def _build_local_therapist_request_messages(self, state: dict[str, Any]) -> list[ChatMessage]:
+    return self.therapist.build_agent_chatml_messages(
+      self._build_local_therapist_chatml_history(state),
+      use_ft_system_prompt=True,
+    )
+
   def _last_therapist_utterance(self, state: dict[str, Any]) -> str:
     for message in reversed(state["messages"]):
       if message.get("role") == THERAPIST_ROLE:
@@ -315,7 +375,7 @@ class AgentTherapyGraphBuilder:
   def _patient_utterance_instruction(self) -> str:
     if self._resistance_enabled():
       return "Respond naturally and in character according to your current resistance level."
-    return "Respond naturally and in character without resistance framing."
+    return "Respond naturally and in character."
 
   def _patient_reasoning_for_prompt(self, reasoning: str) -> str:
     text = ensure_str(reasoning)
@@ -569,22 +629,32 @@ class AgentTherapyGraphBuilder:
       first_utterance = not s["messages"]
       if first_utterance:
         context = "opening/initial_greeting.txt"
-        utterance, reasoning, _raw = self.therapist.generate_agent_initial_utterance()
-        print("[[REASONING]]", reasoning)
-        print("[[UTTERANCE]]", utterance)
+        if self._therapist_uses_local_chatml():
+          utterance, reasoning, _raw = self.therapist.generate_agent_initial_utterance(
+            use_ft_system_prompt=True,
+            default_max_tokens=LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+          )
+        else:
+          utterance, reasoning, _raw = self.therapist.generate_agent_initial_utterance()
+      elif self._therapist_uses_local_chatml():
+        request_messages = self._build_local_therapist_request_messages(s)
+        #breakpoint() #devlog
+        context = json.dumps(request_messages, ensure_ascii=True)
+        utterance, reasoning, _raw = self.therapist.generate_agent_messages(
+          request_messages,
+          default_max_tokens=LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
+        )
       else:
         context = self._format_agent_prompt_context(s)
         utterance, reasoning, _raw = self.therapist.generate_agent_utterance(context)
-        print("[[REASONING]]", reasoning)
-        print("[[UTTERANCE]]", utterance)
       requested_end = AGENT_END_TAG in utterance
-      utterance = utterance.replace(AGENT_END_TAG, "").strip()
+      #utterance = utterance.replace(AGENT_END_TAG, "").strip()
       if not utterance:
         raise AgentConversationProcessingError("Therapist generated an empty utterance.")
       traces.append(
         {
           "step": "agent_reasoning",
-          "input": context,
+          "input": "",
           "output": reasoning,
         }
       )
@@ -661,8 +731,14 @@ class AgentTherapyGraphBuilder:
       if not utterance:
         raise AgentConversationProcessingError("Patient generated an empty utterance.")
 
+      patient_requested_end = AGENT_END_TAG in utterance
       idx = self._append_message(s, PATIENT_ROLE, utterance)
       self._append_trace(s, idx, PATIENT_ROLE, traces)
+      if patient_requested_end:
+        s["session_ended"] = True
+        s["session_ended_reason"] = "patient_requested_end"
+        s["final_patient_pending_end"] = False
+        return s
       if s["final_patient_pending_end"]:
         s["session_ended"] = True
         s["session_ended_reason"] = "therapist_requested_end"
