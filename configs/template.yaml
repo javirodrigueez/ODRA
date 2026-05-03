@@ -31,6 +31,7 @@ env:
   verbose:
   resume_file:
   resistance:
+  disable_tib:
   resistance_handling:
   long_session_turn_threshold:
   resistance_prediction_clip_initial_turns:

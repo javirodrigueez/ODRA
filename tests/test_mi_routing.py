@@ -243,6 +243,14 @@ class MIRoutingTest(unittest.TestCase):
     cfg = normalize_runtime_config({"env": {}})
     self.assertTrue(cfg["env"]["resistance"])
 
+  def test_runtime_config_sets_default_disable_tib(self) -> None:
+    cfg = normalize_runtime_config({"env": {}})
+    self.assertFalse(cfg["env"]["disable_tib"])
+
+  def test_runtime_config_preserves_disabled_tib(self) -> None:
+    cfg = normalize_runtime_config({"env": {"disable_tib": "yes"}})
+    self.assertTrue(cfg["env"]["disable_tib"])
+
   def test_runtime_config_sets_default_patient_prompt_ablation(self) -> None:
     cfg = normalize_runtime_config({"patient": {}})
     self.assertEqual(cfg["patient"]["prompt_variant"], "base")

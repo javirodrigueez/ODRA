@@ -64,7 +64,7 @@ def project_root() -> Path:
 
 
 def load_therapist_system_prompt(root: Path) -> str:
-  prompt_path = root / "agent_prompts" / "therapist_system_ft.txt"
+  prompt_path = root / "agent_prompts" / "therapist_system_ft_2.txt"
   if not prompt_path.is_file():
     raise DatasetBuildError(f"Missing therapist fine-tuning system prompt: {prompt_path}")
   return prompt_path.read_text(encoding="utf-8")

@@ -235,6 +235,7 @@ class SessionState(TypedDict):
 
   patient_profile: dict[str, Any]
   prompt_ablation: dict[str, str]
+  disable_tib: bool
   resistance_baseline: float | None
   resistance_recovery_rate: float | None
   resistance: float | None

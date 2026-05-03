@@ -44,9 +44,10 @@ class TherapyGraphBuilder(
 ):
   MI_END_SESSION_TIB_REDIRECT_STAGES = {"mi_techniques_with_te", "mi_techniques", "meta_conversation"}
 
-  def __init__(self, config_path: str, profile: dict[str, Any]):
+  def __init__(self, config_path: str, profile: dict[str, Any], *, disable_tib: bool = False):
     self.cfg = load_runtime_config(config_path)
     self.profile = profile
+    self.disable_tib = bool(disable_tib)
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
     self.mi_techniques = self._load_mi_techniques()
@@ -178,6 +179,8 @@ class TherapyGraphBuilder(
     return "other"
 
   def _maybe_handle_tib(self, state: SessionState, traces: list[dict[str, Any]]) -> TIBRouteBucket:
+    if self._tib_detection_disabled():
+      return "none"
     if state["session_ended"] or state["final_patient_pending_end"]:
       return "none"
     if state["current_stage"] in {"anticipated_closing", "forced_closing"}:
@@ -310,11 +313,16 @@ class TherapyGraphBuilder(
     traces: list[dict[str, Any]] = []
     try:
       self._clear_tib_redirect(s)
+      if self._tib_detection_disabled() and s["current_stage"] == "address_tib":
+        raise ConversationProcessingError(
+          "TIB detection is disabled, but the session is already in address_tib. "
+          "Set env.disable_tib=false or restart from a non-address_tib state."
+        )
       if not first_exchange:
         self._maybe_force_closing(s)
         completed_address_tib = self._maybe_complete_finished_address_tib(s, traces)
         tib_route_bucket = "none"
-        if not completed_address_tib:
+        if not completed_address_tib and not self._tib_detection_disabled():
           tib_route_bucket = self._maybe_handle_tib(s, traces)
         if self._resistance_enabled():
           self._run_resistance_prediction(s, traces)

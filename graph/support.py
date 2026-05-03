@@ -68,6 +68,7 @@ class GraphSupportMixin:
   patient: Any = None
   cbt_techniques: dict[str, str] = {}
   mi_techniques: dict[str, str] = {}
+  disable_tib: bool = False
 
   def _project_root(self) -> Path:
     return Path(__file__).resolve().parent.parent
@@ -96,6 +97,9 @@ class GraphSupportMixin:
 
   def _resistance_enabled(self) -> bool:
     return self._env_bool("resistance", True)
+
+  def _tib_detection_disabled(self) -> bool:
+    return bool(getattr(self, "disable_tib", False))
 
   def _patient_prompt_ablation(self) -> dict[str, str]:
     patient_cfg = getattr(self.cfg, "patient", {})
@@ -626,6 +630,7 @@ class GraphSupportMixin:
     s = cast(SessionState, cast(object, normalize_resistance_state_fields(dict(s), deepcopy(self.profile))))
     s = cast(SessionState, cast(object, normalize_predicted_resistance_state_fields(dict(s))))
     s["prompt_ablation"] = self._patient_prompt_ablation()
+    s["disable_tib"] = self._tib_detection_disabled()
 
     s.setdefault("last_patient_resistance_update_reasoning", "")
     s.setdefault("last_patient_action", "")
@@ -1323,6 +1328,8 @@ class GraphSupportMixin:
 
   def _instruction_with_tib_redirect(self, state: SessionState, instruction: str) -> str:
     text = ensure_str(instruction)
+    if self._tib_detection_disabled():
+      return text
     if not state.get("tib_redirect_triggered"):
       return text
 
@@ -1411,6 +1418,8 @@ class GraphSupportMixin:
 
   def _instruction_with_inline_tib_ack(self, state: SessionState, instruction: str) -> tuple[str, bool]:
     text = ensure_str(instruction)
+    if self._tib_detection_disabled():
+      return text, False
     tib_name = ensure_str(state.get("inline_tib_ack_name")).strip()
     if not tib_name:
       return text, False

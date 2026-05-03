@@ -109,6 +109,7 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("verbose", False)
   env.setdefault("resume_file", "")
   env["resistance"] = _coerce_bool(env.get("resistance"), True)
+  env["disable_tib"] = _coerce_bool(env.get("disable_tib"), False)
   env.setdefault("resistance_prediction_clip_initial_turns", 5)
   env.setdefault("resistance_prediction_clip_initial_min_delta", -0.3)
   env.setdefault("resistance_prediction_clip_initial_max_delta", 0.3)

@@ -8,7 +8,7 @@ from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_pro
 
 
 AGENT_THERAPIST_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system.txt"
-AGENT_THERAPIST_FT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system_ft.txt"
+AGENT_THERAPIST_FT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system_ft_2.txt"
 AGENT_THERAPIST_CONTINUATION = "Continue with the ongoing therapy session."
 AGENT_INITIAL_GREETING_PROMPT = "opening/initial_greeting.txt"
 AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 8192

@@ -352,6 +352,73 @@ class TIBRoutingTest(unittest.TestCase):
     self.assertIn("tib_check", trace_steps)
     self.assertNotIn("resistance_prediction", trace_steps)
 
+  def test_disabled_tib_therapist_turn_skips_tib_check_and_keeps_resistance(self) -> None:
+    builder = self._make_builder(
+      {
+        "has_tib": True,
+        "tib_name": "skepticism",
+        "tib_description": "The patient doubts the exercise.",
+        "reasoning": "The patient is skeptical.",
+      }
+    )
+    builder.disable_tib = True
+    tib_calls: list[str] = []
+    resistance_calls: list[str] = []
+
+    def _run_therapist_structured(state: dict, traces: list[dict], step_name: str, instruction: str):
+      tib_calls.append(step_name)
+      raise AssertionError("tib_check should be skipped when disable_tib is true")
+
+    def _run_resistance_prediction(state: dict, traces: list[dict]) -> None:
+      resistance_calls.append("resistance_prediction")
+      traces.append({"step": "resistance_prediction", "input": "patient", "output": "{}"})
+
+    builder._run_therapist_structured = _run_therapist_structured
+    builder._run_resistance_prediction = _run_resistance_prediction
+    builder._handle_pre_stage_routing = lambda state, traces: traces.append(
+      {"step": "pre_stage_routing", "input": "none", "output": "kept"}
+    )
+    builder._handle_stage_dispatch = lambda state, traces: "Therapist reply"
+    state = self._make_state(builder, stage="cbt_technique", substage="cbt_deliver_current")
+
+    updated = builder.therapist_turn(state)
+
+    self.assertEqual(updated["messages"][-1]["content"], "Therapist reply")
+    self.assertEqual(tib_calls, [])
+    self.assertEqual(resistance_calls, ["resistance_prediction"])
+    trace_steps = [step["step"] for step in updated["reasoning_traces"][-1]["traces"]]
+    self.assertNotIn("tib_check", trace_steps)
+    self.assertIn("resistance_prediction", trace_steps)
+    self.assertIn("pre_stage_routing", trace_steps)
+    self.assertTrue(updated["disable_tib"])
+
+  def test_disabled_tib_errors_when_state_is_already_address_tib(self) -> None:
+    builder = self._make_builder()
+    builder.disable_tib = True
+    builder._run_therapist_structured = (
+      lambda state, traces, step_name, instruction:
+      (_ for _ in ()).throw(AssertionError("tib_check should be skipped when disable_tib is true"))
+    )
+    builder._run_resistance_prediction = (
+      lambda state, traces:
+      (_ for _ in ()).throw(AssertionError("resistance prediction should not run after disabled TIB error"))
+    )
+    builder._handle_stage_dispatch = (
+      lambda state, traces:
+      (_ for _ in ()).throw(AssertionError("stage dispatch should not run after disabled TIB error"))
+    )
+    state = self._make_state(builder, stage="address_tib", substage="tib_deliver")
+    state["address_tib_name"] = "skepticism"
+    state["address_tib_description"] = "The patient doubts the exercise."
+
+    updated = builder.therapist_turn(state)
+
+    self.assertTrue(updated["session_ended"])
+    self.assertEqual(updated["session_ended_reason"], "conversation_error")
+    self.assertIn("TIB detection is disabled", updated["conversation_error"])
+    error_trace = updated["reasoning_traces"][-1]["traces"][0]
+    self.assertEqual(error_trace["step"], "conversation_error")
+
   def test_disabled_resistance_patient_turn_skips_update_and_action_sampling(self) -> None:
     class _FakePatient:
       def __init__(self) -> None:

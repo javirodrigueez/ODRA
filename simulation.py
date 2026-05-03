@@ -94,6 +94,21 @@ def _prompt_ablation_from_cfg_path(cfg_path: str | None) -> dict[str, str]:
   return _prompt_ablation_from_patient_config(getattr(cfg, "patient", {}))
 
 
+def _disable_tib_from_cfg_path(cfg_path: str | None) -> bool:
+  if not cfg_path:
+    return False
+  try:
+    from runtime_config import load_runtime_config
+
+    cfg = load_runtime_config(cfg_path)
+  except Exception:
+    return False
+  env = getattr(cfg, "env", {})
+  if isinstance(env, dict):
+    return bool(env.get("disable_tib", False))
+  return bool(getattr(env, "disable_tib", False))
+
+
 def _output_dir_manifest_prefix(output_dir: str | Path) -> str:
   normalized = Path(output_dir).as_posix().strip("/")
   return normalized.replace("/", "_") or "output"
@@ -165,6 +180,7 @@ def _new_manifest(
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
   prompt_ablation: dict[str, str] | None = None,
+  disable_tib: bool = False,
 ) -> dict[str, Any]:
   attitudes = sorted(_group_profiles_by_attitude(profiles))
   return {
@@ -183,6 +199,7 @@ def _new_manifest(
       "success_count": 0,
       "duplicate_idxs_omitted": duplicate_idxs,
       "prompt_ablation": dict(prompt_ablation or resolve_prompt_ablation_settings()),
+      "disable_tib": bool(disable_tib),
       "updated_at": "",
     },
   }
@@ -209,6 +226,7 @@ def _merge_manifest_with_profiles(
   profiles: list[dict[str, Any]],
   duplicate_idxs: list[str],
   prompt_ablation: dict[str, str] | None = None,
+  disable_tib: bool = False,
 ) -> dict[str, Any]:
   fresh = _new_manifest(
     cfg_path=cfg_path,
@@ -217,6 +235,7 @@ def _merge_manifest_with_profiles(
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
     prompt_ablation=prompt_ablation,
+    disable_tib=disable_tib,
   )
   if existing is None:
     return fresh
@@ -274,6 +293,7 @@ def _initialize_manifest(
   duplicate_idxs: list[str],
   resume_from_json: str | None,
   prompt_ablation: dict[str, str] | None = None,
+  disable_tib: bool = False,
 ) -> dict[str, Any]:
   existing = _load_manifest(Path(resume_from_json).resolve()) if resume_from_json else None
   return _merge_manifest_with_profiles(
@@ -284,6 +304,7 @@ def _initialize_manifest(
     profiles=profiles,
     duplicate_idxs=duplicate_idxs,
     prompt_ablation=prompt_ablation,
+    disable_tib=disable_tib,
   )
 
 
@@ -421,8 +442,10 @@ def run_simulation(
   progress_callback: Callable[[int], None] | None = None,
   suppress_output: bool = False,
   print_saved_paths: bool = True,
+  disable_tib: bool | None = None,
 ) -> dict[str, Any]:
   """Run a single simulation for a given profile."""
+  resolved_disable_tib = bool(disable_tib) if disable_tib is not None else _disable_tib_from_cfg_path(cfg_path)
   result: dict[str, Any] = {
     "messages": [],
     "exchange_counts": {},
@@ -432,6 +455,7 @@ def run_simulation(
     "conversation_error": "",
     "patient_profile": profile,
     "prompt_ablation": _prompt_ablation_from_cfg_path(cfg_path),
+    "disable_tib": resolved_disable_tib,
   }
   error_printed = False
   last_reported_utterance = 0
@@ -458,7 +482,7 @@ def run_simulation(
     try:
       from graph.graph import TherapyGraphBuilder
 
-      builder = TherapyGraphBuilder(cfg_path, profile)
+      builder = TherapyGraphBuilder(cfg_path, profile, disable_tib=resolved_disable_tib)
       chain = builder.create_chain()
       if resume_state is None:
         initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
@@ -502,6 +526,7 @@ def run_simulation(
         error_printed = True
 
     report_progress(result.get("utterance_index", 0))
+    result["disable_tib"] = resolved_disable_tib
 
     if output_dir:
       os.makedirs(output_dir, exist_ok=True)
@@ -529,8 +554,11 @@ def _validate_multiprocessing_options(use_multiprocessing: bool, n_processes: in
     raise ValueError("--n-processes must be a positive integer when --multiprocessing is enabled.")
 
 
-def _run_simulation_batch_worker(args: tuple[int, str, dict[str, Any], int, int, str, Any]) -> dict[str, Any]:
-  run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue = args
+def _run_simulation_batch_worker(
+  args: tuple[int, str, dict[str, Any], int, int, str, Any] | tuple[int, str, dict[str, Any], int, int, str, Any, bool],
+) -> dict[str, Any]:
+  run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, *rest = args
+  disable_tib = bool(rest[0]) if rest else False
 
   def progress_callback(utterance_index: int) -> None:
     progress_queue.put((run_index, int(utterance_index)))
@@ -545,6 +573,7 @@ def _run_simulation_batch_worker(args: tuple[int, str, dict[str, Any], int, int,
     progress_callback=progress_callback,
     suppress_output=True,
     print_saved_paths=False,
+    disable_tib=disable_tib,
   )
   progress_callback(int(result.get("utterance_index", 0) or 0))
   return {
@@ -629,12 +658,21 @@ def _run_batch_sequential(
   min_turns: int,
   output_dir: str,
   verbose: bool,
+  disable_tib: bool = False,
 ) -> None:
   total_to_run = len(profiles_to_run)
   for run_index, profile in enumerate(profiles_to_run, start=1):
     _print_simulation_header(run_index, total_to_run, profile)
 
-    result = run_simulation(cfg_path, profile, max_turns, min_turns, output_dir, verbose)
+    result = run_simulation(
+      cfg_path,
+      profile,
+      max_turns,
+      min_turns,
+      output_dir,
+      verbose,
+      disable_tib=disable_tib,
+    )
     _print_simulation_summary(result)
     _record_simulation_result(manifest, profile, output_dir, result)
 
@@ -648,6 +686,7 @@ def _run_batch_multiprocessing(
   min_turns: int,
   output_dir: str,
   n_processes: int,
+  disable_tib: bool = False,
 ) -> None:
   if not profiles_to_run:
     return
@@ -679,7 +718,7 @@ def _run_batch_multiprocessing(
             bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
             pool.apply_async(
               _run_simulation_batch_worker,
-              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue),),
+              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, disable_tib),),
               callback=on_success,
               error_callback=on_error,
             )
@@ -747,6 +786,7 @@ def main(
   output_dir = str(cfg.env.output_dir or "")
   verbose = bool(cfg.env.verbose)
   resume_file = cfg.env.get("resume_file")
+  disable_tib = bool(cfg.env.get("disable_tib", False))
   prompt_ablation = _prompt_ablation_from_patient_config(cfg.patient)
 
   if resume_file and resume_from_json:
@@ -769,6 +809,7 @@ def main(
       output_dir,
       verbose,
       resume_state=resume_state,
+      disable_tib=disable_tib,
     )
     _print_simulation_summary(result)
     return
@@ -789,6 +830,7 @@ def main(
     duplicate_idxs=duplicate_idxs,
     resume_from_json=resume_from_json,
     prompt_ablation=prompt_ablation,
+    disable_tib=disable_tib,
   )
 
   print(f"Loaded {len(profiles)} unique profiles from {profiles_path}")
@@ -815,6 +857,7 @@ def main(
       min_turns=min_turns,
       output_dir=output_dir,
       n_processes=cast(int, n_processes),
+      disable_tib=disable_tib,
     )
   else:
     _run_batch_sequential(
@@ -825,6 +868,7 @@ def main(
       min_turns=min_turns,
       output_dir=output_dir,
       verbose=verbose,
+      disable_tib=disable_tib,
     )
 
   if run_eval:

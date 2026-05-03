@@ -106,9 +106,12 @@ from simulation import (
   _profile_run_batches,
   _resolve_profiles_path,
   _run_batch_multiprocessing,
+  _run_batch_sequential,
+  _run_simulation_batch_worker,
   _select_profiles_to_execute,
   _validate_multiprocessing_options,
   _write_manifest,
+  main,
   run_simulation,
 )
 
@@ -165,6 +168,7 @@ class SimulationBatchingTest(unittest.TestCase):
         manifest["metadata"]["prompt_ablation"],
         {"prompt_variant": "base"},
       )
+      self.assertFalse(manifest["metadata"]["disable_tib"])
 
   def test_select_profiles_to_execute_skips_executed_and_limits_new_profiles(self) -> None:
     with _temporary_workspace_dir() as tmp:
@@ -213,6 +217,7 @@ class SimulationBatchingTest(unittest.TestCase):
         saved["metadata"]["prompt_ablation"],
         {"prompt_variant": "base"},
       )
+      self.assertFalse(saved["metadata"]["disable_tib"])
 
   def test_matching_simulation_files_excludes_manifests_and_other_attitudes(self) -> None:
     with _temporary_workspace_dir() as tmp:
@@ -258,13 +263,16 @@ class SimulationBatchingTest(unittest.TestCase):
           max_turns=10,
           min_turns=0,
           verbose=True,
+          disable_tib=True,
         )
 
     self.assertTrue(fake_chain.stream_called)
     self.assertFalse(fake_chain.invoke_called)
+    self.assertTrue(fake_graph_module.TherapyGraphBuilder.instances[0].disable_tib)
     self.assertIn("Therapist", stdout.getvalue())
     self.assertIn("hello", stdout.getvalue())
     self.assertEqual(result["utterance_index"], 1)
+    self.assertTrue(result["disable_tib"])
 
   def test_run_simulation_non_verbose_uses_invoke(self) -> None:
     fake_chain = _FakeChain()
@@ -282,7 +290,53 @@ class SimulationBatchingTest(unittest.TestCase):
 
     self.assertFalse(fake_chain.stream_called)
     self.assertTrue(fake_chain.invoke_called)
+    self.assertFalse(fake_graph_module.TherapyGraphBuilder.instances[0].disable_tib)
     self.assertEqual(result["utterance_index"], 2)
+    self.assertFalse(result["disable_tib"])
+
+  def test_run_simulation_writes_disable_tib_to_output_json(self) -> None:
+    fake_chain = _FakeChain()
+    fake_graph_module = types.ModuleType("graph.graph")
+    fake_graph_module.TherapyGraphBuilder = _fake_builder_factory(fake_chain)
+
+    with _temporary_workspace_dir() as tmp:
+      profile = {"idx": 1, "attitude": "neutral"}
+      with mock.patch.dict(sys.modules, {"graph.graph": fake_graph_module}):
+        run_simulation(
+          "configs/test.yaml",
+          profile,
+          max_turns=10,
+          min_turns=0,
+          output_dir=tmp,
+          verbose=False,
+          disable_tib=True,
+        )
+
+      with (Path(tmp) / "json" / "simulation_1_neutral.json").open("r", encoding="utf-8") as f:
+        saved = json.load(f)
+      self.assertTrue(saved["disable_tib"])
+
+  def test_run_simulation_defaults_disable_tib_from_config(self) -> None:
+    fake_chain = _FakeChain()
+    fake_graph_module = types.ModuleType("graph.graph")
+    fake_graph_module.TherapyGraphBuilder = _fake_builder_factory(fake_chain)
+    cfg = _AttrDict(
+      env=_AttrDict(disable_tib=True),
+      patient=_AttrDict(prompt_variant="base"),
+    )
+
+    with mock.patch("runtime_config.load_runtime_config", return_value=cfg):
+      with mock.patch.dict(sys.modules, {"graph.graph": fake_graph_module}):
+        result = run_simulation(
+          "configs/test.yaml",
+          {"idx": 1, "attitude": "neutral"},
+          max_turns=10,
+          min_turns=0,
+          verbose=False,
+        )
+
+    self.assertTrue(fake_graph_module.TherapyGraphBuilder.instances[0].disable_tib)
+    self.assertTrue(result["disable_tib"])
 
   def test_progress_bar_advances_by_utterance_delta_and_keeps_early_final_count(self) -> None:
     bar = _FakeProgressBar()
@@ -334,6 +388,134 @@ class SimulationBatchingTest(unittest.TestCase):
       self.assertEqual([bar.position for bar in _FakeTqdm.instances], [0, 1, 2, 3, 4])
       self.assertTrue(all(bar.leave for bar in _FakeTqdm.instances))
       self.assertTrue(all(manifest["profiles"][str(idx)]["executed"] for idx in range(1, 6)))
+
+  def test_multiprocessing_worker_args_include_disable_tib(self) -> None:
+    with _temporary_workspace_dir() as tmp:
+      profiles = [{"idx": idx, "attitude": "neutral"} for idx in range(1, 3)]
+      manifest = _initialize_manifest(
+        cfg_path="configs/test.yaml",
+        profiles_path="profiles.json",
+        output_dir=tmp,
+        profiles=profiles,
+        duplicate_idxs=[],
+        resume_from_json=None,
+        disable_tib=True,
+      )
+      _FakeTqdm.reset()
+      _FakePool.reset()
+
+      with mock.patch("simulation._load_tqdm", return_value=_FakeTqdm):
+        with mock.patch("simulation.multiprocessing.Manager", _FakeManager):
+          with mock.patch("simulation.multiprocessing.Pool", _FakePool):
+            _run_batch_multiprocessing(
+              cfg_path="configs/test.yaml",
+              profiles_to_run=profiles,
+              manifest=manifest,
+              max_turns=10,
+              min_turns=0,
+              output_dir=tmp,
+              n_processes=2,
+              disable_tib=True,
+            )
+
+      self.assertEqual([worker_args[7] for worker_args in _FakePool.worker_args], [True, True])
+      self.assertTrue(manifest["metadata"]["disable_tib"])
+
+  def test_run_simulation_batch_worker_passes_disable_tib(self) -> None:
+    captured: list[bool] = []
+
+    def _fake_run_simulation(*args, **kwargs):
+      captured.append(kwargs["disable_tib"])
+      return {
+        "utterance_index": 1,
+        "exchange_counts": {},
+        "session_ended_reason": "done",
+        "conversation_error": "",
+      }
+
+    with mock.patch("simulation.run_simulation", _fake_run_simulation):
+      payload = _run_simulation_batch_worker(
+        (1, "configs/test.yaml", {"idx": 1, "attitude": "neutral"}, 10, 0, "out", _RecordingProgressQueue(), True)
+      )
+
+    self.assertEqual(captured, [True])
+    self.assertEqual(payload["result"]["conversation_error"], "")
+
+  def test_run_batch_sequential_passes_disable_tib(self) -> None:
+    captured: list[bool] = []
+
+    def _fake_run_simulation(*args, **kwargs):
+      captured.append(kwargs["disable_tib"])
+      return {
+        "utterance_index": 1,
+        "exchange_counts": {},
+        "session_ended_reason": "done",
+        "conversation_error": "",
+      }
+
+    with _temporary_workspace_dir() as tmp:
+      profile = {"idx": 1, "attitude": "neutral"}
+      manifest = _initialize_manifest(
+        cfg_path="configs/test.yaml",
+        profiles_path="profiles.json",
+        output_dir=tmp,
+        profiles=[profile],
+        duplicate_idxs=[],
+        resume_from_json=None,
+        disable_tib=True,
+      )
+      with mock.patch("simulation.run_simulation", _fake_run_simulation):
+        _run_batch_sequential(
+          cfg_path="configs/test.yaml",
+          profiles_to_run=[profile],
+          manifest=manifest,
+          max_turns=10,
+          min_turns=0,
+          output_dir=tmp,
+          verbose=False,
+          disable_tib=True,
+        )
+
+    self.assertEqual(captured, [True])
+
+  def test_main_resume_file_reads_disable_tib_from_config(self) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run_simulation(*args, **kwargs):
+      captured["disable_tib"] = kwargs["disable_tib"]
+      captured["resume_state"] = kwargs["resume_state"]
+      return {
+        "utterance_index": 1,
+        "exchange_counts": {},
+        "session_ended_reason": "done",
+        "conversation_error": "",
+      }
+
+    with _temporary_workspace_dir() as tmp:
+      resume_path = Path(tmp) / "resume.json"
+      resume_path.write_text(
+        json.dumps({"patient_profile": {"idx": 1, "attitude": "neutral"}}),
+        encoding="utf-8",
+      )
+      cfg = _AttrDict(
+        env=_AttrDict(
+          max_turns=10,
+          min_turns=0,
+          output_dir="",
+          verbose=False,
+          resume_file=str(resume_path),
+          disable_tib=True,
+        ),
+        patient=_AttrDict(profiles="", prompt_variant="base"),
+      )
+
+      with mock.patch("runtime_config.load_runtime_config", return_value=cfg):
+        with mock.patch("simulation.run_simulation", _fake_run_simulation):
+          with contextlib.redirect_stdout(io.StringIO()):
+            main("configs/test.yaml")
+
+    self.assertTrue(captured["disable_tib"])
+    self.assertEqual(captured["resume_state"], {"patient_profile": {"idx": 1, "attitude": "neutral"}})
 
   def test_completed_multiprocessing_result_records_in_completion_order(self) -> None:
     with _temporary_workspace_dir() as tmp:
@@ -414,6 +596,14 @@ class _FakeChain:
     }
 
 
+class _AttrDict(dict):
+  def __getattr__(self, name: str):
+    try:
+      return self[name]
+    except KeyError as exc:
+      raise AttributeError(name) from exc
+
+
 class _FakeProgressBar:
   def __init__(self) -> None:
     self.updates: list[int] = []
@@ -476,6 +666,14 @@ class _FakeProgressQueue:
     raise queue.Empty
 
 
+class _RecordingProgressQueue:
+  def __init__(self) -> None:
+    self.items: list[tuple[int, int]] = []
+
+  def put(self, item) -> None:
+    self.items.append(item)
+
+
 class _FakeManager:
   def __enter__(self):
     return self
@@ -488,6 +686,12 @@ class _FakeManager:
 
 
 class _FakePool:
+  worker_args: list[tuple] = []
+
+  @classmethod
+  def reset(cls) -> None:
+    cls.worker_args = []
+
   def __init__(self, processes: int) -> None:
     self.processes = processes
 
@@ -499,6 +703,7 @@ class _FakePool:
 
   def apply_async(self, func, args, callback, error_callback) -> None:
     worker_args = args[0]
+    type(self).worker_args.append(worker_args)
     run_index = worker_args[0]
     profile = worker_args[2]
     callback(
@@ -517,9 +722,13 @@ class _FakePool:
 
 def _fake_builder_factory(fake_chain: _FakeChain):
   class _FakeBuilder:
-    def __init__(self, cfg_path, profile) -> None:
+    instances: list["_FakeBuilder"] = []
+
+    def __init__(self, cfg_path, profile, *, disable_tib=False) -> None:
       self.cfg_path = cfg_path
       self.profile = profile
+      self.disable_tib = disable_tib
+      type(self).instances.append(self)
 
     def create_chain(self):
       return fake_chain
@@ -530,6 +739,7 @@ def _fake_builder_factory(fake_chain: _FakeChain):
         "utterance_index": 0,
         "exchange_counts": {},
         "conversation_error": "",
+        "disable_tib": self.disable_tib,
       }
 
     def resume_state(self, saved_state, max_turns, min_turns):
