@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument(
+        "--individual",
+        action="store_true",
+        help="also compute Krippendorff agreement for each ranking item",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +77,16 @@ def percent(part: int, total: int) -> float:
     return round(part * 100 / total, 2)
 
 
+def reasoning_score_to_3_point(score: float) -> float:
+    if score in (1, 2):
+        return 1.0
+    if score == 3:
+        return 2.0
+    if score in (4, 5):
+        return 3.0
+    fail(f"reasoning score must be in 1-5 range, got {score}")
+
+
 def krippendorff_alpha(
     krippendorff: Any,
     values_by_annotator: dict[str, dict[str, float]],
@@ -91,6 +106,34 @@ def krippendorff_alpha(
     ]
     alpha = krippendorff.alpha(reliability_data=matrix, level_of_measurement=level)
     return None if alpha is None or math.isnan(float(alpha)) else round(float(alpha), 2)
+
+
+def percent_agreement(values_by_annotator: dict[str, dict[str, float]]) -> float | None:
+    overlapping = [
+        [
+            values[unit]
+            for values in values_by_annotator.values()
+            if unit in values
+        ]
+        for unit in sorted({unit for values in values_by_annotator.values() for unit in values})
+        if sum(unit in values for values in values_by_annotator.values()) >= 2
+    ]
+    return (
+        percent(sum(1 for values in overlapping if len(set(values)) == 1), len(overlapping))
+        if overlapping
+        else None
+    )
+
+
+def reasoning_agreement_result(
+    krippendorff: Any,
+    values_by_annotator: dict[str, dict[str, float]],
+) -> dict[str, float | None]:
+    alpha = krippendorff_alpha(krippendorff, values_by_annotator, "interval")
+    result = {"score_3point_interval": alpha}
+    if alpha is not None and alpha < 0:
+        result["score_3point_percent_agreement"] = percent_agreement(values_by_annotator)
+    return result
 
 
 def rank_group_scores_by_set(scores: dict[str, float]) -> dict[str, float]:
@@ -113,7 +156,7 @@ def rank_group_scores_by_set(scores: dict[str, float]) -> dict[str, float]:
     return ranked
 
 
-def aggregate(input_dir: Path) -> dict[str, Any]:
+def aggregate(input_dir: Path, individual: bool = False) -> dict[str, Any]:
     try:
         import krippendorff  # type: ignore[import-not-found]
     except ModuleNotFoundError as exc:
@@ -125,6 +168,10 @@ def aggregate(input_dir: Path) -> dict[str, Any]:
 
     rank_values: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     reasoning_values: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    reasoning_agreement: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    item_ranks: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
     group_sums: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
     safety_total = dict.fromkeys(METHODS, 0)
     safety_concerns = dict.fromkeys(METHODS, 0)
@@ -152,7 +199,9 @@ def aggregate(input_dir: Path) -> dict[str, Any]:
                 ranks_by_item[item] = {}
                 for index, letter in enumerate(ranking, start=1):
                     method = letter_to_method[letter]
+                    session = variants[letter]
                     rank_values[item][method].append(float(index))
+                    item_ranks[item][annotator][session] = float(index)
                     ranks_by_item[item][letter] = float(index)
 
             for group, items in AGREEMENT_GROUPS.items():
@@ -178,13 +227,16 @@ def aggregate(input_dir: Path) -> dict[str, Any]:
                 if not isinstance(messages, dict):
                     fail(f"{path}:{set_name}: invalid reasoningEvaluation entry")
                 method = method_from_session(session)
-                for scores in messages.values():
+                for message_id, scores in messages.items():
                     if not isinstance(scores, dict):
                         fail(f"{path}:{set_name}: invalid reasoning scores")
                     for item, score in scores.items():
                         if not isinstance(score, (int, float)) or isinstance(score, bool):
                             fail(f"{path}:{set_name}: non-numeric reasoning score")
                         reasoning_values[item][method].append(float(score))
+                        reasoning_agreement[item][annotator][f"{session}#{message_id}"] = (
+                            reasoning_score_to_3_point(float(score))
+                        )
 
     ranks = {
         item: {method: mean(values) for method, values in by_method.items()}
@@ -211,6 +263,27 @@ def aggregate(input_dir: Path) -> dict[str, Any]:
             "sum_interval": krippendorff_alpha(krippendorff, sums, "interval"),
         }
 
+    if individual:
+        agreement["individual"] = {
+            item: {
+                "ranked_ordinal": krippendorff_alpha(
+                    krippendorff,
+                    {
+                        annotator: rank_group_scores_by_set(scores)
+                        for annotator, scores in ranks.items()
+                    },
+                    "ordinal",
+                ),
+                "rank_interval": krippendorff_alpha(krippendorff, ranks, "interval"),
+            }
+            for item, ranks in sorted(item_ranks.items())
+        }
+
+    agreement["reasoning"] = {
+        item: reasoning_agreement_result(krippendorff, values)
+        for item, values in sorted(reasoning_agreement.items())
+    }
+
     overlapping_safety = [scores for scores in safety_by_session.values() if len(scores) >= 2]
     agreement["safety"] = (
         percent(
@@ -232,7 +305,7 @@ def aggregate(input_dir: Path) -> dict[str, Any]:
 def main() -> int:
     args = parse_args()
     try:
-        results = aggregate(args.input)
+        results = aggregate(args.input, individual=args.individual)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("w", encoding="utf-8") as handle:
             json.dump(results, handle, indent=2, ensure_ascii=False)

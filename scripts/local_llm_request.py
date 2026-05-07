@@ -10,24 +10,29 @@ DEFAULT_MAX_MODEL_LEN = 131072
 
 
 def load_request(path: Path, model: str, max_model_len: int) -> dict:
+    open = '''[opening_stage_initial_greeting_reasoning]
+```json
+{
+  "reasoning": "The session is just beginning. The patient's intake form indicates a history of mild anxiety and a request for online support. The initial goal is to establish a safe, 
+empathetic connection. A simple, open-ended greeting is appropriate to encourage the patient to share their current state."
+}
+```
+</think>
+
+Hello, I'm glad to meet you. How are you feeling today?
+'''
     text = path.read_text(encoding="utf-8")
+    system = Path("./agent_prompts/therapist_system_ft.txt").read_text(encoding="utf-8")
 
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {
-            "model": model,
-            "max_tokens": max_model_len,
-            "messages": [{"role": "user", "content": text}],
-        }
-
-    if isinstance(data, dict):
-        return {"model": model, "max_tokens": max_model_len, **data}
-    if isinstance(data, list):
-        return {"model": model, "max_tokens": max_model_len, "messages": data}
-
-    raise ValueError("Request file must be plain text, a JSON object, or a JSON messages list.")
-
+    return {
+      "model": model,
+      "max_tokens": max_model_len,
+      "messages": [
+          {"role": "system", "content": system},
+          {"role": "assistant", "content": open},
+          {"role": "user", "content": "Hi, well. I have been feeling a bit anxious lately, especially with work and family responsibilities piling up."},
+      ],
+    }
 
 def print_streaming_response(response) -> None:
     for chunk in response:

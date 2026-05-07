@@ -21,6 +21,13 @@ from scripts.ft.create_reasoning_instruction_dataset import (  # noqa: E402
 
 TraceKey = tuple[Any, str]
 TraceFields = list[str] | None
+PATIENT_INTAKE_FORM_PLACEHOLDER = "{patient_intake_form}"
+GENERIC_WRAPPER_KEYS = {"items", "output", "result", "data", "payload"}
+CORE_BELIEF_PROBABILITY_STEP = "core_belief_probability"
+DISTORTION_PROBABILITY_STEP = "distortion_probability"
+HOMEWORK_TASK_PROPOSAL_STEP = "homework_task_proposal"
+HOMEWORK_AGREEMENT_CHECK_STEP = "homework_agreement_check"
+END_SESSION_MARK = "[/END]"
 
 STAGE_LABELS = {
   "opening": "Opening",
@@ -67,7 +74,45 @@ def load_therapist_system_prompt(root: Path) -> str:
   prompt_path = root / "agent_prompts" / "therapist_system_ft_2.txt"
   if not prompt_path.is_file():
     raise DatasetBuildError(f"Missing therapist fine-tuning system prompt: {prompt_path}")
-  return prompt_path.read_text(encoding="utf-8")
+  prompt = prompt_path.read_text(encoding="utf-8")
+  if PATIENT_INTAKE_FORM_PLACEHOLDER not in prompt:
+    raise DatasetBuildError(
+      f"{prompt_path}: missing required {PATIENT_INTAKE_FORM_PLACEHOLDER} placeholder."
+    )
+  return prompt
+
+
+def format_patient_intake_form(profile: dict[str, Any]) -> str:
+  personal_info = profile.get("personal_info", {})
+  more_info = profile.get("more_information", {})
+
+  sections: list[str] = []
+  if isinstance(personal_info, dict) and personal_info:
+    personal_lines = [
+      f"{str(key).replace('_', ' ').title()}: {value}"
+      for key, value in personal_info.items()
+    ]
+    sections.append("Personal Info:\n" + "\n".join(personal_lines))
+
+  reason = profile.get("reason_seeking_counseling", "")
+  if reason:
+    sections.append(f"Reason Seeking Counseling:\n{reason}")
+
+  if isinstance(more_info, dict) and more_info:
+    more_info_lines = [
+      f"{str(key).replace('_', ' ').title()}:\n{value}"
+      for key, value in more_info.items()
+      if value
+    ]
+    if more_info_lines:
+      sections.append("More Information:\n" + "\n\n".join(more_info_lines))
+
+  return "\n\n".join(sections)
+
+
+def render_system_prompt(system_prompt: str, patient_profile: dict[str, Any]) -> str:
+  intake = format_patient_intake_form(patient_profile)
+  return system_prompt.replace(PATIENT_INTAKE_FORM_PLACEHOLDER, intake)
 
 
 def load_trace_field_config(root: Path) -> dict[str, TraceFields]:
@@ -130,6 +175,8 @@ def load_trace_field_config(root: Path) -> dict[str, TraceFields]:
     "expected_outcome",
     "current_progress",
   ]
+  fields_by_step[HOMEWORK_TASK_PROPOSAL_STEP] = ["tasks"]
+  fields_by_step[HOMEWORK_AGREEMENT_CHECK_STEP] = ["agreement_reached", "agreed_tasks"]
 
   for step in CUSTOM_TIB_MESSAGES:
     fields_by_step[step] = ["message"]
@@ -221,6 +268,8 @@ def tib_name_from_payload(payload: Any) -> str:
 
 
 def selected_trace_payload(step: str, payload: Any, fields_by_step: dict[str, TraceFields]) -> Any:
+  payload = unwrap_generic_wrapper(payload)
+
   if step in CUSTOM_TIB_MESSAGES:
     return {"message": CUSTOM_TIB_MESSAGES[step].format(tib_name=tib_name_from_payload(payload))}
 
@@ -250,15 +299,206 @@ def selected_trace_payload(step: str, payload: Any, fields_by_step: dict[str, Tr
   return dict(payload)
 
 
-def fenced_json(value: Any) -> str:
-  return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2) + "\n```"
+def unwrap_generic_wrapper(value: Any) -> Any:
+  while isinstance(value, dict) and len(value) == 1:
+    key = next(iter(value))
+    if key not in GENERIC_WRAPPER_KEYS:
+      break
+    value = value[key]
+  return value
+
+
+def field_label(key: Any) -> str:
+  label = ensure_str(key).replace("_", " ").strip().title()
+  return label or "Value"
+
+
+def path_label(path: list[Any]) -> str:
+  labels = [field_label(key) for key in path if field_label(key)]
+  return " ".join(labels) if labels else "Value"
+
+
+def ensure_terminal_punctuation(text: str) -> str:
+  stripped = text.strip()
+  if not stripped or stripped.endswith((".", "!", "?")):
+    return stripped
+  return stripped + "."
+
+
+def join_plain_sentences(parts: list[str]) -> str:
+  rendered: list[str] = []
+  for part in parts:
+    stripped = part.strip()
+    if not stripped:
+      continue
+    if rendered:
+      rendered[-1] = ensure_terminal_punctuation(rendered[-1])
+    rendered.append(stripped)
+  return " ".join(rendered)
+
+
+def format_plain_scalar(value: Any) -> str:
+  if value is None:
+    return "none"
+  if isinstance(value, str):
+    stripped = value.strip()
+    return stripped if stripped else "none"
+  if isinstance(value, bool):
+    return "yes" if value else "no"
+  if isinstance(value, (int, float)):
+    return str(value)
+  return str(value)
+
+
+def format_numbered_item(value: Any) -> str:
+  value = unwrap_generic_wrapper(value)
+  if isinstance(value, dict):
+    return format_plain_text(value)
+  if isinstance(value, list):
+    return format_plain_list(value)
+  return format_plain_scalar(value)
+
+
+def format_plain_list(values: list[Any]) -> str:
+  if not values:
+    return "none"
+  has_nested_value = any(isinstance(unwrap_generic_wrapper(value), (dict, list)) for value in values)
+  if has_nested_value:
+    return " ".join(
+      ensure_terminal_punctuation(f"{idx}. {format_numbered_item(value)}")
+      for idx, value in enumerate(values, start=1)
+    )
+  return ", ".join(format_plain_scalar(value) for value in values)
+
+
+def flatten_plain_fields(value: dict[str, Any], path: list[Any] | None = None) -> list[tuple[str, str]]:
+  path = path or []
+  value = unwrap_generic_wrapper(value)
+  if not isinstance(value, dict):
+    return [(path_label(path), format_plain_value(value))]
+  if not value:
+    return [(path_label(path), "none")]
+
+  fields: list[tuple[str, str]] = []
+  for key, raw_field_value in value.items():
+    field_value = unwrap_generic_wrapper(raw_field_value)
+    field_path = path + [key]
+    if isinstance(field_value, dict):
+      fields.extend(flatten_plain_fields(field_value, field_path))
+    else:
+      fields.append((path_label(field_path), format_plain_value(field_value)))
+  return fields
+
+
+def format_plain_value(value: Any) -> str:
+  value = unwrap_generic_wrapper(value)
+  if isinstance(value, dict):
+    return format_plain_text(value)
+  if isinstance(value, list):
+    return format_plain_list(value)
+  return format_plain_scalar(value)
+
+
+def format_plain_text(value: Any) -> str:
+  value = unwrap_generic_wrapper(value)
+  if isinstance(value, dict):
+    if not value:
+      return "none"
+    fields = flatten_plain_fields(value)
+    return join_plain_sentences([f"{label}: {text}" for label, text in fields])
+  return format_plain_value(value)
+
+
+def sorted_probability_items(value: Any) -> list[tuple[str, float]]:
+  value = unwrap_generic_wrapper(value)
+  if not isinstance(value, dict):
+    return []
+
+  items: list[tuple[str, float]] = []
+  for key, raw_probability in value.items():
+    if isinstance(raw_probability, bool):
+      continue
+    try:
+      probability = float(raw_probability)
+    except (TypeError, ValueError):
+      continue
+    items.append((ensure_str(key), probability))
+  return sorted(items, key=lambda item: item[1], reverse=True)
+
+
+def format_concept_name(name: str) -> str:
+  return name.replace("_", " ").strip() or "none"
+
+
+def format_probability_trace(step: str, value: Any) -> str | None:
+  probability_items = sorted_probability_items(value)
+  if step == CORE_BELIEF_PROBABILITY_STEP:
+    belief = format_concept_name(probability_items[0][0]) if probability_items else "none"
+    return f"Most likely core belief associated is: {belief}"
+  if step == DISTORTION_PROBABILITY_STEP:
+    distortions = [format_concept_name(name) for name, _ in probability_items[:3]]
+    distortion_text = ", ".join(distortions) if distortions else "none"
+    return f"Most likely distortions are: {distortion_text}"
+  return None
+
+
+def homework_task_title(value: Any) -> str:
+  value = unwrap_generic_wrapper(value)
+  if isinstance(value, dict):
+    title = ensure_str(value.get("task_title")).strip()
+    if title:
+      return title
+    title = ensure_str(value.get("title")).strip()
+    if title:
+      return title
+  return format_plain_scalar(value)
+
+
+def format_homework_agreed_tasks(value: Any) -> str:
+  value = unwrap_generic_wrapper(value)
+  if not isinstance(value, list) or not value:
+    return "none"
+  return " ".join(
+    ensure_terminal_punctuation(f"{idx}. {homework_task_title(task)}")
+    for idx, task in enumerate(value, start=1)
+  )
+
+
+def format_homework_agreement_trace(value: Any) -> str | None:
+  value = unwrap_generic_wrapper(value)
+  if not isinstance(value, dict):
+    return None
+
+  agreement_found, agreement_reached = select_field(value, "agreement_reached")
+  if not agreement_found:
+    agreement_found, agreement_reached = select_field(value, "agreement")
+  tasks_found, agreed_tasks = select_field(value, "agreed_tasks")
+
+  parts: list[str] = []
+  if agreement_found:
+    parts.append(f"Agreement Reached: {format_plain_scalar(agreement_reached)}")
+  if tasks_found:
+    parts.append(f"Agreed Tasks: {format_homework_agreed_tasks(agreed_tasks)}")
+  return join_plain_sentences(parts) if parts else None
+
+
+def format_step_specific_trace(step: str, value: Any) -> str | None:
+  trace_text = format_probability_trace(step, value)
+  if trace_text is not None:
+    return trace_text
+  if step == HOMEWORK_AGREEMENT_CHECK_STEP:
+    return format_homework_agreement_trace(value)
+  return None
 
 
 def format_trace(trace: dict[str, Any], fields_by_step: dict[str, TraceFields]) -> str:
   step = ensure_str(trace.get("step")).strip() or "unknown"
   payload = parse_trace_output(trace)
   selected_payload = selected_trace_payload(step, payload, fields_by_step)
-  return f"[{step}]\n{fenced_json(selected_payload)}"
+  trace_text = format_step_specific_trace(step, selected_payload)
+  if trace_text is None:
+    trace_text = format_plain_text(selected_payload)
+  return f"[{step}] {trace_text}"
 
 
 def format_trace_block(traces: list[Any], source_label: str, fields_by_step: dict[str, TraceFields]) -> str:
@@ -325,18 +565,50 @@ def chatml_message(
   return {"role": role, "content": content}
 
 
+def remove_end_session_mark(content: str) -> tuple[str, bool]:
+  if END_SESSION_MARK not in content:
+    return content, False
+  return content.replace(END_SESSION_MARK, "").strip(), True
+
+
+def append_end_session_mark(content: str) -> str:
+  stripped = content.rstrip()
+  if stripped.endswith(END_SESSION_MARK):
+    return stripped
+  return f"{stripped} {END_SESSION_MARK}"
+
+
+def move_end_session_mark_to_last_assistant(output_messages: list[dict[str, str]]) -> None:
+  if not output_messages or output_messages[-1]["role"] != "user":
+    return
+
+  content, removed = remove_end_session_mark(output_messages[-1]["content"])
+  if not removed:
+    return
+  output_messages[-1]["content"] = content
+
+  for message in reversed(output_messages):
+    if message["role"] == "assistant":
+      message["content"] = append_end_session_mark(message["content"])
+      return
+
+  raise DatasetBuildError(f"{END_SESSION_MARK} found in final user message, but no therapist message exists.")
+
+
 def build_chatml_session(
   path: Path,
   system_prompt: str,
   fields_by_step: dict[str, TraceFields],
 ) -> dict[str, list[dict[str, str]]]:
   payload = load_session(path)
-  require_dict(payload.get("patient_profile"), f"{path}: patient_profile")
+  patient_profile = require_dict(payload.get("patient_profile"), f"{path}: patient_profile")
   messages = require_list(payload.get("messages"), f"{path}: messages")
   raw_trace_groups = require_list(payload.get("reasoning_traces"), f"{path}: reasoning_traces")
   trace_groups = trace_groups_by_key(raw_trace_groups, str(path))
 
-  output_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+  output_messages: list[dict[str, str]] = [
+    {"role": "system", "content": render_system_prompt(system_prompt, patient_profile)}
+  ]
   first_therapist_message_seen = False
   for idx, raw_message in enumerate(messages, start=1):
     message = require_dict(raw_message, f"{path}: messages[{idx}]")
@@ -345,7 +617,7 @@ def build_chatml_session(
       content = message_content(message)
       if not content:
         raise DatasetBuildError(f"{path}: messages[{idx}]: message content must be non-empty.")
-      output_messages.append({"role": "user", "content": content})
+      output_messages.append({"role": "assistant", "content": content})
       continue
 
     traces = trace_groups.get(message_trace_key(message), []) if message_role(message) == "therapist" else []
@@ -358,6 +630,7 @@ def build_chatml_session(
       )
     )
 
+  move_end_session_mark_to_last_assistant(output_messages)
   return {"messages": output_messages}
 
 
