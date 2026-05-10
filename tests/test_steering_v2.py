@@ -332,6 +332,55 @@ class SteeringV2Test(unittest.TestCase):
 
     self.assertEqual([len(shard) for shard in shards], [1, 1, 1])
 
+  def test_split_request_shards_honors_enqueued_token_limit(self) -> None:
+    requests = [
+      steering_v2.BatchRequest(
+        custom_id=f"cid-{index}",
+        metric="context_relevance",
+        input_file="session.json",
+        output_file="sessions/session.json",
+        fragment_key=f"session.json#fragment-{index:04d}",
+        fragment_index=index,
+        min_score=0.0,
+        max_score=2.0,
+        body={"model": "gpt-4o", "messages": [{"role": "user", "content": "x"}], "n": 1},
+      )
+      for index in range(4)
+    ]
+    original = steering_v2.estimate_request_enqueued_tokens
+    try:
+      steering_v2.estimate_request_enqueued_tokens = lambda request: 6  # type: ignore[assignment]
+      shards = steering_v2.split_request_shards(
+        requests,
+        max_requests=50,
+        max_bytes=10_000,
+        token_limit=12,
+      )
+    finally:
+      steering_v2.estimate_request_enqueued_tokens = original  # type: ignore[assignment]
+
+    self.assertEqual([len(shard) for shard in shards], [2, 2])
+
+  def test_split_request_shards_rejects_single_request_over_enqueued_token_limit(self) -> None:
+    request = steering_v2.BatchRequest(
+      custom_id="cid-0",
+      metric="context_relevance",
+      input_file="session.json",
+      output_file="sessions/session.json",
+      fragment_key="session.json#fragment-0000",
+      fragment_index=0,
+      min_score=0.0,
+      max_score=2.0,
+      body={"model": "gpt-4o", "messages": [{"role": "user", "content": "x"}], "n": 1},
+    )
+    original = steering_v2.estimate_request_enqueued_tokens
+    try:
+      steering_v2.estimate_request_enqueued_tokens = lambda request: 13  # type: ignore[assignment]
+      with self.assertRaises(steering_v2.SteeringV2EvaluationError):
+        steering_v2.split_request_shards([request], token_limit=12)
+    finally:
+      steering_v2.estimate_request_enqueued_tokens = original  # type: ignore[assignment]
+
   def test_score_fragment_aggregates_concepts_and_predicts_class(self) -> None:
     fragment = {
       "fragment_index": 1,

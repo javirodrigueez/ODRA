@@ -385,7 +385,7 @@ def main() -> None:
 
     run_name = f"{args.model}-{int(time.time())}"
     if not args.disable_wandb:
-        os.environ["WANDB_PROJECT"] = "qwen3-finetuning"
+        os.environ["WANDB_PROJECT"] = "EMNLP26 - ODRA"
         wandb.init(name=run_name)
         report_to = "wandb"
     else:

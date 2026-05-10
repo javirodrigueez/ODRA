@@ -2,10 +2,6 @@ __pycache__
 .launch_docker.sh
 /data/cactus.json
 /misc
-!/misc/
-/misc/*
-!/misc/build_manifest_wo_r/
-!/misc/build_manifest_wo_r/build_manifest.py
 /out
 myenv
 /.npm-cache
@@ -24,3 +20,4 @@ myenv
 /ft_models
 /unsloth_compiled_cache
 /wandb
+outs

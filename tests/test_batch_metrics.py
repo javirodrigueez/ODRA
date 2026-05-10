@@ -1,8 +1,15 @@
+import contextlib
+import io
 import json
+import os
+import sys
 import tempfile
+import types
 from pathlib import Path
 import unittest
+from unittest import mock
 
+from evaluation import recover_batch_outputs
 from evaluation import run_batch_metrics as batch_metrics
 
 
@@ -43,6 +50,13 @@ def _panas_content(score: int = 3) -> str:
   )
 
 
+def _panas_inline_content(score: int = 3) -> str:
+  return ". ".join(
+    f"{feeling.title()}, short explanation for {feeling}, {score}"
+    for feeling in batch_metrics.FEELINGS
+  )
+
+
 class _Obj:
   def __init__(self, **kwargs):
     self.__dict__.update(kwargs)
@@ -60,16 +74,23 @@ class _Content:
 
 
 class FakeOpenAIClient:
-  def __init__(self, *, fail_custom_id_contains: str | None = None):
+  def __init__(
+    self,
+    *,
+    fail_custom_id_contains: str | None = None,
+    expected_endpoint: str = batch_metrics.BATCH_ENDPOINT,
+  ):
     self.files = self.Files(self)
     self.batches = self.Batches(self)
     self.fail_custom_id_contains = fail_custom_id_contains
+    self.expected_endpoint = expected_endpoint
     self.uploaded_files: dict[str, str] = {}
     self.download_files: dict[str, str] = {}
     self.batch_to_output: dict[str, str] = {}
     self.batch_to_error: dict[str, str | None] = {}
     self.batch_create_count = 0
     self.file_create_count = 0
+    self.batch_events: list[str] = []
 
   class Files:
     def __init__(self, client: "FakeOpenAIClient"):
@@ -90,10 +111,11 @@ class FakeOpenAIClient:
       self.client = client
 
     def create(self, *, input_file_id, endpoint, completion_window, metadata):
-      assert endpoint == batch_metrics.BATCH_ENDPOINT
+      assert endpoint == self.client.expected_endpoint
       assert completion_window == batch_metrics.COMPLETION_WINDOW
       self.client.batch_create_count += 1
       batch_id = f"batch-{self.client.batch_create_count}"
+      self.client.batch_events.append(f"create:{batch_id}")
       output_file_id = f"out-{self.client.batch_create_count}"
       error_file_id = None
       output_lines = []
@@ -133,6 +155,7 @@ class FakeOpenAIClient:
       )
 
     def retrieve(self, batch_id: str):
+      self.client.batch_events.append(f"retrieve:{batch_id}")
       output_file_id = self.client.batch_to_output[batch_id]
       error_file_id = self.client.batch_to_error[batch_id]
       failed = 1 if error_file_id else 0
@@ -179,6 +202,30 @@ class FakeOpenAIClient:
 
 
 class BatchMetricsTest(unittest.TestCase):
+  def test_parse_panas_choices_accepts_inline_score_list(self) -> None:
+    parsed = batch_metrics.parse_panas_choices(
+      [_choice(_panas_inline_content(3)), _choice(_panas_content(4))],
+      2,
+      "main:panas_after:00000:conversation:panas_after",
+    )
+
+    self.assertEqual(parsed["interested"], [3, 4])
+    self.assertEqual(parsed["afraid"], [3, 4])
+
+  def test_parse_panas_choices_does_not_split_emotion_words_inside_explanations(self) -> None:
+    content = _panas_content(3).replace(
+      "short explanation for strong, 3",
+      "short explanation with strong, steady support, 3",
+    )
+
+    parsed = batch_metrics.parse_panas_choices(
+      [_choice(content)],
+      1,
+      "panas_before:panas_before:00000:conversation:panas_before",
+    )
+
+    self.assertEqual(parsed["strong"], [3])
+
   def test_build_requests_counts_and_top_level_discovery(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
       base = Path(tmp)
@@ -301,6 +348,93 @@ class BatchMetricsTest(unittest.TestCase):
 
       self.assertEqual(default_signature["panas_after_prompt"], "panas_after.txt")
       self.assertEqual(v2_signature["panas_after_prompt"], "panas_after_v2.txt")
+
+  def test_limit_and_dry_run_flags_are_parsed(self) -> None:
+    args = batch_metrics.parse_args(["input", "--limit", "1350000", "--dry-run"])
+
+    self.assertEqual(args.limit, 1_350_000)
+    self.assertTrue(args.dry_run)
+
+  def test_azure_flag_is_parsed_and_part_of_signature(self) -> None:
+    args = batch_metrics.parse_args(["input", "--azure"])
+    self.assertTrue(args.azure)
+
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      records = batch_metrics.discover_conversations(input_dir)
+
+      default_signature = batch_metrics.compute_signature(
+        input_dir,
+        output_dir,
+        records,
+        "gpt-4o",
+        1,
+      )
+      azure_signature = batch_metrics.compute_signature(
+        input_dir,
+        output_dir,
+        records,
+        "gpt-4o",
+        1,
+        azure=True,
+      )
+
+      self.assertEqual(default_signature["provider"], "openai")
+      self.assertEqual(default_signature["batch_endpoint"], batch_metrics.BATCH_ENDPOINT)
+      self.assertEqual(azure_signature["provider"], "azure_openai")
+      self.assertEqual(azure_signature["batch_endpoint"], batch_metrics.AZURE_BATCH_ENDPOINT)
+
+  def test_dry_run_reports_sharded_batches_without_creating_client(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation_a.json", _sample_conversation())
+      _write_json(input_dir / "conversation_b.json", _sample_conversation(name="Blair"))
+
+      with mock.patch.object(batch_metrics, "estimate_request_enqueued_tokens", return_value=10):
+        with mock.patch.object(batch_metrics, "make_openai_client") as make_client:
+          plan = batch_metrics.run_batch_metrics(
+            input_dir,
+            output_dir,
+            1,
+            exc_ctrs=True,
+            exc_wai=True,
+            dry_run=True,
+            limit=15,
+          )
+
+      make_client.assert_not_called()
+      self.assertTrue(plan["dry_run"])
+      self.assertEqual(plan["batch_count"], 4)
+      self.assertEqual(plan["request_count"], 4)
+      self.assertEqual(plan["enqueued_tokens"], 40)
+      self.assertFalse(output_dir.exists())
+
+  def test_make_openai_client_uses_azure_env(self) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeAzureOpenAI:
+      def __init__(self, **kwargs):
+        captured.update(kwargs)
+
+    fake_openai = types.SimpleNamespace(AzureOpenAI=FakeAzureOpenAI)
+    env = {
+      "AZURE_OPENAI_KEY": "azure-key",
+      "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
+    }
+
+    with mock.patch.object(batch_metrics, "load_dotenv", None):
+      with mock.patch.dict(os.environ, env, clear=True):
+        with mock.patch.dict(sys.modules, {"openai": fake_openai}):
+          batch_metrics.make_openai_client(azure=True)
+
+    self.assertEqual(captured["api_key"], "azure-key")
+    self.assertEqual(captured["azure_endpoint"], "https://example.openai.azure.com")
+    self.assertEqual(captured["api_version"], batch_metrics.DEFAULT_AZURE_OPENAI_API_VERSION)
 
   def test_skip_existing_complete_outputs(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -465,6 +599,264 @@ class BatchMetricsTest(unittest.TestCase):
       self.assertEqual(after["interested"], [4, 4])
       self.assertIn("explanations", after)
       self.assertGreater(ctrs["cost"], 0)
+
+  def test_run_batch_metrics_uses_azure_batch_endpoint(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      client = FakeOpenAIClient(expected_endpoint=batch_metrics.AZURE_BATCH_ENDPOINT)
+
+      manifest = batch_metrics.run_batch_metrics(
+        input_dir,
+        output_dir,
+        1,
+        client=client,
+        poll_interval=0,
+        azure=True,
+      )
+
+      self.assertEqual(manifest["status"], "completed")
+      self.assertEqual(manifest["provider"], "azure_openai")
+      self.assertEqual(manifest["batch_endpoint"], batch_metrics.AZURE_BATCH_ENDPOINT)
+      self.assertEqual(client.batch_create_count, 2)
+
+  def test_run_batch_metrics_splits_batches_by_enqueued_token_limit(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation_a.json", _sample_conversation())
+      _write_json(input_dir / "conversation_b.json", _sample_conversation(name="Blair"))
+      client = FakeOpenAIClient()
+
+      with mock.patch.object(batch_metrics, "estimate_request_enqueued_tokens", return_value=10):
+        manifest = batch_metrics.run_batch_metrics(
+          input_dir,
+          output_dir,
+          1,
+          client=client,
+          exc_ctrs=True,
+          exc_wai=True,
+          poll_interval=0,
+          limit=15,
+        )
+
+      self.assertEqual(manifest["status"], "completed")
+      self.assertEqual(client.batch_create_count, 4)
+      self.assertEqual(manifest["phases"]["panas_before"]["batch_count"], 2)
+      self.assertEqual(manifest["phases"]["main"]["batch_count"], 2)
+      self.assertTrue((output_dir / "panas_before" / "conversation_a.json").is_file())
+      self.assertTrue((output_dir / "panas_after" / "conversation_b.json").is_file())
+
+  def test_sharded_main_phase_parses_after_combining_all_outputs(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      client = FakeOpenAIClient()
+
+      with mock.patch.object(batch_metrics, "estimate_request_enqueued_tokens", return_value=10):
+        manifest = batch_metrics.run_batch_metrics(
+          input_dir,
+          output_dir,
+          1,
+          client=client,
+          exc_wai=True,
+          exc_panas=True,
+          poll_interval=0,
+          limit=30,
+        )
+
+      self.assertEqual(manifest["status"], "completed")
+      self.assertEqual(client.batch_create_count, 2)
+      self.assertEqual(
+        client.batch_events,
+        ["create:batch-1", "retrieve:batch-1", "create:batch-2", "retrieve:batch-2"],
+      )
+      ctrs = json.loads((output_dir / "ctrs" / "conversation.json").read_text(encoding="utf-8"))
+      self.assertEqual(set(batch_metrics.CTRS_KEYS), set(key for key in ctrs if key != "cost"))
+
+  def test_resume_jsonl_parses_outputs_without_requesting_batch(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      resume_jsonl = base / "batch_output.jsonl"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      records = batch_metrics.discover_conversations(input_dir)
+      specs = batch_metrics.build_main_requests(
+        records,
+        output_dir,
+        {},
+        "gpt-4o",
+        1,
+        {"wai", "panas"},
+      )
+      fake_client = FakeOpenAIClient()
+      lines = [
+        json.dumps(fake_client.batches._response_line(spec.custom_id, spec.jsonl_line()))
+        for spec in specs
+      ]
+      resume_jsonl.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+      with mock.patch.object(batch_metrics, "make_openai_client") as make_client:
+        manifest = batch_metrics.run_batch_metrics(
+          input_dir,
+          output_dir,
+          1,
+          exc_wai=True,
+          exc_panas=True,
+          resume_jsonls=[resume_jsonl],
+        )
+
+      make_client.assert_not_called()
+      self.assertEqual(manifest["status"], "completed")
+      ctrs = json.loads((output_dir / "ctrs" / "conversation.json").read_text(encoding="utf-8"))
+      self.assertEqual(set(batch_metrics.CTRS_KEYS), set(key for key in ctrs if key != "cost"))
+      self.assertEqual(manifest["phases"]["main"]["status"], "parsed")
+
+  def test_resume_jsonl_skips_already_completed_requests_when_submitting(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      resume_jsonl = base / "batch_output.jsonl"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      records = batch_metrics.discover_conversations(input_dir)
+      specs = batch_metrics.build_main_requests(
+        records,
+        output_dir,
+        {},
+        "gpt-4o",
+        1,
+        {"wai", "panas"},
+      )
+      resumed_spec = specs[0]
+      fake_line_client = FakeOpenAIClient()
+      resume_jsonl.write_text(
+        json.dumps(fake_line_client.batches._response_line(resumed_spec.custom_id, resumed_spec.jsonl_line())) + "\n",
+        encoding="utf-8",
+      )
+      client = FakeOpenAIClient()
+
+      manifest = batch_metrics.run_batch_metrics(
+        input_dir,
+        output_dir,
+        1,
+        client=client,
+        exc_wai=True,
+        exc_panas=True,
+        resume_jsonls=[resume_jsonl],
+        poll_interval=0,
+      )
+
+      uploaded_requests = [
+        json.loads(line)
+        for uploaded in client.uploaded_files.values()
+        for line in uploaded.splitlines()
+      ]
+      uploaded_ids = {request["custom_id"] for request in uploaded_requests}
+      self.assertNotIn(resumed_spec.custom_id, uploaded_ids)
+      self.assertEqual(len(uploaded_requests), len(specs) - 1)
+      self.assertEqual(manifest["phases"]["main"]["resumed_request_count"], 1)
+      self.assertEqual(manifest["phases"]["main"]["submitted_request_count"], len(specs) - 1)
+      ctrs = json.loads((output_dir / "ctrs" / "conversation.json").read_text(encoding="utf-8"))
+      self.assertEqual(set(batch_metrics.CTRS_KEYS), set(key for key in ctrs if key != "cost"))
+
+  def test_existing_panas_before_outputs_skip_stale_phase_manifest(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      _write_json(
+        output_dir / "panas_before" / "conversation.json",
+        {
+          **{feeling: [3] for feeling in batch_metrics.FEELINGS},
+          "explanations": [],
+          "attitude": "neutral",
+          "cost": 0.1,
+        },
+      )
+      records = batch_metrics.discover_conversations(input_dir)
+      batch_metrics.ensure_output_dirs(output_dir)
+      signature = batch_metrics.compute_signature(
+        input_dir.resolve(),
+        output_dir.resolve(),
+        records,
+        "gpt-4o",
+        1,
+        {"ctrs", "wai"},
+      )
+      artifact_dir, manifest, _ = batch_metrics.load_or_create_manifest(output_dir.resolve(), signature)
+      manifest["phases"]["panas_before"] = {
+        "status": "submitted",
+        "batch_id": "batch-from-failed-run",
+        "input_jsonl": str(artifact_dir / "panas_before" / "input.jsonl"),
+        "request_map": str(artifact_dir / "panas_before" / "request_map.json"),
+      }
+      batch_metrics.save_manifest(artifact_dir, manifest)
+      client = FakeOpenAIClient()
+
+      final_manifest = batch_metrics.run_batch_metrics(
+        input_dir,
+        output_dir,
+        1,
+        client=client,
+        exc_ctrs=True,
+        exc_wai=True,
+        poll_interval=0,
+      )
+
+      self.assertEqual(final_manifest["status"], "completed")
+      self.assertEqual(final_manifest["phases"]["panas_before"]["status"], "skipped_existing_outputs")
+      self.assertEqual(client.batch_create_count, 1)
+      self.assertTrue((output_dir / "panas_after" / "conversation.json").is_file())
+
+  def test_recover_batch_outputs_writes_panas_before_folder(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_dir = base / "input"
+      output_dir = base / "out"
+      phase_dir = base / "artifact" / "panas_before"
+      _write_json(input_dir / "conversation.json", _sample_conversation())
+      records = batch_metrics.discover_conversations(input_dir)
+      specs = batch_metrics.build_panas_before_requests(records, output_dir, "gpt-4o", 1)
+      phase_dir.mkdir(parents=True)
+      _write_json(phase_dir / "request_map.json", batch_metrics.request_map_from_specs(specs))
+      output_line = {
+        "custom_id": specs[0].custom_id,
+        "response": {
+          "status_code": 200,
+          "body": {
+            "choices": [_choice(_panas_content(3))],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+          },
+        },
+        "error": None,
+      }
+      (phase_dir / "output.jsonl").write_text(json.dumps(output_line) + "\n", encoding="utf-8")
+
+      with contextlib.redirect_stdout(io.StringIO()):
+        exit_code = recover_batch_outputs.main(
+          [
+            str(input_dir),
+            str(output_dir),
+            "--phase-dir",
+            str(phase_dir),
+            "--max-iter",
+            "1",
+          ]
+        )
+
+      self.assertEqual(exit_code, 0)
+      recovered = json.loads((output_dir / "panas_before" / "conversation.json").read_text(encoding="utf-8"))
+      self.assertEqual(recovered["interested"], [3])
+      self.assertEqual(recovered["attitude"], "neutral")
+      self.assertTrue((phase_dir / "recovery_parse_report.json").is_file())
 
   def test_batch_failure_keeps_final_outputs_unwritten(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:

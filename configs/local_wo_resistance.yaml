@@ -1,7 +1,7 @@
 therapist:
   type: local
   base_url: http://localhost:8000/v1
-  model_id: ft_models/Qwen3.6-27B-chatml-v2/merged_model
+  model_id: ft_models/Qwen3.6-27B-json/merged_model/
   temperature: 0.7
   # top_p: 0.95
   # presence_penalty: 1.5
@@ -23,7 +23,7 @@ topic_exploration:
 env:
   max_turns: 100
   min_turns: 60
-  output_dir: /outs/local_full_catus_wo_r_ft27
+  output_dir: /outs/local/Qwen3.6-27B-json-wo_r-w_orch
   verbose: true
   resume_file:
   resistance: false

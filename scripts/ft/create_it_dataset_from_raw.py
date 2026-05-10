@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Literal
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +21,8 @@ from scripts.ft.create_reasoning_instruction_dataset import (  # noqa: E402
 
 TraceKey = tuple[Any, str]
 TraceFields = list[str] | None
+ReasoningFormat = Literal["text", "json"]
+BuildMode = Literal["session", "turn"]
 PATIENT_INTAKE_FORM_PLACEHOLDER = "{patient_intake_form}"
 GENERIC_WRAPPER_KEYS = {"items", "output", "result", "data", "payload"}
 CORE_BELIEF_PROBABILITY_STEP = "core_belief_probability"
@@ -71,7 +73,7 @@ def project_root() -> Path:
 
 
 def load_therapist_system_prompt(root: Path) -> str:
-  prompt_path = root / "agent_prompts" / "therapist_system_ft_2.txt"
+  prompt_path = root / "agent_prompts" / "therapist_system_ft.txt"
   if not prompt_path.is_file():
     raise DatasetBuildError(f"Missing therapist fine-tuning system prompt: {prompt_path}")
   prompt = prompt_path.read_text(encoding="utf-8")
@@ -509,6 +511,25 @@ def format_trace_block(traces: list[Any], source_label: str, fields_by_step: dic
   return "\n".join(trace_lines)
 
 
+def trace_json_object(trace: dict[str, Any], fields_by_step: dict[str, TraceFields]) -> dict[str, Any]:
+  step = ensure_str(trace.get("step")).strip() or "unknown"
+  payload = parse_trace_output(trace)
+  return {step: selected_trace_payload(step, payload, fields_by_step)}
+
+
+def format_trace_jsonl_block(
+  message: dict[str, Any],
+  traces: list[Any],
+  source_label: str,
+  fields_by_step: dict[str, TraceFields],
+) -> str:
+  trace_objects: list[dict[str, Any]] = [{"stage": human_stage_label(message)}]
+  for idx, raw_trace in enumerate(traces, start=1):
+    trace = require_dict(raw_trace, f"{source_label}: traces[{idx}]")
+    trace_objects.append(trace_json_object(trace, fields_by_step))
+  return "\n".join(json.dumps(trace_object, ensure_ascii=False) for trace_object in trace_objects)
+
+
 def human_stage_label(message: dict[str, Any]) -> str:
   stage = ensure_str(message.get("stage")).strip().lower()
   if not stage:
@@ -539,15 +560,21 @@ def assistant_content(
   traces: list[Any],
   fields_by_step: dict[str, TraceFields],
   source_label: str,
+  *,
+  include_reasoning: bool,
+  reasoning_format: ReasoningFormat,
 ) -> str:
   content = message_content(message)
   if not content:
     raise DatasetBuildError(f"{source_label}: therapist utterance must be non-empty.")
-  if not traces:
+  if not include_reasoning or not traces:
     return content
 
-  trace_text = format_trace_block(traces, source_label, fields_by_step)
-  return f"<think>\n[stage] {human_stage_label(message)}\n{trace_text}\n</think>\n{content}"
+  if reasoning_format == "json":
+    trace_text = format_trace_jsonl_block(message, traces, source_label, fields_by_step)
+  else:
+    trace_text = f"[stage] {human_stage_label(message)}\n{format_trace_block(traces, source_label, fields_by_step)}"
+  return f"<think>\n{trace_text}\n</think>\n{content}"
 
 
 def chatml_message(
@@ -555,13 +582,23 @@ def chatml_message(
   traces: list[Any],
   fields_by_step: dict[str, TraceFields],
   source_label: str,
+  *,
+  include_reasoning: bool,
+  reasoning_format: ReasoningFormat,
 ) -> dict[str, str]:
   role = chatml_role(message, source_label)
   content = message_content(message)
   if not content:
     raise DatasetBuildError(f"{source_label}: message content must be non-empty.")
   if role == "assistant":
-    content = assistant_content(message, traces, fields_by_step, source_label)
+    content = assistant_content(
+      message,
+      traces,
+      fields_by_step,
+      source_label,
+      include_reasoning=include_reasoning,
+      reasoning_format=reasoning_format,
+    )
   return {"role": role, "content": content}
 
 
@@ -599,6 +636,9 @@ def build_chatml_session(
   path: Path,
   system_prompt: str,
   fields_by_step: dict[str, TraceFields],
+  *,
+  include_reasoning: bool = False,
+  reasoning_format: ReasoningFormat = "text",
 ) -> dict[str, list[dict[str, str]]]:
   payload = load_session(path)
   patient_profile = require_dict(payload.get("patient_profile"), f"{path}: patient_profile")
@@ -627,6 +667,8 @@ def build_chatml_session(
         traces,
         fields_by_step,
         f"{path}: messages[{idx}]",
+        include_reasoning=include_reasoning,
+        reasoning_format=reasoning_format,
       )
     )
 
@@ -634,19 +676,121 @@ def build_chatml_session(
   return {"messages": output_messages}
 
 
-def build_dataset(input_dir: Path, output_dir: Path, root: Path | None = None) -> int:
+def prefixed_turn_content(message: dict[str, Any], source_label: str) -> str:
+  role = message_role(message)
+  if role in {"therapist", "assistant"}:
+    prefix = "Therapist"
+  elif role in {"patient", "client", "user"}:
+    prefix = "Patient"
+  else:
+    raise DatasetBuildError(f"{source_label}: unsupported message role: {role!r}.")
+  content = message_content(message)
+  if not content:
+    raise DatasetBuildError(f"{source_label}: message content must be non-empty.")
+  return f"{prefix}: {content}"
+
+
+def turn_output_name(path: Path, utterance_index: Any) -> str:
+  try:
+    index = int(utterance_index)
+  except (TypeError, ValueError) as exc:
+    raise DatasetBuildError(f"{path}: therapist utterance_index must be an integer in turn mode.") from exc
+  return f"{path.stem}.turn_{index:04d}{path.suffix}"
+
+
+def build_chatml_turn_sessions(
+  path: Path,
+  system_prompt: str,
+  fields_by_step: dict[str, TraceFields],
+  *,
+  include_reasoning: bool = False,
+  reasoning_format: ReasoningFormat = "text",
+) -> list[tuple[str, dict[str, list[dict[str, str]]]]]:
+  payload = load_session(path)
+  patient_profile = require_dict(payload.get("patient_profile"), f"{path}: patient_profile")
+  messages = require_list(payload.get("messages"), f"{path}: messages")
+  raw_trace_groups = require_list(payload.get("reasoning_traces"), f"{path}: reasoning_traces")
+  trace_groups = trace_groups_by_key(raw_trace_groups, str(path))
+
+  normalized_messages = [
+    require_dict(raw_message, f"{path}: messages[{idx}]")
+    for idx, raw_message in enumerate(messages, start=1)
+  ]
+  system_message = {"role": "system", "content": render_system_prompt(system_prompt, patient_profile)}
+  rendered: list[tuple[str, dict[str, list[dict[str, str]]]]] = []
+
+  for target_position, message in enumerate(normalized_messages):
+    if message_role(message) != "therapist":
+      continue
+    output_messages: list[dict[str, str]] = [dict(system_message)]
+    for context_position, context_message in enumerate(normalized_messages[:target_position], start=1):
+      output_messages.append(
+        {
+          "role": "user",
+          "content": prefixed_turn_content(context_message, f"{path}: messages[{context_position}]"),
+        }
+      )
+    traces = trace_groups.get(message_trace_key(message), [])
+    output_messages.append(
+      chatml_message(
+        message,
+        traces,
+        fields_by_step,
+        f"{path}: messages[{target_position + 1}]",
+        include_reasoning=include_reasoning,
+        reasoning_format=reasoning_format,
+      )
+    )
+    rendered.append((turn_output_name(path, message.get("utterance_index")), {"messages": output_messages}))
+  return rendered
+
+
+def build_dataset(
+  input_dir: Path,
+  output_dir: Path,
+  root: Path | None = None,
+  *,
+  include_reasoning: bool = False,
+  reasoning_format: ReasoningFormat = "text",
+  mode: BuildMode = "session",
+) -> int:
   if not input_dir.is_dir():
     raise DatasetBuildError(f"--input-dir must be a directory: {input_dir}")
+  if reasoning_format not in {"text", "json"}:
+    raise DatasetBuildError(f"Unsupported reasoning format: {reasoning_format!r}.")
+  if mode not in {"session", "turn"}:
+    raise DatasetBuildError(f"Unsupported build mode: {mode!r}.")
 
   root = root or project_root()
   system_prompt = load_therapist_system_prompt(root)
   fields_by_step = load_trace_field_config(root)
   input_files = sorted(path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() == ".json")
 
-  rendered_sessions = [
-    (input_file.name, build_chatml_session(input_file, system_prompt, fields_by_step))
-    for input_file in input_files
-  ]
+  rendered_sessions: list[tuple[str, dict[str, list[dict[str, str]]]]] = []
+  for input_file in input_files:
+    if mode == "turn":
+      rendered_sessions.extend(
+        build_chatml_turn_sessions(
+          input_file,
+          system_prompt,
+          fields_by_step,
+          include_reasoning=include_reasoning,
+          reasoning_format=reasoning_format,
+        )
+      )
+      continue
+    rendered_sessions.append(
+      (
+        input_file.name,
+        build_chatml_session(
+          input_file,
+          system_prompt,
+          fields_by_step,
+          include_reasoning=include_reasoning,
+          reasoning_format=reasoning_format,
+        ),
+      )
+    )
 
   output_dir.mkdir(parents=True, exist_ok=True)
   for file_name, session in rendered_sessions:
@@ -664,10 +808,29 @@ def main() -> int:
   )
   parser.add_argument("--input-dir", required=True, help="Directory containing raw simulation JSON files.")
   parser.add_argument("--output-dir", required=True, help="Directory to write one ChatML-like JSON file per session.")
+  parser.add_argument("--think", action="store_true", help="Include therapist reasoning traces in assistant targets.")
+  parser.add_argument(
+    "--json",
+    action="store_true",
+    dest="json_reasoning",
+    help="Render reasoning traces as JSONL objects inside <think>. Only applies with --think.",
+  )
+  parser.add_argument(
+    "--mode",
+    choices=["session", "turn"],
+    default="session",
+    help="Create one sample per session or one sample per therapist turn.",
+  )
   args = parser.parse_args()
 
   try:
-    count = build_dataset(Path(args.input_dir), Path(args.output_dir))
+    count = build_dataset(
+      Path(args.input_dir),
+      Path(args.output_dir),
+      include_reasoning=args.think,
+      reasoning_format="json" if args.json_reasoning else "text",
+      mode=args.mode,
+    )
   except DatasetBuildError as exc:
     print(f"ERROR: {exc}", file=sys.stderr)
     return 1

@@ -36,7 +36,7 @@ def _project_root(base: Path) -> Path:
   agent_prompts = base / "agent_prompts"
   agent_prompts.mkdir(parents=True)
   (agent_prompts / "therapist_system_ft.txt").write_text(
-    "FT SYSTEM PROMPT",
+    "FT SYSTEM PROMPT\n{patient_intake_form}",
     encoding="utf-8",
   )
   (agent_prompts / "therapist_system.txt").write_text(
@@ -184,14 +184,15 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
       input_dir.mkdir()
       (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
 
-      count = builder.build_dataset(input_dir, output_dir, root)
+      count = builder.build_dataset(input_dir, output_dir, root, include_reasoning=True)
       output_payload = json.loads((output_dir / "simulation.json").read_text(encoding="utf-8"))
 
     self.assertEqual(count, 1)
     self.assertEqual(set(output_payload.keys()), {"messages"})
     messages = output_payload["messages"]
-    self.assertEqual([message["role"] for message in messages], ["system", "user", "user", "assistant", "user", "assistant"])
-    self.assertEqual(messages[0], {"role": "system", "content": "FT SYSTEM PROMPT"})
+    self.assertEqual([message["role"] for message in messages], ["system", "assistant", "user", "assistant", "user", "assistant"])
+    self.assertTrue(messages[0]["content"].startswith("FT SYSTEM PROMPT"))
+    self.assertIn("Name: Jason Crawford", messages[0]["content"])
     self.assertEqual(messages[1]["content"], "T1 plain opening.")
     self.assertNotIn("<think>", messages[1]["content"])
     self.assertEqual(messages[2]["content"], "P2 with patient trace.")
@@ -200,23 +201,20 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
     traced_content = messages[3]["content"]
     self.assertTrue(traced_content.startswith("<think>\n[stage] Distortions Identification\n"))
     self.assertTrue(traced_content.endswith("</think>\nTarget therapist response."))
-    self.assertIn("[resistance_prediction]\n```json", traced_content)
-    self.assertIn('"previous_resistance": 0.5', traced_content)
-    self.assertIn('"predicted_resistance": 0.2', traced_content)
-    self.assertIn('"reasoning": "Patient is engaged."', traced_content)
-    self.assertIn("[cognitive_gap_response_review]\n```json", traced_content)
-    self.assertIn('"answered_satisfactorily": true', traced_content)
-    self.assertIn('"situation": "Last week, a friend complimented me on a meal I made."', traced_content)
+    self.assertIn("[resistance_prediction] Previous Resistance: 0.5.", traced_content)
+    self.assertIn("Predicted Resistance: 0.2.", traced_content)
+    self.assertIn("Reasoning: Patient is engaged.", traced_content)
+    self.assertIn("[cognitive_gap_response_review] Answered Satisfactorily: yes.", traced_content)
+    self.assertIn("Identified Items Situation: Last week, a friend complimented me on a meal I made.", traced_content)
     self.assertIn(
-      '"message": "As the therapy-interfering behavior skepticism was detected, I should address it"',
+      "[address_tib_enter] Message: As the therapy-interfering behavior skepticism was detected, I should address it",
       traced_content,
     )
     self.assertIn(
-      '"message": "I already tried to address the therapy-interfering behavior skepticism in my last utterance. Now, I will address it again to demonstrate validation, while continuing with the main line of the session."',
+      "[address_tib_repeat_inline_suppressed] Message: I already tried to address the therapy-interfering behavior skepticism in my last utterance. Now, I will address it again to demonstrate validation, while continuing with the main line of the session.",
       traced_content,
     )
-    self.assertIn("[unknown_string]\n```json", traced_content)
-    self.assertIn('"message": "Done."', traced_content)
+    self.assertIn("[unknown_string] Message: Done.", traced_content)
 
     self.assertNotIn("Patient-only reasoning", traced_content)
     self.assertNotIn("Initial therapist trace should be ignored.", traced_content)
@@ -227,6 +225,81 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
     self.assertNotIn("tib_description", traced_content)
     self.assertNotIn("route_bucket", traced_content)
     self.assertNotIn("extra_debug", traced_content)
+
+  def test_reasoning_is_opt_in(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      root = _project_root(base / "project")
+      input_dir = base / "input"
+      output_dir = base / "out"
+      input_dir.mkdir()
+      (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
+
+      builder.build_dataset(input_dir, output_dir, root)
+      output_payload = json.loads((output_dir / "simulation.json").read_text(encoding="utf-8"))
+
+    self.assertFalse(any("<think>" in message["content"] for message in output_payload["messages"]))
+
+  def test_json_reasoning_uses_jsonl_trace_objects(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      root = _project_root(base / "project")
+      input_dir = base / "input"
+      output_dir = base / "out"
+      input_dir.mkdir()
+      (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
+
+      builder.build_dataset(
+        input_dir,
+        output_dir,
+        root,
+        include_reasoning=True,
+        reasoning_format="json",
+      )
+      output_payload = json.loads((output_dir / "simulation.json").read_text(encoding="utf-8"))
+
+    traced_content = output_payload["messages"][3]["content"]
+    think = traced_content.split("<think>\n", 1)[1].split("\n</think>", 1)[0]
+    objects = [json.loads(line) for line in think.splitlines()]
+    self.assertEqual(objects[0], {"stage": "Distortions Identification"})
+    self.assertIn("resistance_prediction", objects[1])
+    self.assertEqual(objects[1]["resistance_prediction"]["previous_resistance"], 0.5)
+    self.assertIn("unknown_string", objects[-1])
+    self.assertEqual(objects[-1]["unknown_string"], {"message": "Done."})
+
+  def test_turn_mode_builds_one_file_per_therapist_target(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      root = _project_root(base / "project")
+      input_dir = base / "input"
+      output_dir = base / "out"
+      input_dir.mkdir()
+      (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
+
+      count = builder.build_dataset(
+        input_dir,
+        output_dir,
+        root,
+        include_reasoning=True,
+        reasoning_format="json",
+        mode="turn",
+      )
+      first = json.loads((output_dir / "simulation.turn_0001.json").read_text(encoding="utf-8"))
+      target = json.loads((output_dir / "simulation.turn_0003.json").read_text(encoding="utf-8"))
+      output_names = [path.name for path in sorted(output_dir.iterdir())]
+
+    self.assertEqual(count, 3)
+    self.assertEqual(output_names, [
+      "simulation.turn_0001.json",
+      "simulation.turn_0003.json",
+      "simulation.turn_0005.json",
+    ])
+    self.assertEqual([message["role"] for message in first["messages"]], ["system", "assistant"])
+    self.assertEqual([message["role"] for message in target["messages"]], ["system", "user", "user", "assistant"])
+    self.assertEqual(target["messages"][1]["content"], "Therapist: T1 plain opening.")
+    self.assertEqual(target["messages"][2]["content"], "Patient: P2 with patient trace.")
+    self.assertTrue(target["messages"][-1]["content"].startswith("<think>\n"))
+    self.assertFalse(target["messages"][-1]["content"].split("</think>\n", 1)[1].startswith("Therapist:"))
 
   def test_missing_patient_profile_fails_fast(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:

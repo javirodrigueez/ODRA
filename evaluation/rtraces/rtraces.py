@@ -112,6 +112,15 @@ class BatchRequest:
     }
 
 
+@dataclass(frozen=True)
+class BatchOutputRef:
+  custom_id: str
+  request_index: int
+  filename_stem: str
+  utterance_index: int
+  metric: str
+
+
 METRIC_SPECS = {
   "faithfulness": MetricSpec("faithfulness", "faithfulness.txt", 0.0, 2.0),
   "logic_consistency": MetricSpec("logic_consistency", "logic_consistency.txt", 0.0, 2.0),
@@ -122,6 +131,8 @@ METRIC_SPECS = {
     2.0,
   ),
 }
+METRIC_ORDER = tuple(METRIC_SPECS)
+METRIC_INDEX = {metric: index for index, metric in enumerate(METRIC_ORDER)}
 
 
 def utc_now() -> str:
@@ -831,6 +842,213 @@ def parse_batch_output_lines(path: Path) -> dict[str, dict[str, Any]]:
   return results
 
 
+def parse_batch_output_ref(custom_id: str) -> BatchOutputRef:
+  parts = custom_id.split(":")
+  if len(parts) != 5 or parts[0] != "rtraces":
+    raise RTracesEvaluationError(f"Unsupported rtraces batch custom_id: {custom_id}")
+  try:
+    request_index = int(parts[1])
+    utterance_index = int(parts[3].removeprefix("u"))
+  except ValueError as exc:
+    raise RTracesEvaluationError(f"Invalid rtraces batch custom_id: {custom_id}") from exc
+  metric = parts[4]
+  if metric not in METRIC_SPECS:
+    raise RTracesEvaluationError(f"Unknown rtraces metric in custom_id {custom_id}: {metric}")
+  return BatchOutputRef(
+    custom_id=custom_id,
+    request_index=request_index,
+    filename_stem=parts[2],
+    utterance_index=utterance_index,
+    metric=metric,
+  )
+
+
+def batch_output_turn_groups(
+  output_jsonl: Path,
+) -> tuple[dict[tuple[str, int], dict[str, Any]], dict[str, Any]]:
+  raw_outputs = parse_batch_output_lines(output_jsonl)
+  groups: dict[tuple[str, int], dict[str, Any]] = {}
+  report = {
+    "source_batch_output_jsonl": str(output_jsonl),
+    "observed_response_count": len(raw_outputs),
+    "observed_turn_count": 0,
+    "inferred_missing_custom_ids": [],
+  }
+
+  for custom_id in sorted(raw_outputs):
+    ref = parse_batch_output_ref(custom_id)
+    key = (ref.filename_stem, ref.utterance_index)
+    group = groups.setdefault(
+      key,
+      {
+        "filename_stem": ref.filename_stem,
+        "utterance_index": ref.utterance_index,
+        "base_index_candidates": [],
+        "custom_ids": {},
+      },
+    )
+    custom_ids = group["custom_ids"]
+    if ref.metric in custom_ids:
+      raise RTracesEvaluationError(
+        f"Duplicate metric {ref.metric!r} for {ref.filename_stem} utterance {ref.utterance_index}"
+      )
+    custom_ids[ref.metric] = ref.custom_id
+    group["base_index_candidates"].append(ref.request_index - METRIC_INDEX[ref.metric])
+
+  for group in groups.values():
+    base_indexes = set(int(value) for value in group.pop("base_index_candidates"))
+    if len(base_indexes) != 1:
+      raise RTracesEvaluationError(
+        "Inconsistent request indexes for "
+        f"{group['filename_stem']} utterance {group['utterance_index']}: {sorted(base_indexes)}"
+      )
+    base_index = base_indexes.pop()
+    group["base_index"] = base_index
+    custom_ids = group["custom_ids"]
+    filename = f"{group['filename_stem']}.json"
+    for metric in METRIC_ORDER:
+      if metric not in custom_ids:
+        inferred = make_custom_id(
+          base_index + METRIC_INDEX[metric],
+          filename,
+          int(group["utterance_index"]),
+          metric,
+        )
+        custom_ids[metric] = inferred
+        report["inferred_missing_custom_ids"].append(inferred)
+
+  report["observed_turn_count"] = len(groups)
+  return groups, report
+
+
+def build_requests_from_batch_output(
+  files: list[Path],
+  output_dir: Path,
+  output_jsonl: Path,
+  model: str,
+  max_iter: int,
+  ctxt_turns: int,
+  *,
+  knowledge: TraceKnowledge | None = None,
+) -> tuple[list[BatchRequest], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+  active_knowledge = knowledge or load_trace_knowledge()
+  templates = {key: load_prompt_template(spec.prompt_file) for key, spec in METRIC_SPECS.items()}
+  turn_groups, batch_selection = batch_output_turn_groups(output_jsonl)
+  files_by_stem = {safe_custom_id_part(path.stem): path for path in files}
+  missing_files = sorted(stem for stem, _ in turn_groups if stem not in files_by_stem)
+  if missing_files:
+    raise RTracesEvaluationError(
+      "Batch output references input files not present in input_dir: "
+      + ", ".join(f"{stem}.json" for stem in missing_files[:10])
+    )
+
+  requests: list[BatchRequest] = []
+  sessions: list[dict[str, Any]] = []
+  skipped_files: list[dict[str, Any]] = []
+  selected_turn_count = 0
+  source_evaluable_turn_count = 0
+  selected_counts_by_stage_total: dict[str, int] = {}
+
+  for path in files:
+    try:
+      payload = read_json(path)
+    except Exception as exc:
+      skipped_files.append({"file": str(path), "reason": f"could not read JSON: {exc}"})
+      continue
+
+    output_file = Path("sessions") / path.name
+    if not isinstance(payload, dict):
+      skipped_files.append({"file": str(path), "reason": "top-level JSON is not an object"})
+      continue
+
+    turns, skipped_turns = extract_evaluable_turns(payload, path.name, ctxt_turns, active_knowledge)
+    source_evaluable_turn_count += len(turns)
+    turns_by_index = {turn.therapist_utterance_index: turn for turn in turns}
+    selected_groups = [
+      group
+      for (filename_stem, _), group in turn_groups.items()
+      if filename_stem == safe_custom_id_part(path.stem)
+    ]
+    selected_groups.sort(key=lambda group: int(group["base_index"]))
+
+    missing_turns = [
+      int(group["utterance_index"])
+      for group in selected_groups
+      if int(group["utterance_index"]) not in turns_by_index
+    ]
+    if missing_turns:
+      raise RTracesEvaluationError(
+        f"Batch output references unavailable evaluable turns in {path.name}: {missing_turns[:10]}"
+      )
+
+    session = {
+      "input_file": str(path),
+      "input_filename": path.name,
+      "model": model,
+      "max_iter": max_iter,
+      "n_traces": None,
+      "ctxt_turns": ctxt_turns,
+      "trace_knowledge": str(TRACE_KNOWLEDGE_PATH),
+      "evaluated_metrics": list(METRIC_SPECS),
+      "evaluated_turns": [],
+      "metrics": session_metrics([]),
+      "skipped_turns": skipped_turns,
+      "sampling": {
+        "selection_source": "batch_output_jsonl",
+        "source_batch_output_jsonl": str(output_jsonl),
+        "source_evaluable_turn_count": len(turns),
+        "selected_turn_count": len(selected_groups),
+        "selected_counts_by_stage": {},
+        "min_traces_per_sample": active_knowledge.min_traces_per_sample,
+      },
+    }
+
+    selected_counts_by_stage: dict[str, int] = {}
+    for group in selected_groups:
+      turn = turns_by_index[int(group["utterance_index"])]
+      selected_turn_count += 1
+      selected_counts_by_stage[turn.stage] = selected_counts_by_stage.get(turn.stage, 0) + 1
+      selected_counts_by_stage_total[turn.stage] = selected_counts_by_stage_total.get(turn.stage, 0) + 1
+      turn_payload = serialize_turn(turn)
+      turn_payload["batch_custom_ids"] = {}
+      for metric_key, spec in METRIC_SPECS.items():
+        prompt = render_metric_prompt(templates[metric_key], turn)
+        custom_id = str(group["custom_ids"][metric_key])
+        turn_payload["batch_custom_ids"][metric_key] = custom_id
+        requests.append(
+          BatchRequest(
+            custom_id=custom_id,
+            metric=metric_key,
+            input_file=path.name,
+            output_file=output_file.as_posix(),
+            turn_key=turn.turn_key,
+            stage=turn.stage,
+            therapist_utterance_index=turn.therapist_utterance_index,
+            min_score=spec.min_score,
+            max_score=spec.max_score,
+            body=make_chat_body(prompt, model, max_iter),
+          )
+        )
+      session["evaluated_turns"].append(turn_payload)
+
+    session["sampling"]["selected_counts_by_stage"] = selected_counts_by_stage
+    if not selected_groups:
+      skipped_files.append({"file": str(path), "reason": "no turns referenced by batch output"})
+    sessions.append(session)
+
+  sampling = {
+    "selection_source": "batch_output_jsonl",
+    "source_batch_output_jsonl": str(output_jsonl),
+    "ctxt_turns": ctxt_turns,
+    "context_utterance_limit": ctxt_turns * 2,
+    "min_traces_per_sample": active_knowledge.min_traces_per_sample,
+    "source_evaluable_turns": source_evaluable_turn_count,
+    "selected_turns": selected_turn_count,
+    "selected_counts_by_stage": selected_counts_by_stage_total,
+  }
+  return requests, sessions, skipped_files, sampling, batch_selection
+
+
 def empty_judge_result(score: float = 0.0, *, error: str | None = None) -> dict[str, Any]:
   result = {
     "score": score,
@@ -1410,6 +1628,7 @@ def run_rtraces_batch(
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
   output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
   prepare_only: bool = False,
+  batch_output_jsonl: str | Path | None = None,
   client: Any | None = None,
 ) -> dict[str, Any]:
   if max_iter < 1:
@@ -1429,15 +1648,33 @@ def run_rtraces_batch(
   output_path.mkdir(parents=True, exist_ok=True)
   (output_path / "sessions").mkdir(parents=True, exist_ok=True)
 
-  requests, prepared_sessions, skipped_files, sampling = build_requests(
-    files,
-    output_path,
-    model,
-    max_iter,
-    n_traces,
-    ctxt_turns,
-    knowledge=knowledge,
-  )
+  batch_selection_report: dict[str, Any] | None = None
+  if batch_output_jsonl is None:
+    requests, prepared_sessions, skipped_files, sampling = build_requests(
+      files,
+      output_path,
+      model,
+      max_iter,
+      n_traces,
+      ctxt_turns,
+      knowledge=knowledge,
+    )
+  else:
+    if prepare_only:
+      raise RTracesEvaluationError("--prepare-only cannot be combined with --batch-output-jsonl")
+    batch_output_path = Path(batch_output_jsonl).resolve()
+    if not batch_output_path.is_file():
+      raise RTracesEvaluationError(f"batch output JSONL does not exist: {batch_output_path}")
+    requests, prepared_sessions, skipped_files, sampling, batch_selection_report = build_requests_from_batch_output(
+      files,
+      output_path,
+      batch_output_path,
+      model,
+      max_iter,
+      ctxt_turns,
+      knowledge=knowledge,
+    )
+
   artifact_dir, manifest = create_run_artifacts(output_path, requests, prepared_sessions)
   manifest["model"] = model
   manifest["max_iter"] = max_iter
@@ -1450,6 +1687,9 @@ def run_rtraces_batch(
   manifest["output_dir"] = str(output_path)
   manifest["files_seen"] = len(files)
   manifest["recursive"] = recursive
+  if batch_selection_report is not None:
+    manifest["batch_output_jsonl"] = str(Path(batch_output_jsonl).resolve())
+    manifest["batch_selection_report"] = batch_selection_report
   save_parent_manifest(artifact_dir, manifest)
 
   if prepare_only:
@@ -1458,18 +1698,31 @@ def run_rtraces_batch(
   parse_report: dict[str, Any] | None = None
   if requests:
     try:
-      run_openai_batch_shards(artifact_dir, manifest, poll_interval, local_timeout_hours, client=client)
-      manifest = read_json(artifact_dir / "manifest.json")
-      parsed_results, parse_report = parse_all_shard_outputs(
-        manifest,
-        max_iter,
-        input_cost_per_1m,
-        output_cost_per_1m,
-      )
+      if batch_output_jsonl is None:
+        run_openai_batch_shards(artifact_dir, manifest, poll_interval, local_timeout_hours, client=client)
+        manifest = read_json(artifact_dir / "manifest.json")
+        parsed_results, parse_report = parse_all_shard_outputs(
+          manifest,
+          max_iter,
+          input_cost_per_1m,
+          output_cost_per_1m,
+        )
+      else:
+        request_map = request_map_from_specs(requests)
+        parsed_results, parse_report = parse_batch_outputs(
+          Path(batch_output_jsonl).resolve(),
+          request_map,
+          max_iter,
+          input_cost_per_1m,
+          output_cost_per_1m,
+        )
+        parse_report["source_batch_jsonl"] = str(Path(batch_output_jsonl).resolve())
+        parse_report["source_request_map"] = str(artifact_dir / "request_map.json")
+        parse_report["batch_selection_report"] = batch_selection_report
       parse_report_path = artifact_dir / "parse_report.json"
       atomic_write_json(parse_report_path, parse_report)
       manifest["parse_report"] = str(parse_report_path)
-      manifest["status"] = "parsed"
+      manifest["status"] = "parsed" if batch_output_jsonl is None else "parsed_from_batch_output"
       save_parent_manifest(artifact_dir, manifest)
     except Exception as exc:
       manifest["status"] = "failed"
@@ -1540,6 +1793,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     action="store_true",
     help="Write batch artifacts without uploading or polling OpenAI batches.",
   )
+  parser.add_argument(
+    "--batch-output-jsonl",
+    type=Path,
+    help="Parse an existing OpenAI batch output JSONL and write session/summary outputs without sending requests.",
+  )
   return parser.parse_args(argv)
 
 
@@ -1559,6 +1817,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       input_cost_per_1m=args.input_cost_per_1m,
       output_cost_per_1m=args.output_cost_per_1m,
       prepare_only=args.prepare_only,
+      batch_output_jsonl=args.batch_output_jsonl,
     )
   except RTracesEvaluationError as exc:
     print(f"Reasoning trace evaluation failed: {exc}", file=os.sys.stderr)
@@ -1578,11 +1837,19 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     return 0
 
-  print("Reasoning trace evaluation completed.")
+  if args.batch_output_jsonl:
+    print("Reasoning trace evaluation recovered from batch output.")
+  else:
+    print("Reasoning trace evaluation completed.")
   print(f"Run artifacts: {artifact_dir}")
   print(f"Session outputs: {Path(manifest['output_dir']) / 'sessions'}")
   print(f"Summary: {Path(manifest['output_dir']) / 'summary.json'}")
   print(f"Shard count: {manifest.get('shard_count')}")
+  if args.batch_output_jsonl:
+    selection = manifest.get("batch_selection_report") or {}
+    print(f"Observed batch responses: {selection.get('observed_response_count')}")
+    print(f"Observed batch turns: {selection.get('observed_turn_count')}")
+    print(f"Inferred missing responses: {len(selection.get('inferred_missing_custom_ids') or [])}")
   return 0
 
 

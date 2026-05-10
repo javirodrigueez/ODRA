@@ -21,7 +21,10 @@ except ImportError:  # pragma: no cover - kept for clearer CLI failure modes.
 
 MODEL_NAME = "gpt-4o"
 BATCH_ENDPOINT = "/v1/chat/completions"
+AZURE_BATCH_ENDPOINT = "/chat/completions"
 COMPLETION_WINDOW = "24h"
+DEFAULT_AZURE_OPENAI_API_VERSION = "2024-10-21"
+DEFAULT_ENQUEUED_TOKEN_LIMIT = 1_350_000
 DEFAULT_MAX_ITER = 3
 DEFAULT_POLL_INTERVAL = 60.0
 DEFAULT_LOCAL_TIMEOUT_HOURS = 26.0
@@ -64,6 +67,11 @@ FEELINGS = [
   "jittery",
   "afraid",
 ]
+PANAS_ENTRY_START_RE = re.compile(
+  r"(?i)(?:^|[\r\n]+|(?<=[.!?])\s+)("
+  + "|".join(re.escape(feeling) for feeling in FEELINGS)
+  + r")\s*,"
+)
 
 FINAL_STATUSES = {"completed", "failed", "expired", "cancelled"}
 FAILED_STATUSES = {"failed", "expired", "cancelled"}
@@ -111,6 +119,13 @@ class BatchRequest:
       "output_file": self.output_file,
       "item_key": self.item_key,
     }
+
+
+@dataclass(frozen=True)
+class BatchShard:
+  name: str
+  specs: list[BatchRequest]
+  enqueued_tokens: int
 
 
 def utc_now() -> str:
@@ -513,6 +528,131 @@ def write_jsonl(path: Path, specs: list[BatchRequest]) -> None:
   atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
 
 
+def _get_token_encoding(model: str) -> Any | None:
+  try:
+    import tiktoken  # pyright: ignore[reportMissingImports]
+  except ImportError:
+    return None
+  try:
+    return tiktoken.encoding_for_model(model)
+  except KeyError:
+    return tiktoken.get_encoding("cl100k_base")
+
+
+def _estimate_text_tokens(text: str, encoding: Any | None) -> int:
+  if encoding is not None:
+    return len(encoding.encode(text))
+  return max(1, (len(text) + 3) // 4)
+
+
+def estimate_messages_tokens(messages: list[Any], model: str) -> int:
+  encoding = _get_token_encoding(model)
+  tokens_per_message = 3
+  tokens_per_name = 1
+  total = 3
+  for message in messages:
+    if not isinstance(message, dict):
+      total += _estimate_text_tokens(str(message), encoding)
+      continue
+    total += tokens_per_message
+    for key, value in message.items():
+      if value is None:
+        continue
+      total += _estimate_text_tokens(str(value), encoding)
+      if key == "name":
+        total += tokens_per_name
+  return total
+
+
+def estimate_request_enqueued_tokens(spec: BatchRequest) -> int:
+  model = str(spec.body.get("model") or MODEL_NAME)
+  messages = spec.body.get("messages")
+  if isinstance(messages, list):
+    return estimate_messages_tokens(messages, model)
+  return _estimate_text_tokens(json.dumps(spec.body, sort_keys=True), _get_token_encoding(model))
+
+
+def shard_specs_by_enqueued_tokens(
+  phase_name: str,
+  specs: list[BatchRequest],
+  token_limit: int,
+) -> list[BatchShard]:
+  if token_limit < 1:
+    raise BatchMetricsError(f"--limit must be a positive integer, got: {token_limit}")
+  shards: list[BatchShard] = []
+  current_specs: list[BatchRequest] = []
+  current_tokens = 0
+
+  for spec in specs:
+    spec_tokens = estimate_request_enqueued_tokens(spec)
+    if spec_tokens > token_limit:
+      raise BatchMetricsError(
+        f"Request {spec.custom_id} has {spec_tokens} estimated enqueued tokens, "
+        f"which exceeds the per-batch limit of {token_limit}."
+      )
+    if current_specs and current_tokens + spec_tokens > token_limit:
+      shards.append(
+        BatchShard(
+          name=f"{phase_name}/shard_{len(shards) + 1:04d}",
+          specs=current_specs,
+          enqueued_tokens=current_tokens,
+        )
+      )
+      current_specs = []
+      current_tokens = 0
+    current_specs.append(spec)
+    current_tokens += spec_tokens
+
+  if current_specs:
+    shards.append(
+      BatchShard(
+        name=f"{phase_name}/shard_{len(shards) + 1:04d}",
+        specs=current_specs,
+        enqueued_tokens=current_tokens,
+      )
+    )
+  return shards
+
+
+def summarize_batch_plan(
+  phase_name: str,
+  specs: list[BatchRequest],
+  token_limit: int,
+  *,
+  status: str = "planned",
+) -> dict[str, Any]:
+  shards = shard_specs_by_enqueued_tokens(phase_name, specs, token_limit) if specs else []
+  return {
+    "phase": phase_name,
+    "status": status if specs or status != "planned" else "skipped",
+    "request_count": len(specs),
+    "batch_count": len(shards),
+    "enqueued_tokens": sum(shard.enqueued_tokens for shard in shards),
+    "batches": [
+      {
+        "name": shard.name,
+        "request_count": len(shard.specs),
+        "enqueued_tokens": shard.enqueued_tokens,
+      }
+      for shard in shards
+    ],
+  }
+
+
+def shard_progress(items: list[Any], description: str) -> Iterable[Any]:
+  try:
+    from tqdm.auto import tqdm  # pyright: ignore[reportMissingImports]
+  except ImportError:
+    return items
+  return tqdm(
+    items,
+    total=len(items),
+    desc=description,
+    unit="shard",
+    disable=not os.sys.stderr.isatty(),
+  )
+
+
 def validate_batch_input(path: Path, request_count: int) -> None:
   if request_count > MAX_BATCH_REQUESTS:
     raise BatchMetricsError(
@@ -556,6 +696,20 @@ def _parse_panas_score_line(line: str) -> tuple[str, str, int] | None:
   return emotion, explanation, int(score_str)
 
 
+def iter_panas_score_lines(content: Any) -> Iterable[str]:
+  text = str(content or "")
+  matches = list(PANAS_ENTRY_START_RE.finditer(text))
+  if len(matches) <= 1:
+    yield from text.splitlines()
+    return
+
+  for index, match in enumerate(matches):
+    end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    segment = text[match.start() : end].strip()
+    if segment:
+      yield segment
+
+
 def parse_panas_choices(choices: list[dict[str, Any]], max_iter: int, custom_id: str) -> dict[str, Any]:
   score_dict: dict[str, Any] = {feeling: [] for feeling in FEELINGS}
   explanations: list[dict[str, Any]] = []
@@ -568,7 +722,7 @@ def parse_panas_choices(choices: list[dict[str, Any]], max_iter: int, custom_id:
     choice = choices[choice_index]
     message = choice.get("message") if isinstance(choice, dict) else get_field(choice, "message", {})
     content = get_field(message, "content", "") or ""
-    for line in str(content).splitlines():
+    for line in iter_panas_score_lines(content):
       parsed = _parse_panas_score_line(line)
       if parsed is None:
         continue
@@ -622,6 +776,62 @@ def parse_batch_output_lines(path: Path) -> dict[str, dict[str, Any]]:
         raise BatchMetricsError(f"Duplicate custom_id in batch output: {custom_id}")
       results[custom_id] = payload
   return results
+
+
+def collect_batch_output_custom_ids(paths: list[Path]) -> set[str]:
+  custom_ids: set[str] = set()
+  for path in paths:
+    with path.open("r", encoding="utf-8") as f:
+      for line_number, line in enumerate(f, start=1):
+        if not line.strip():
+          continue
+        try:
+          payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+          raise BatchMetricsError(f"Invalid JSONL at {path}:{line_number}: {exc}") from exc
+        custom_id = payload.get("custom_id")
+        if not isinstance(custom_id, str) or not custom_id:
+          raise BatchMetricsError(f"Batch output line is missing custom_id at {path}:{line_number}")
+        if custom_id in custom_ids:
+          raise BatchMetricsError(f"Duplicate custom_id in resume output: {custom_id}")
+        custom_ids.add(custom_id)
+  return custom_ids
+
+
+def filter_specs_missing_from_resume(
+  specs: list[BatchRequest],
+  resume_custom_ids: set[str],
+) -> tuple[list[BatchRequest], list[BatchRequest]]:
+  resumed_specs = [spec for spec in specs if spec.custom_id in resume_custom_ids]
+  pending_specs = [spec for spec in specs if spec.custom_id not in resume_custom_ids]
+  return resumed_specs, pending_specs
+
+
+def write_matching_batch_output_lines(
+  output_jsonls: list[Path],
+  request_map: dict[str, dict[str, Any]],
+  destination: Path,
+) -> None:
+  wanted_ids = set(request_map)
+  seen_ids: set[str] = set()
+  lines: list[str] = []
+  for output_jsonl in output_jsonls:
+    with output_jsonl.open("r", encoding="utf-8") as f:
+      for line_number, line in enumerate(f, start=1):
+        if not line.strip():
+          continue
+        try:
+          payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+          raise BatchMetricsError(f"Invalid JSONL at {output_jsonl}:{line_number}: {exc}") from exc
+        custom_id = payload.get("custom_id")
+        if custom_id not in wanted_ids:
+          continue
+        if custom_id in seen_ids:
+          raise BatchMetricsError(f"Duplicate custom_id in resume output: {custom_id}")
+        seen_ids.add(str(custom_id))
+        lines.append(json.dumps(payload, ensure_ascii=True))
+  atomic_write_text(destination, "\n".join(lines) + ("\n" if lines else ""))
 
 
 def parse_phase_outputs(
@@ -745,6 +955,8 @@ def compute_signature(
   max_iter: int,
   excluded_metrics: set[str] | None = None,
   panas_v2: bool = False,
+  azure: bool = False,
+  limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
 ) -> dict[str, Any]:
   files = [
     {
@@ -762,7 +974,10 @@ def compute_signature(
     "max_iter": max_iter,
     "excluded_metrics": sorted(excluded_metrics or set()),
     "panas_after_prompt": panas_after_prompt_filename(panas_v2),
+    "provider": "azure_openai" if azure else "openai",
     "endpoint": BATCH_ENDPOINT,
+    "batch_endpoint": AZURE_BATCH_ENDPOINT if azure else BATCH_ENDPOINT,
+    "enqueued_token_limit": limit,
     "files": files,
   }
 
@@ -823,7 +1038,10 @@ def create_manifest(
     "signature_hash": sig_hash,
     "signature": signature,
     "model": signature["model"],
-    "endpoint": BATCH_ENDPOINT,
+    "provider": signature["provider"],
+    "endpoint": signature["endpoint"],
+    "batch_endpoint": signature["batch_endpoint"],
+    "enqueued_token_limit": signature["enqueued_token_limit"],
     "completion_window": COMPLETION_WINDOW,
     "phases": {},
     "skipped": {},
@@ -909,6 +1127,48 @@ def build_skipped_summary(
   return skipped
 
 
+def all_outputs_complete(
+  records: list[ConversationRecord],
+  output_dir: Path,
+  metric_group: str,
+) -> bool:
+  return all(
+    output_is_complete(metric_group, output_dir / metric_group / record.filename)
+    for record in records
+  )
+
+
+def mark_phase_skipped_existing_outputs(
+  manifest: dict[str, Any],
+  phase_name: str,
+  records: list[ConversationRecord],
+) -> None:
+  phase = manifest.setdefault("phases", {}).setdefault(phase_name, {})
+  phase["status"] = "skipped_existing_outputs"
+  phase["request_count"] = 0
+  phase["skipped_existing_outputs"] = [record.filename for record in records]
+
+
+def placeholder_panas_before_payload(record: ConversationRecord) -> dict[str, Any]:
+  return {
+    **{feeling: [3] for feeling in FEELINGS},
+    "explanations": [],
+    "attitude": record.attitude,
+    "cost": 0.0,
+  }
+
+
+def build_dry_run_before_payloads(
+  records: list[ConversationRecord],
+  output_dir: Path,
+  staged_outputs: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+  payloads = collect_existing_before_payloads(records, output_dir, staged_outputs)
+  for record in records:
+    payloads.setdefault(record.filename, placeholder_panas_before_payload(record))
+  return payloads
+
+
 def content_response_to_text(response: Any) -> str:
   if hasattr(response, "text"):
     text_value = response.text
@@ -985,6 +1245,7 @@ def upload_and_create_batch(
   phase: dict[str, Any],
   manifest: dict[str, Any],
   artifact_dir: Path,
+  batch_endpoint: str = BATCH_ENDPOINT,
 ) -> None:
   if phase.get("batch_id"):
     return
@@ -1002,7 +1263,7 @@ def upload_and_create_batch(
 
   batch = client.batches.create(
     input_file_id=uploaded_file_id,
-    endpoint=BATCH_ENDPOINT,
+    endpoint=batch_endpoint,
     completion_window=COMPLETION_WINDOW,
     metadata={
       "description": "ReasonCBT batch metric evaluation",
@@ -1096,6 +1357,7 @@ def run_phase(
   artifact_dir: Path,
   manifest: dict[str, Any],
   staged_outputs: dict[str, dict[str, Any]],
+  batch_endpoint: str = BATCH_ENDPOINT,
 ) -> dict[str, dict[str, Any]]:
   phase = prepare_phase_artifacts(artifact_dir, phase_name, specs, manifest)
   save_manifest(artifact_dir, manifest)
@@ -1105,7 +1367,7 @@ def run_phase(
   if phase.get("status") == "parsed":
     return load_staged_outputs(artifact_dir)
 
-  upload_and_create_batch(client, phase_name, phase, manifest, artifact_dir)
+  upload_and_create_batch(client, phase_name, phase, manifest, artifact_dir, batch_endpoint)
   poll_until_complete(client, phase_name, phase, manifest, artifact_dir, poll_interval, local_timeout_hours)
 
   request_map = load_request_map(Path(str(phase["request_map"])))
@@ -1129,14 +1391,211 @@ def run_phase(
   return parsed_outputs
 
 
+def parse_phase_output_jsonls(
+  phase_name: str,
+  output_jsonls: list[Path],
+  specs: list[BatchRequest],
+  records_by_filename: dict[str, ConversationRecord],
+  max_iter: int,
+  input_cost_per_1m: float,
+  output_cost_per_1m: float,
+  artifact_dir: Path,
+  manifest: dict[str, Any],
+  staged_outputs: dict[str, dict[str, Any]],
+  *,
+  report_filename: str = "parse_report.json",
+) -> dict[str, dict[str, Any]]:
+  phase_dir = artifact_dir / phase_name
+  phase_dir.mkdir(parents=True, exist_ok=True)
+  request_map = request_map_from_specs(specs)
+  request_map_path = phase_artifact_path(artifact_dir, phase_name, "request_map.json")
+  atomic_write_json(request_map_path, request_map)
+  combined_output_jsonl = phase_artifact_path(artifact_dir, phase_name, "combined_output.jsonl")
+  write_matching_batch_output_lines(output_jsonls, request_map, combined_output_jsonl)
+  parsed_outputs, parse_report = parse_phase_outputs(
+    combined_output_jsonl,
+    request_map,
+    records_by_filename,
+    max_iter,
+    input_cost_per_1m,
+    output_cost_per_1m,
+  )
+  report_path = phase_artifact_path(artifact_dir, phase_name, report_filename)
+  atomic_write_json(report_path, parse_report)
+  phase = manifest.setdefault("phases", {}).setdefault(phase_name, {})
+  phase["request_map"] = str(request_map_path)
+  phase["output_jsonl"] = str(combined_output_jsonl)
+  phase["parse_report"] = str(report_path)
+  phase["status"] = "parsed"
+  staged_outputs.update(parsed_outputs)
+  save_staged_outputs(artifact_dir, staged_outputs)
+  save_manifest(artifact_dir, manifest)
+  return parsed_outputs
+
+
+def run_phase_shards(
+  client: Any,
+  phase_name: str,
+  specs: list[BatchRequest],
+  records_by_filename: dict[str, ConversationRecord],
+  max_iter: int,
+  input_cost_per_1m: float,
+  output_cost_per_1m: float,
+  poll_interval: float,
+  local_timeout_hours: float,
+  artifact_dir: Path,
+  manifest: dict[str, Any],
+  staged_outputs: dict[str, dict[str, Any]],
+  batch_endpoint: str = BATCH_ENDPOINT,
+  token_limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
+  resume_jsonls: list[Path] | None = None,
+  resume_custom_ids: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+  phase = manifest.setdefault("phases", {}).setdefault(phase_name, {})
+  if phase.get("status") == "parsed":
+    return load_staged_outputs(artifact_dir)
+  if not specs:
+    phase.update({"status": "skipped", "request_count": 0, "batch_count": 0})
+    save_manifest(artifact_dir, manifest)
+    return {}
+
+  resumed_specs, pending_specs = filter_specs_missing_from_resume(specs, resume_custom_ids or set())
+  pending_request_count = len(pending_specs)
+  shards = shard_specs_by_enqueued_tokens(phase_name, pending_specs, token_limit) if pending_specs else []
+  phase.update(
+    {
+      "status": "running",
+      "request_count": len(specs),
+      "resumed_request_count": len(resumed_specs),
+      "submitted_request_count": pending_request_count,
+      "batch_count": len(shards),
+      "enqueued_tokens": sum(shard.enqueued_tokens for shard in shards),
+      "resume_jsonls": [str(path) for path in (resume_jsonls or [])],
+      "shards": [
+        {
+          "name": shard.name,
+          "request_count": len(shard.specs),
+          "enqueued_tokens": shard.enqueued_tokens,
+        }
+        for shard in shards
+      ],
+    }
+  )
+  save_manifest(artifact_dir, manifest)
+
+  shard_phases: list[dict[str, Any]] = []
+  progress_items = list(enumerate(shards, start=1))
+  for index, shard in shard_progress(progress_items, f"Processing {phase_name}"):
+    shard_name = phase_name if len(shards) == 1 else shard.name
+    shard_specs = pending_specs if len(shards) == 1 else shard.specs
+    phase["current_shard"] = {
+      "index": index,
+      "name": shard_name,
+      "request_count": len(shard_specs),
+      "enqueued_tokens": shard.enqueued_tokens,
+    }
+    save_manifest(artifact_dir, manifest)
+    shard_phase = prepare_phase_artifacts(artifact_dir, shard_name, shard_specs, manifest)
+    save_manifest(artifact_dir, manifest)
+    if shard_phase.get("status") != "parsed" and not shard_phase.get("batch_id"):
+      upload_and_create_batch(client, shard_name, shard_phase, manifest, artifact_dir, batch_endpoint)
+    if not shard_phase.get("output_jsonl"):
+      poll_until_complete(
+        client,
+        shard_name,
+        shard_phase,
+        manifest,
+        artifact_dir,
+        poll_interval,
+        local_timeout_hours,
+      )
+    shard_phases.append(shard_phase)
+
+  output_jsonls = [*(resume_jsonls or []), *[Path(str(shard_phase["output_jsonl"])) for shard_phase in shard_phases]]
+  parsed_outputs = parse_phase_output_jsonls(
+    phase_name,
+    output_jsonls,
+    specs,
+    records_by_filename,
+    max_iter,
+    input_cost_per_1m,
+    output_cost_per_1m,
+    artifact_dir,
+    manifest,
+    staged_outputs,
+  )
+  phase["status"] = "parsed"
+  phase["parsed_output_count"] = len(parsed_outputs)
+  save_manifest(artifact_dir, manifest)
+  return parsed_outputs
+
+
+def parse_phase_from_resume_jsonls(
+  phase_name: str,
+  resume_jsonls: list[Path],
+  specs: list[BatchRequest],
+  records_by_filename: dict[str, ConversationRecord],
+  max_iter: int,
+  input_cost_per_1m: float,
+  output_cost_per_1m: float,
+  artifact_dir: Path,
+  manifest: dict[str, Any],
+  staged_outputs: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+  phase = manifest.setdefault("phases", {}).setdefault(phase_name, {})
+  if not specs:
+    phase.update({"status": "skipped", "request_count": 0, "batch_count": 0})
+    save_manifest(artifact_dir, manifest)
+    return {}
+  phase.update(
+    {
+      "status": "resuming_from_output_jsonl",
+      "request_count": len(specs),
+      "resume_jsonls": [str(path) for path in resume_jsonls],
+    }
+  )
+  save_manifest(artifact_dir, manifest)
+  return parse_phase_output_jsonls(
+    phase_name,
+    resume_jsonls,
+    specs,
+    records_by_filename,
+    max_iter,
+    input_cost_per_1m,
+    output_cost_per_1m,
+    artifact_dir,
+    manifest,
+    staged_outputs,
+    report_filename="resume_parse_report.json",
+  )
+
+
 def write_final_outputs(output_dir: Path, staged_outputs: dict[str, dict[str, Any]]) -> None:
   for rel_path, payload in sorted(staged_outputs.items()):
     atomic_write_json(output_dir / rel_path, payload)
 
 
-def make_openai_client() -> Any:
+def make_openai_client(*, azure: bool = False) -> Any:
   if load_dotenv is not None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env")
+  if azure:
+    api_key = os.getenv("AZURE_OPENAI_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_version = (
+      os.getenv("AZURE_OPENAI_API_VERSION")
+      or os.getenv("OPENAI_API_VERSION")
+      or DEFAULT_AZURE_OPENAI_API_VERSION
+    )
+    if not api_key:
+      raise BatchMetricsError("Missing Azure OpenAI API key. Set AZURE_OPENAI_KEY.")
+    if not endpoint:
+      raise BatchMetricsError("Missing Azure OpenAI endpoint. Set AZURE_OPENAI_ENDPOINT.")
+    try:
+      from openai import AzureOpenAI
+    except ImportError as exc:
+      raise BatchMetricsError("The openai Python package is required to run batch metrics.") from exc
+    return AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
+
   api_key = os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY")
   if not api_key:
     raise BatchMetricsError("Missing OpenAI API key. Set GPT_API_KEY or OPENAI_API_KEY.")
@@ -1149,11 +1608,79 @@ def make_openai_client() -> Any:
 
 def phase_requires_client(manifest: dict[str, Any], phase_name: str, specs: list[BatchRequest]) -> bool:
   phase = manifest.get("phases", {}).get(phase_name, {})
-  if str(phase.get("status") or "") in {"skipped", "parsed"}:
+  if str(phase.get("status") or "") in {"skipped", "skipped_existing_outputs", "parsed"}:
     return False
   if specs:
     return True
   return bool(phase.get("batch_id") or phase.get("input_jsonl") or phase.get("request_map"))
+
+
+def build_batch_plan(
+  records: list[ConversationRecord],
+  output_dir: Path,
+  model: str,
+  max_iter: int,
+  excluded_metrics: set[str],
+  panas_v2: bool,
+  token_limit: int,
+  resume_custom_ids: set[str] | None = None,
+) -> tuple[dict[str, Any], list[BatchRequest], list[BatchRequest]]:
+  if token_limit < 1:
+    raise BatchMetricsError(f"--limit must be a positive integer, got: {token_limit}")
+
+  panas_before_complete = (
+    True
+    if "panas" in excluded_metrics
+    else all_outputs_complete(records, output_dir, "panas_before")
+  )
+  phase1_specs = (
+    []
+    if "panas" in excluded_metrics or panas_before_complete
+    else build_panas_before_requests(records, output_dir, model, max_iter)
+  )
+  before_payloads = (
+    {}
+    if "panas" in excluded_metrics
+    else build_dry_run_before_payloads(records, output_dir, {})
+  )
+  phase2_specs = build_main_requests(
+    records,
+    output_dir,
+    before_payloads,
+    model,
+    max_iter,
+    excluded_metrics,
+    panas_v2=panas_v2,
+  )
+  resume_ids = resume_custom_ids or set()
+  phase1_resumed, phase1_pending = filter_specs_missing_from_resume(phase1_specs, resume_ids)
+  phase2_resumed, phase2_pending = filter_specs_missing_from_resume(phase2_specs, resume_ids)
+
+  phase1_status = "skipped_existing_outputs" if panas_before_complete and "panas" not in excluded_metrics else "planned"
+  phase_summaries = [
+    {
+      **summarize_batch_plan("panas_before", phase1_pending, token_limit, status=phase1_status),
+      "request_count": len(phase1_specs),
+      "resumed_request_count": len(phase1_resumed),
+      "pending_request_count": len(phase1_pending),
+    },
+    {
+      **summarize_batch_plan("main", phase2_pending, token_limit),
+      "request_count": len(phase2_specs),
+      "resumed_request_count": len(phase2_resumed),
+      "pending_request_count": len(phase2_pending),
+    },
+  ]
+  plan = {
+    "dry_run": True,
+    "enqueued_token_limit": token_limit,
+    "phase_count": len(phase_summaries),
+    "batch_count": sum(int(phase["batch_count"]) for phase in phase_summaries),
+    "request_count": sum(int(phase["request_count"]) for phase in phase_summaries),
+    "enqueued_tokens": sum(int(phase["enqueued_tokens"]) for phase in phase_summaries),
+    "phases": phase_summaries,
+  }
+  return plan, phase1_specs, phase2_specs
 
 
 def run_batch_metrics(
@@ -1171,9 +1698,20 @@ def run_batch_metrics(
   local_timeout_hours: float = DEFAULT_LOCAL_TIMEOUT_HOURS,
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
   output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
+  azure: bool = False,
+  limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
+  dry_run: bool = False,
+  resume_jsonls: list[str | Path] | None = None,
 ) -> dict[str, Any]:
   if max_iter < 1:
     raise BatchMetricsError(f"MAX_ITER must be a positive integer, got: {max_iter}")
+  if limit < 1:
+    raise BatchMetricsError(f"--limit must be a positive integer, got: {limit}")
+  resume_paths = [Path(path).resolve() for path in (resume_jsonls or [])]
+  for resume_path in resume_paths:
+    if not resume_path.is_file():
+      raise BatchMetricsError(f"Resume batch output JSONL does not exist: {resume_path}")
+  resume_custom_ids = collect_batch_output_custom_ids(resume_paths) if resume_paths else set()
   input_path = Path(input_dir).resolve()
   output_path = (
     Path(output_dir).resolve()
@@ -1182,7 +1720,8 @@ def run_batch_metrics(
   )
   records = discover_conversations(input_path)
   records_by_filename = {record.filename: record for record in records}
-  ensure_output_dirs(output_path)
+  if not dry_run:
+    ensure_output_dirs(output_path)
   excluded_metrics = {
     metric
     for metric, excluded in (
@@ -1193,6 +1732,30 @@ def run_batch_metrics(
     if excluded
   }
 
+  if dry_run:
+    plan, _, _ = build_batch_plan(
+      records,
+      output_path,
+      model,
+      max_iter,
+      excluded_metrics,
+      panas_v2,
+      limit,
+      resume_custom_ids,
+    )
+    plan["signature"] = compute_signature(
+      input_path,
+      output_path,
+      records,
+      model,
+      max_iter,
+      excluded_metrics,
+      panas_v2=panas_v2,
+      azure=azure,
+      limit=limit,
+    )
+    return plan
+
   signature = compute_signature(
     input_path,
     output_path,
@@ -1201,6 +1764,8 @@ def run_batch_metrics(
     max_iter,
     excluded_metrics,
     panas_v2=panas_v2,
+    azure=azure,
+    limit=limit,
   )
   artifact_dir, manifest, resumed = load_or_create_manifest(output_path, signature)
   if not resumed:
@@ -1211,29 +1776,49 @@ def run_batch_metrics(
 
   staged_outputs = load_staged_outputs(artifact_dir)
   active_client = client
+  batch_endpoint = AZURE_BATCH_ENDPOINT if azure else BATCH_ENDPOINT
 
   try:
+    panas_before_complete = (
+      False
+      if exc_panas
+      else all_outputs_complete(records, output_path, "panas_before")
+    )
     phase1_specs = (
       []
-      if exc_panas
+      if exc_panas or panas_before_complete
       else build_panas_before_requests(records, output_path, model, max_iter)
     )
-    if active_client is None and phase_requires_client(manifest, "panas_before", phase1_specs):
-      active_client = make_openai_client()
-    run_phase(
-      active_client,
-      "panas_before",
-      phase1_specs,
-      records_by_filename,
-      max_iter,
-      input_cost_per_1m,
-      output_cost_per_1m,
-      poll_interval,
-      local_timeout_hours,
-      artifact_dir,
-      manifest,
-      staged_outputs,
-    )
+    if exc_panas:
+      manifest.setdefault("phases", {}).setdefault("panas_before", {}).update(
+        {"status": "skipped", "request_count": 0}
+      )
+      save_manifest(artifact_dir, manifest)
+    elif panas_before_complete:
+      mark_phase_skipped_existing_outputs(manifest, "panas_before", records)
+      save_manifest(artifact_dir, manifest)
+    else:
+      _, pending_phase1_specs = filter_specs_missing_from_resume(phase1_specs, resume_custom_ids)
+      if active_client is None and phase_requires_client(manifest, "panas_before", pending_phase1_specs):
+        active_client = make_openai_client(azure=azure)
+      run_phase_shards(
+        active_client,
+        "panas_before",
+        phase1_specs,
+        records_by_filename,
+        max_iter,
+        input_cost_per_1m,
+        output_cost_per_1m,
+        poll_interval,
+        local_timeout_hours,
+        artifact_dir,
+        manifest,
+        staged_outputs,
+        batch_endpoint,
+        limit,
+        resume_paths,
+        resume_custom_ids,
+      )
 
     before_payloads = (
       {}
@@ -1249,9 +1834,10 @@ def run_batch_metrics(
       excluded_metrics,
       panas_v2=panas_v2,
     )
-    if active_client is None and phase_requires_client(manifest, "main", phase2_specs):
-      active_client = make_openai_client()
-    run_phase(
+    _, pending_phase2_specs = filter_specs_missing_from_resume(phase2_specs, resume_custom_ids)
+    if active_client is None and phase_requires_client(manifest, "main", pending_phase2_specs):
+      active_client = make_openai_client(azure=azure)
+    run_phase_shards(
       active_client,
       "main",
       phase2_specs,
@@ -1264,6 +1850,10 @@ def run_batch_metrics(
       artifact_dir,
       manifest,
       staged_outputs,
+      batch_endpoint,
+      limit,
+      resume_paths,
+      resume_custom_ids,
     )
 
     write_final_outputs(output_path, staged_outputs)
@@ -1310,15 +1900,62 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser.add_argument("--local-timeout-hours", type=float, default=DEFAULT_LOCAL_TIMEOUT_HOURS)
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
   parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
+  parser.add_argument(
+    "--limit",
+    type=int,
+    default=DEFAULT_ENQUEUED_TOKEN_LIMIT,
+    help="Maximum estimated enqueued input tokens per batch. Default: 1350000",
+  )
+  parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="Print planned batch counts and enqueued tokens without requesting batches.",
+  )
+  parser.add_argument(
+    "--resume",
+    type=Path,
+    action="append",
+    default=[],
+    help=(
+      "Reuse completed requests from an existing batch output JSONL, only submitting missing requests. "
+      "May be passed multiple times for sharded outputs."
+    ),
+  )
   parser.add_argument("--exc-wai", action="store_true", help="Exclude WAI evaluation.")
   parser.add_argument("--exc-ctrs", action="store_true", help="Exclude CTRS evaluation.")
   parser.add_argument("--exc-panas", action="store_true", help="Exclude both PANAS-before and PANAS-after evaluation.")
+  parser.add_argument(
+    "--azure",
+    action="store_true",
+    help="Use AzureOpenAI with AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT.",
+  )
   parser.add_argument(
     "--panas-v2",
     action="store_true",
     help="Use the PANAS-after v2 prompt with pre-session questionnaire context.",
   )
   return parser.parse_args(argv)
+
+
+def print_dry_run_plan(plan: dict[str, Any]) -> None:
+  print("Batch evaluation dry run.")
+  print(f"Enqueued token limit: {plan['enqueued_token_limit']}")
+  print(f"Total batches: {plan['batch_count']}")
+  print(f"Total requests: {plan['request_count']}")
+  print(f"Total estimated enqueued tokens: {plan['enqueued_tokens']}")
+  for phase in plan.get("phases") or []:
+    print(
+      f"{phase['phase']}: {phase['batch_count']} batch(es), "
+      f"{phase['request_count']} total request(s), "
+      f"{phase.get('resumed_request_count', 0)} resumed, "
+      f"{phase.get('pending_request_count', phase['request_count'])} pending, "
+      f"{phase['enqueued_tokens']} enqueued tokens"
+    )
+    for batch in phase.get("batches") or []:
+      print(
+        f"  {batch['name']}: {batch['request_count']} request(s), "
+        f"{batch['enqueued_tokens']} enqueued tokens"
+      )
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -1332,6 +1969,10 @@ def main(argv: Iterable[str] | None = None) -> int:
       exc_ctrs=args.exc_ctrs,
       exc_panas=args.exc_panas,
       panas_v2=args.panas_v2,
+      azure=args.azure,
+      limit=args.limit,
+      dry_run=args.dry_run,
+      resume_jsonls=args.resume,
       poll_interval=args.poll_interval,
       local_timeout_hours=args.local_timeout_hours,
       input_cost_per_1m=args.input_cost_per_1m,
@@ -1340,6 +1981,10 @@ def main(argv: Iterable[str] | None = None) -> int:
   except BatchMetricsError as exc:
     print(f"Batch evaluation failed: {exc}", file=os.sys.stderr)
     return 1
+
+  if args.dry_run:
+    print_dry_run_plan(manifest)
+    return 0
 
   print("Batch evaluation completed.")
   print(f"Run artifacts: {Path(manifest['signature']['output_dir']) / '_batch_artifacts' / manifest['run_id']}")

@@ -163,6 +163,41 @@ class RTracesTest(unittest.TestCase):
     self.assertEqual(sampling["selected_turns"], 1)
     self.assertIn("[Previous Context Start]", requests[0].body["messages"][0]["content"])
 
+  def test_build_requests_from_batch_output_uses_observed_custom_ids_and_infers_missing_metrics(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      input_file = base / "input" / "session.json"
+      output_dir = base / "out"
+      output_jsonl = base / "batch_output.jsonl"
+      _write_json(input_file, _sample_payload())
+      with output_jsonl.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(_batch_output_line("rtraces:00000001:session:u0007:logic_consistency")) + "\n")
+        f.write(json.dumps(_batch_output_line("rtraces:00000002:session:u0007:answer_explanation_alignment")) + "\n")
+
+      requests, sessions, skipped_files, sampling, selection = rtraces.build_requests_from_batch_output(
+        [input_file],
+        output_dir,
+        output_jsonl,
+        "gpt-4o",
+        1,
+        2,
+      )
+
+    self.assertEqual(skipped_files, [])
+    self.assertEqual(len(requests), 3)
+    self.assertEqual(sampling["selection_source"], "batch_output_jsonl")
+    self.assertEqual(sampling["selected_turns"], 1)
+    self.assertEqual(selection["inferred_missing_custom_ids"], ["rtraces:00000000:session:u0007:faithfulness"])
+    turn = sessions[0]["evaluated_turns"][0]
+    self.assertEqual(
+      turn["batch_custom_ids"],
+      {
+        "faithfulness": "rtraces:00000000:session:u0007:faithfulness",
+        "logic_consistency": "rtraces:00000001:session:u0007:logic_consistency",
+        "answer_explanation_alignment": "rtraces:00000002:session:u0007:answer_explanation_alignment",
+      },
+    )
+
   def test_score_turn_adds_metric_scores_and_harmonic_composite(self) -> None:
     turn = {
       "batch_custom_ids": {

@@ -27,6 +27,7 @@ DEFAULT_POLL_INTERVAL = 60.0
 DEFAULT_LOCAL_TIMEOUT_HOURS = 26.0
 DEFAULT_INPUT_COST_PER_1M = 1.25
 DEFAULT_OUTPUT_COST_PER_1M = 5.0
+DEFAULT_ENQUEUED_TOKEN_LIMIT = 1_000_000
 MAX_BATCH_REQUESTS = 50_000
 MAX_BATCH_FILE_BYTES = 200 * 1024 * 1024
 
@@ -840,15 +841,61 @@ def write_jsonl(path: Path, specs: list[BatchRequest]) -> None:
   atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
 
 
+def _get_token_encoding(model: str) -> Any | None:
+  try:
+    import tiktoken  # pyright: ignore[reportMissingImports]
+  except ImportError:
+    return None
+  try:
+    return tiktoken.encoding_for_model(model)
+  except KeyError:
+    return tiktoken.get_encoding("cl100k_base")
+
+
+def _estimate_text_tokens(text: str, encoding: Any | None) -> int:
+  if encoding is not None:
+    return len(encoding.encode(text))
+  return max(1, (len(text) + 3) // 4)
+
+
+def estimate_messages_tokens(messages: list[Any], model: str) -> int:
+  encoding = _get_token_encoding(model)
+  total = 3
+  for message in messages:
+    if not isinstance(message, dict):
+      total += _estimate_text_tokens(str(message), encoding)
+      continue
+    total += 3
+    for key, value in message.items():
+      if value is None:
+        continue
+      total += _estimate_text_tokens(str(value), encoding)
+      if key == "name":
+        total += 1
+  return total
+
+
+def estimate_request_enqueued_tokens(spec: BatchRequest) -> int:
+  model = str(spec.body.get("model") or MODEL_NAME)
+  messages = spec.body.get("messages")
+  if isinstance(messages, list):
+    return estimate_messages_tokens(messages, model)
+  return _estimate_text_tokens(json.dumps(spec.body, sort_keys=True), _get_token_encoding(model))
+
+
 def split_request_shards(
   requests: list[BatchRequest],
   *,
   max_requests: int = MAX_BATCH_REQUESTS,
   max_bytes: int = MAX_BATCH_FILE_BYTES,
+  token_limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
 ) -> list[list[BatchRequest]]:
+  if token_limit < 1:
+    raise SteeringV2EvaluationError(f"--limit must be a positive integer, got: {token_limit}")
   shards: list[list[BatchRequest]] = []
   current: list[BatchRequest] = []
   current_bytes = 0
+  current_tokens = 0
 
   for request in requests:
     line_bytes = len(jsonl_line_text(request).encode("utf-8")) + 1
@@ -856,14 +903,23 @@ def split_request_shards(
       raise SteeringV2EvaluationError(
         f"Single batch request {request.custom_id} is {line_bytes} bytes; maximum input file size is {max_bytes}."
       )
+    request_tokens = estimate_request_enqueued_tokens(request)
+    if request_tokens > token_limit:
+      raise SteeringV2EvaluationError(
+        f"Single batch request {request.custom_id} has {request_tokens} estimated enqueued tokens; "
+        f"maximum per batch is {token_limit}."
+      )
     would_exceed_count = len(current) >= max_requests
     would_exceed_bytes = bool(current) and current_bytes + line_bytes > max_bytes
-    if would_exceed_count or would_exceed_bytes:
+    would_exceed_tokens = bool(current) and current_tokens + request_tokens > token_limit
+    if would_exceed_count or would_exceed_bytes or would_exceed_tokens:
       shards.append(current)
       current = []
       current_bytes = 0
+      current_tokens = 0
     current.append(request)
     current_bytes += line_bytes
+    current_tokens += request_tokens
 
   if current:
     shards.append(current)
@@ -1346,6 +1402,94 @@ def iter_json_files(input_dir: Path, recursive: bool) -> list[Path]:
   return sorted(path for path in input_dir.glob(pattern) if path.is_file())
 
 
+def session_output_path(output_dir: Path, input_file: Path) -> Path:
+  return output_dir / "sessions" / input_file.name
+
+
+def is_reusable_session_output(
+  path: Path,
+  *,
+  cross_validate: bool,
+  matched_concepts: bool,
+  unified_concepts: bool,
+  no_intervals: bool,
+) -> bool:
+  if not path.is_file():
+    return False
+  try:
+    payload = read_json(path)
+  except Exception:
+    return False
+  if not isinstance(payload, dict):
+    return False
+  if not isinstance(payload.get("evaluated_fragments"), list):
+    return False
+  if not isinstance(payload.get("metrics"), dict):
+    return False
+  return (
+    bool(payload.get("cross_validate")) == cross_validate
+    and bool(payload.get("matched_concepts")) == matched_concepts
+    and bool(payload.get("unified_concepts")) == unified_concepts
+    and bool(payload.get("no_intervals")) == no_intervals
+  )
+
+
+def split_files_by_existing_outputs(
+  files: list[Path],
+  output_dir: Path,
+  *,
+  cross_validate: bool,
+  matched_concepts: bool,
+  unified_concepts: bool,
+  no_intervals: bool,
+  recompute_existing: bool,
+) -> tuple[list[Path], list[Path]]:
+  if recompute_existing:
+    return [], files
+
+  existing: list[Path] = []
+  pending: list[Path] = []
+  for input_file in files:
+    if is_reusable_session_output(
+      session_output_path(output_dir, input_file),
+      cross_validate=cross_validate,
+      matched_concepts=matched_concepts,
+      unified_concepts=unified_concepts,
+      no_intervals=no_intervals,
+    ):
+      existing.append(input_file)
+    else:
+      pending.append(input_file)
+  return existing, pending
+
+
+def load_reusable_session_outputs(
+  output_dir: Path,
+  files: list[Path],
+  *,
+  cross_validate: bool,
+  matched_concepts: bool,
+  unified_concepts: bool,
+  no_intervals: bool,
+) -> list[dict[str, Any]]:
+  sessions: list[dict[str, Any]] = []
+  for input_file in files:
+    path = session_output_path(output_dir, input_file)
+    if not is_reusable_session_output(
+      path,
+      cross_validate=cross_validate,
+      matched_concepts=matched_concepts,
+      unified_concepts=unified_concepts,
+      no_intervals=no_intervals,
+    ):
+      raise SteeringV2EvaluationError(f"Existing session output is no longer reusable: {path}")
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+      raise SteeringV2EvaluationError(f"Existing session output must be a JSON object: {path}")
+    sessions.append(payload)
+  return sessions
+
+
 def write_session_outputs(output_dir: Path, sessions: list[dict[str, Any]]) -> None:
   for session in sessions:
     filename = str(session.get("input_filename") or Path(str(session.get("input_file"))).name)
@@ -1356,6 +1500,7 @@ def create_run_artifacts(
   output_dir: Path,
   requests: list[BatchRequest],
   sessions: list[dict[str, Any]],
+  token_limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
 ) -> tuple[Path, dict[str, Any]]:
   run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
   artifact_dir = output_dir / "_batch_artifacts" / run_id
@@ -1369,12 +1514,13 @@ def create_run_artifacts(
   atomic_write_json(prepared_sessions_path, sessions)
 
   shard_refs = []
-  for shard_index, shard_requests in enumerate(split_request_shards(requests), start=1):
+  for shard_index, shard_requests in enumerate(split_request_shards(requests, token_limit=token_limit), start=1):
     shard_dir = artifact_dir / "shards" / f"shard_{shard_index:05d}"
     shard_dir.mkdir(parents=True, exist_ok=False)
     input_jsonl = shard_dir / "input.jsonl"
     shard_request_map_path = shard_dir / "request_map.json"
     shard_manifest_path = shard_dir / "manifest.json"
+    shard_enqueued_tokens = sum(estimate_request_enqueued_tokens(request) for request in shard_requests)
     write_jsonl(input_jsonl, shard_requests)
     atomic_write_json(shard_request_map_path, request_map_from_specs(shard_requests))
     shard_manifest = {
@@ -1387,6 +1533,8 @@ def create_run_artifacts(
       "endpoint": BATCH_ENDPOINT,
       "completion_window": COMPLETION_WINDOW,
       "request_count": len(shard_requests),
+      "enqueued_token_limit": token_limit,
+      "estimated_enqueued_tokens": shard_enqueued_tokens,
       "input_jsonl": str(input_jsonl),
       "request_map": str(shard_request_map_path),
     }
@@ -1396,6 +1544,7 @@ def create_run_artifacts(
         "shard_index": shard_index,
         "manifest": str(shard_manifest_path),
         "request_count": len(shard_requests),
+        "estimated_enqueued_tokens": shard_enqueued_tokens,
         "status": "prepared",
       }
     )
@@ -1410,6 +1559,8 @@ def create_run_artifacts(
     "completion_window": COMPLETION_WINDOW,
     "request_count": len(requests),
     "shard_count": len(shard_refs),
+    "enqueued_token_limit": token_limit,
+    "estimated_enqueued_tokens": sum(int(ref["estimated_enqueued_tokens"]) for ref in shard_refs),
     "shards": shard_refs,
     "request_map": str(request_map_path),
     "prepared_sessions": str(prepared_sessions_path),
@@ -1702,12 +1853,17 @@ def run_steering_batch_v2(
   input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
   output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
   prepare_only: bool = False,
+  dry_run: bool = False,
+  recompute_existing: bool = False,
+  limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
   client: Any | None = None,
 ) -> dict[str, Any]:
   if max_iter < 1:
     raise SteeringV2EvaluationError(f"max_iter must be positive, got {max_iter}")
   if n_per_batch < 1:
     raise SteeringV2EvaluationError(f"n_per_batch must be positive, got {n_per_batch}")
+  if limit < 1:
+    raise SteeringV2EvaluationError(f"--limit must be a positive integer, got: {limit}")
 
   input_path = Path(input_dir).resolve()
   output_path = Path(output_dir).resolve()
@@ -1716,13 +1872,51 @@ def run_steering_batch_v2(
 
   concepts = load_evaluation_concepts()
   files = iter_json_files(input_path, recursive)
-  output_path.mkdir(parents=True, exist_ok=True)
-  (output_path / "sessions").mkdir(parents=True, exist_ok=True)
   effective_matched_concepts = matched_concepts and not no_intervals
   effective_cross_validate = cross_validate and not effective_matched_concepts
+  existing_files, files_to_evaluate = split_files_by_existing_outputs(
+    files,
+    output_path,
+    cross_validate=effective_cross_validate,
+    matched_concepts=effective_matched_concepts,
+    unified_concepts=unified_concepts,
+    no_intervals=no_intervals,
+    recompute_existing=recompute_existing,
+  )
+
+  if dry_run:
+    return {
+      "version": 2,
+      "status": "dry_run",
+      "input_dir": str(input_path),
+      "output_dir": str(output_path),
+      "files_seen": len(files),
+      "existing_session_outputs": len(existing_files),
+      "files_to_evaluate": len(files_to_evaluate),
+      "existing_files": [str(path) for path in existing_files],
+      "pending_files": [str(path) for path in files_to_evaluate],
+      "recursive": recursive,
+      "matched_concepts": effective_matched_concepts,
+      "unified_concepts": unified_concepts,
+      "no_intervals": no_intervals,
+      "cross_validate": effective_cross_validate,
+      "recompute_existing": recompute_existing,
+      "enqueued_token_limit": limit,
+    }
+
+  output_path.mkdir(parents=True, exist_ok=True)
+  (output_path / "sessions").mkdir(parents=True, exist_ok=True)
+  existing_sessions = load_reusable_session_outputs(
+    output_path,
+    existing_files,
+    cross_validate=effective_cross_validate,
+    matched_concepts=effective_matched_concepts,
+    unified_concepts=unified_concepts,
+    no_intervals=no_intervals,
+  )
 
   requests, prepared_sessions, skipped_files, fragmenting = build_requests(
-    files,
+    files_to_evaluate,
     output_path,
     model,
     max_iter,
@@ -1733,7 +1927,7 @@ def run_steering_batch_v2(
     unified_concepts=unified_concepts,
     concepts=concepts,
   )
-  artifact_dir, manifest = create_run_artifacts(output_path, requests, prepared_sessions)
+  artifact_dir, manifest = create_run_artifacts(output_path, requests, prepared_sessions, token_limit=limit)
   manifest["model"] = model
   manifest["max_iter"] = max_iter
   manifest["matched_concepts"] = effective_matched_concepts
@@ -1747,6 +1941,10 @@ def run_steering_batch_v2(
   manifest["input_dir"] = str(input_path)
   manifest["output_dir"] = str(output_path)
   manifest["files_seen"] = len(files)
+  manifest["existing_session_outputs"] = len(existing_files)
+  manifest["files_to_evaluate"] = len(files_to_evaluate)
+  manifest["recompute_existing"] = recompute_existing
+  manifest["enqueued_token_limit"] = limit
   manifest["recursive"] = recursive
   save_parent_manifest(artifact_dir, manifest)
 
@@ -1789,14 +1987,18 @@ def run_steering_batch_v2(
     prepared_sessions,
     parsed_results,
     artifact_dir,
-    cross_validate=cross_validate,
+    cross_validate=effective_cross_validate,
   )
   write_session_outputs(output_path, scored_sessions)
+  combined_sessions = sorted(
+    existing_sessions + scored_sessions,
+    key=lambda session: str(session.get("input_filename") or session.get("input_file") or ""),
+  )
   summary = summary_from_sessions(
     input_path,
     output_path,
     len(files),
-    scored_sessions,
+    combined_sessions,
     skipped_files,
     artifact_dir,
     parse_report,
@@ -1809,6 +2011,10 @@ def run_steering_batch_v2(
   summary["no_intervals"] = no_intervals
   summary["cross_validate"] = effective_cross_validate
   summary["fragmenting"] = fragmenting
+  summary["existing_session_outputs_reused"] = len(existing_sessions)
+  summary["new_session_outputs_evaluated"] = len(scored_sessions)
+  summary["files_to_evaluate"] = len(files_to_evaluate)
+  summary["recompute_existing"] = recompute_existing
   atomic_write_json(output_path / "summary.json", summary)
   manifest["status"] = "completed"
   manifest["summary"] = str(output_path / "summary.json")
@@ -1858,9 +2064,25 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
   parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
   parser.add_argument(
+    "--limit",
+    type=int,
+    default=DEFAULT_ENQUEUED_TOKEN_LIMIT,
+    help="Maximum estimated enqueued input tokens per submitted batch shard.",
+  )
+  parser.add_argument(
     "--prepare-only",
     action="store_true",
     help="Write batch artifacts without uploading or polling OpenAI batches.",
+  )
+  parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="Show which input files would be evaluated after reusing existing session outputs; do not write artifacts or send requests.",
+  )
+  parser.add_argument(
+    "--recompute-existing",
+    action="store_true",
+    help="Ignore existing reusable session outputs and evaluate every matching input file.",
   )
   return parser.parse_args(argv)
 
@@ -1884,10 +2106,22 @@ def main(argv: Iterable[str] | None = None) -> int:
       input_cost_per_1m=args.input_cost_per_1m,
       output_cost_per_1m=args.output_cost_per_1m,
       prepare_only=args.prepare_only,
+      dry_run=args.dry_run,
+      recompute_existing=args.recompute_existing,
+      limit=args.limit,
     )
   except SteeringV2EvaluationError as exc:
     print(f"Steering v2 evaluation failed: {exc}", file=os.sys.stderr)
     return 1
+
+  if args.dry_run:
+    print("Steering v2 dry run.")
+    print(f"Input files seen: {manifest['files_seen']}")
+    print(f"Existing session outputs reused: {manifest['existing_session_outputs']}")
+    print(f"Files to evaluate: {manifest['files_to_evaluate']}")
+    for path in manifest.get("pending_files") or []:
+      print(path)
+    return 0
 
   artifact_dir = Path(manifest["output_dir"]) / "_batch_artifacts" / manifest["run_id"]
   if args.prepare_only:
@@ -1895,6 +2129,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"Run artifacts: {artifact_dir}")
     print(f"Request count: {manifest['request_count']}")
     print(f"Shard count: {manifest['shard_count']}")
+    print(f"Enqueued token limit: {manifest.get('enqueued_token_limit')}")
+    print(f"Estimated enqueued tokens: {manifest.get('estimated_enqueued_tokens')}")
     fragmenting = manifest.get("fragmenting") or {}
     print(
       "Fragments: "
@@ -1908,6 +2144,7 @@ def main(argv: Iterable[str] | None = None) -> int:
   print(f"Session outputs: {Path(manifest['output_dir']) / 'sessions'}")
   print(f"Summary: {Path(manifest['output_dir']) / 'summary.json'}")
   print(f"Shard count: {manifest.get('shard_count')}")
+  print(f"Estimated enqueued tokens: {manifest.get('estimated_enqueued_tokens')}")
   return 0
 
 

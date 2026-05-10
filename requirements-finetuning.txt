@@ -27,6 +27,7 @@ fla-core==0.5.0
 wandb
 backoff
 openai
+tqdm
 omegaconf
 langgraph
 langchain
