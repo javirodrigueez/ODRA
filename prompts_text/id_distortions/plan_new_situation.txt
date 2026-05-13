@@ -1,0 +1,7 @@
+Create an internal therapist plan to discover a new problematic situation that is not already covered by the identified cognitive sets. Already identified situations from previous sets: {identified_situations}.
+Previously completed cognitive sets, the current working cognitive set, and the opening-stage mood/problem summary are available as 'cognitive_model_sets', 'working_cognitive_set', 'opening_patient_mood', and 'opening_patient_problem' within <session_context>.
+The situation should be a concrete event or context that triggers the patient's automatic thoughts, emotions, and behaviors. Prefer a distinct situation that expands the understanding of the patient's problems instead of repeating an existing one.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "plan": string
+}}

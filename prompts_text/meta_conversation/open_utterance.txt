@@ -1,0 +1,4 @@
+Generate the therapist's opening utterance for the meta-conversation stage.
+The patient's opening mood, opening problem summary, current MI topic, previously tried MI topics, recently used MI techniques, MI-only conversation segment, latest predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_topics_tried', 'mi_techniques_used', 'mi_context', 'predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+Acknowledge that the process has felt difficult and invite the patient to explain what they are feeling right now. Keep the tone collaborative, warm, and concrete.
+Respond with plain text.

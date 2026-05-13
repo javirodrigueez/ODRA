@@ -1,0 +1,14 @@
+Choose up to 3 CBT techniques for the current session. You must select only from the following catalog and preserve each technique name exactly as written.
+{formatted_catalog}
+The identified Beck cognitive model sets, the partially identified cognitive model sets, any techniques already selected earlier in the session, the number of CBT techniques already completed, and recent evaluations of completed techniques are available as 'cognitive_model_sets', 'shelved_cognitive_sets', 'selected_techniques', 'techniques_completed', and 'technique_evaluations' within <session_context>.
+Choose techniques that fit the patient's current cognitive patterns and can be completed within the current session. Do not choose homework-based techniques. Avoid redundant selections when prior selected techniques or evaluations show a technique has already been used or would be a poor fit.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "selected_techniques": [
+    {{
+      "name": string,
+      "target_distortion": string,
+      "rationale": string
+    }}
+  ]
+}}

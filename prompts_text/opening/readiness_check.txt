@@ -1,0 +1,9 @@
+Check if the patient's mood and problem are sufficiently understood to proceed beyond the opening stage. You have this information available in 'opening_patient_mood' and 'opening_patient_problem' within <session_context>. If you are not sure about the patient's mood or specific problem, respond with ready=false and specify the issue in the 'issue' field. If both fields are issues, begin exploring the patient's mood. If either field is clear, respond with ready=true, issue=null.Include a reasoning field to explain your decision. The specific problem should be concrete, for example: the relationship with my family is degraded because of drug consumption, not just a general area like stress or anxiety.
+
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "ready": boolean,
+  "issue": 'mood' or 'problem' or null,
+  "reasoning": string
+}}
+

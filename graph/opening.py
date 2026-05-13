@@ -9,7 +9,7 @@ from .state import SessionState
 
 
 class OpeningStageMixin(GraphSupportMixin):
-  OPENING_MAX_EXCHANGES = 5
+  OPENING_MAX_EXCHANGES = 6
 
   def _check_readiness(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:
     instruction = self._load_stage_prompt(

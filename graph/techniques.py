@@ -108,13 +108,13 @@ class TechniqueStageMixin(GraphSupportMixin):
     current = self._current_technique(state)
     if current is None:
       raise ConversationProcessingError("Current CBT technique could not be resolved.")
-    max_technique_turns = state["technique_turn_count"] >= 12
+    max_technique_turns = state["technique_turn_count"] >= 15
     
     if max_technique_turns:
       traces.append(
         {
           "step": "technique_auto_complete",
-          "input": "Technique reached 12 exchange turns without completion.",
+          "input": "Technique reached 15 exchange turns without completion.",
           "output": "Automatically marking technique as complete.",
         }
       )

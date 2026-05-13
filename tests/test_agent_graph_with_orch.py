@@ -164,6 +164,8 @@ class AgentGraphWithOrchTest(unittest.TestCase):
       '{"stage": "Opening"}',
       repair_responses=['{"opening_info_update": {"mood": "sad", "problem": "work stress"}}'],
     )
+    events = []
+    builder.reasoning_retry_callback = events.append
     state = {"messages": [], "prompt_audit_records": []}
     builder._begin_agent_orch_turn(state)
     traces = []
@@ -179,6 +181,56 @@ class AgentGraphWithOrchTest(unittest.TestCase):
     self.assertEqual(traces[0]["repair"]["attempts"], 1)
     self.assertEqual(traces[0]["repair"]["original"]["missing_step"], "opening_info_update")
     self.assertEqual(len(builder.therapist.llm.calls), 1)
+    self.assertEqual(events[0]["event"], "reasoning_trace_repair_attempt")
+    self.assertEqual(events[0]["step"], "opening_info_update")
+
+  def test_text_reasoning_is_converted_once_before_structured_consumption(self):
+    builder = _builder(
+      "[stage] Opening\n"
+      "[opening_info_update] Mood: sad. Problem: work stress\n"
+      "[opening_readiness_check] Ready: yes. Issue: none. Reasoning: enough info.",
+      repair_responses=[
+        '{"traces": ['
+        '{"name": "stage", "content": "Opening"},'
+        '{"name": "opening_info_update", "content": {"mood": "sad", "problem": "work stress"}},'
+        '{"name": "opening_readiness_check", "content": {"ready": true, "issue": "none", "reasoning": "enough info."}}'
+        ']}'
+      ],
+    )
+    builder.parse_text_reasoning = True
+    state = {
+      "messages": [{"utterance_index": 1, "role": "patient", "content": "I am stressed."}],
+      "prompt_audit_records": [],
+    }
+    builder._begin_agent_orch_turn(state)
+    traces = []
+
+    update = builder._run_therapist_structured(state, traces, "opening_info_update", "instruction")
+    readiness = builder._run_therapist_structured(state, traces, "opening_readiness_check", "instruction")
+
+    self.assertEqual(update, {"mood": "sad", "problem": "work stress"})
+    self.assertEqual(readiness["ready"], True)
+    self.assertEqual(len(builder.therapist.llm.calls), 1)
+    self.assertIn("text-to-JSON conversion", builder.therapist.llm.calls[0][0][0]["content"])
+
+  def test_text_reasoning_missing_converted_trace_uses_single_trace_repair(self):
+    builder = _builder(
+      "[stage] Opening\n[opening_info_update] Mood: sad. Problem: work stress",
+      repair_responses=[
+        '{"traces": [{"name": "stage", "content": "Opening"}]}',
+        '{"opening_info_update": {"mood": "sad", "problem": "work stress"}}',
+      ],
+    )
+    builder.parse_text_reasoning = True
+    state = {"messages": [], "prompt_audit_records": []}
+    builder._begin_agent_orch_turn(state)
+    traces = []
+
+    update = builder._run_therapist_structured(state, traces, "opening_info_update", "instruction")
+
+    self.assertEqual(update["problem"], "work stress")
+    self.assertEqual(traces[0]["repair"]["attempts"], 1)
+    self.assertEqual(len(builder.therapist.llm.calls), 2)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from agents.interfaces import ChatMessage, ensure_str, parse_json_response
 from agents.therapist import (
@@ -31,6 +31,8 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
   """TherapyGraphBuilder variant driven by therapist-agent JSONL reasoning traces."""
 
   MAX_TRACE_REPAIR_ATTEMPTS = 3
+  reasoning_retry_callback: Callable[[dict[str, Any]], None] | None = None
+  parse_text_reasoning: bool = False
 
   def _model_type(self, block: Any) -> str:
     if isinstance(block, dict):
@@ -91,6 +93,77 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
       traces_by_step.setdefault(step_name, []).append(trace)
     return traces_by_step, parse_errors
 
+  def _parse_converted_trace_items(self, payload: Any) -> tuple[dict[str, list[ParsedReasoningTrace]], list[dict[str, Any]]]:
+    parse_errors: list[dict[str, Any]] = []
+    if isinstance(payload, dict) and isinstance(payload.get("traces"), list):
+      items = payload["traces"]
+    elif isinstance(payload, list):
+      items = payload
+    else:
+      return {}, [{"line_number": 0, "line": str(payload), "error": "converted text reasoning must be a list or {'traces': [...]} object"}]
+
+    traces_by_step: dict[str, list[ParsedReasoningTrace]] = {}
+    for index, item in enumerate(items, start=1):
+      if isinstance(item, dict) and "name" in item and "content" in item:
+        step_name = ensure_str(item.get("name")).strip()
+        content = item.get("content")
+      elif isinstance(item, dict) and len(item) == 1:
+        step_name, content = next(iter(item.items()))
+        step_name = ensure_str(step_name).strip()
+      else:
+        parse_errors.append({"line_number": index, "line": str(item), "error": "trace item must have name/content or one top-level step key"})
+        continue
+      if not step_name:
+        parse_errors.append({"line_number": index, "line": str(item), "error": "empty trace name"})
+        continue
+      trace = ParsedReasoningTrace(
+        step=step_name,
+        payload=content,
+        raw={"name": step_name, "content": content},
+        line_number=index,
+      )
+      traces_by_step.setdefault(step_name, []).append(trace)
+    return traces_by_step, parse_errors
+
+  def _text_reasoning_conversion_prompt(self, reasoning: str) -> list[ChatMessage]:
+    return [
+      {
+        "role": "system",
+        "content": (
+          "You are a high-precision text-to-JSON conversion tool for CBT therapist reasoning traces. "
+          "Convert bracketed textual reasoning steps into structured JSON. Return only valid JSON."
+        ),
+      },
+      {
+        "role": "user",
+        "content": (
+          "Text reasoning to convert:\n"
+          f"{reasoning}\n\n"
+          "Return a JSON object with this shape:\n"
+          '{"traces": [{"name": "trace_step_name", "content": {}}]}\n\n'
+          "Rules:\n"
+          "- Preserve every reasoning trace you can identify, including stage as name='stage'.\n"
+          "- Use canonical trace names when the text is name-aligned but not exact. For example, map readiness wording to opening_readiness_check, "
+          "mood/problem updates to opening_info_update, TIB questions to tib_check, CBT working-set bootstrap text to initial_cognitive_model_bootstrap, "
+          "gap planning text to cognitive_gap_planning, and refinement planning text to cognitive_refinement_planning.\n"
+          "- The content must contain the fields expressed by the text. Use booleans/numbers/lists when clear.\n"
+          "- If a trace is only prose, use {'message': '<prose>'} unless the trace is technique_evaluation; for technique_evaluation content may be a string.\n"
+          "- Do not invent traces that are not supported by the text.\n"
+          "- Do not include markdown fences or commentary."
+        ),
+      },
+    ]
+
+  def _convert_text_reasoning_to_traces(self, reasoning: str) -> tuple[dict[str, list[ParsedReasoningTrace]], list[dict[str, Any]]]:
+    raw = self.therapist.llm.generate(
+      self._text_reasoning_conversion_prompt(reasoning),
+      max_tokens=8192,
+      temperature=0.0,
+      strip_thinking=True,
+    )
+    parsed, _meta = parse_json_response(raw)
+    return self._parse_converted_trace_items(parsed)
+
   def _begin_agent_orch_turn(self, state: SessionState) -> None:
     history = self._build_agent_orch_history(state)
     request_messages = self.therapist.build_agent_chatml_messages(
@@ -104,7 +177,10 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
     )
     if not utterance:
       raise AgentOrchestratorTraceError("Therapist generated an empty utterance.")
-    traces_by_step, parse_errors = self._parse_agent_reasoning_jsonl(reasoning)
+    if self.parse_text_reasoning:
+      traces_by_step, parse_errors = self._convert_text_reasoning_to_traces(reasoning)
+    else:
+      traces_by_step, parse_errors = self._parse_agent_reasoning_jsonl(reasoning)
     self._agent_orch_utterance = utterance
     self._agent_orch_raw_response = raw
     self._agent_orch_reasoning = reasoning
@@ -186,6 +262,17 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
     repair_errors: list[str] = []
     payload: Any = None
     for attempt in range(1, self.MAX_TRACE_REPAIR_ATTEMPTS + 1):
+      self._notify_reasoning_retry(
+        {
+          "event": "reasoning_trace_repair_attempt",
+          "step": step_name,
+          "attempt": attempt,
+          "max_attempts": self.MAX_TRACE_REPAIR_ATTEMPTS,
+          "error": error if attempt == 1 else repair_errors[-1],
+          "original": original,
+          "utterance_index": int(state.get("utterance_index", 0)),
+        }
+      )
       messages: list[ChatMessage] = [
         {
           "role": "system",
@@ -213,7 +300,10 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
           temperature=0.0,
           strip_thinking=True,
         )
-        payload = self._parse_repaired_trace(step_name, raw)
+        if self.parse_text_reasoning and step_name == "technique_evaluation" and expected_type is str:
+          payload = ensure_str(raw)
+        else:
+          payload = self._parse_repaired_trace(step_name, raw)
         payload = self._coerce_expected_payload(step_name, payload, expected_type)
         return payload, {
           "attempts": attempt,
@@ -223,9 +313,25 @@ class AgentTherapyGraphWithOrchBuilder(TherapyGraphBuilder):
         }
       except Exception as exc:  # noqa: BLE001 - repair errors are recorded for traceability.
         repair_errors.append(str(exc))
+        self._notify_reasoning_retry(
+          {
+            "event": "reasoning_trace_repair_failed_attempt",
+            "step": step_name,
+            "attempt": attempt,
+            "max_attempts": self.MAX_TRACE_REPAIR_ATTEMPTS,
+            "error": str(exc),
+            "utterance_index": int(state.get("utterance_index", 0)),
+          }
+        )
     raise AgentOrchestratorTraceError(
       f"{step_name} reasoning trace repair failed after {self.MAX_TRACE_REPAIR_ATTEMPTS} attempts: {repair_errors[-1] if repair_errors else error}"
     )
+
+  def _notify_reasoning_retry(self, event: dict[str, Any]) -> None:
+    callback = getattr(self, "reasoning_retry_callback", None)
+    if callback is None:
+      return
+    callback(event)
 
   def _consume_or_repair_trace(
     self,

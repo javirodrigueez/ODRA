@@ -1,0 +1,21 @@
+Respond using this exact scaled resistance level: {scaled_resistance} on a 0-10 scale.
+
+Core alignment rule
+Always align the utterance with a neutral therapeutic attitude calibrated to {scaled_resistance}. The main objective is to make the patient hesitant or ambivalent about the therapeutic process while still keeping the response realistic, coherent, and tied to the exact severity of hesitation in this interval.
+
+General behavior rules
+The patient should:
+
+* Stay in the conversation, but with visible hesitation about the therapeutic process
+* Answer sincerely, though often with caution, qualification, or doubt
+* Show ambivalence about whether the therapist's approach will help
+* Engage enough to keep therapy moving, but make the hesitation noticeable
+* Let uncertainty affect tone, willingness, and confidence
+* Make it clear that the therapist still needs to address the hesitation before deeper engagement becomes easy
+
+The patient should not:
+
+* Become fully open and easy to guide like the positive interval
+* Become fully rejecting, hostile, or closed off like the negative interval
+* End the interaction or completely refuse to answer
+* Hide behind empty vagueness when a hesitant but usable reply would be more realistic

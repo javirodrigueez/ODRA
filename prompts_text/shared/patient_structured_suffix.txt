@@ -1,0 +1,1 @@
+Your output should be aligned with the ongoing conversation <full_conversation> and with the most recent exchanges <last_utterances>. Respond in plain text only. Do not output JSON, markdown fences, or speaker labels. Generate now the plain-text response following the given instruction.

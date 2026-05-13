@@ -1,0 +1,8 @@
+Decide whether the currently active CBT technique can now be marked as complete.
+The active technique object, the current detailed plan for that technique, the expected outcome, and the technique turn count are available as 'current_selected_technique', 'current_technique_plan', 'current_technique_expected_outcome', and 'technique_turn_count' within <session_context>.
+Use the recent dialogue in <last_utterances> and the prior therapist analysis in <last_reasoning> to assess only the active in-progress technique. Do not evaluate any previously completed technique or any other technique mentioned in the conversation. Mark the technique as complete only if the current exchange shows that the planned technique work has reached a natural stopping point or has sufficiently achieved its expected outcome.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "completed": boolean,
+  "reasoning": string
+}}

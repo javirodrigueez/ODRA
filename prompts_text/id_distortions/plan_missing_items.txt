@@ -1,0 +1,7 @@
+Create an internal therapist plan to fill the missing Beck cognitive model items. Already filled items of the working set: {filled_items}. Remaining targets in required order: {remaining_targets}.
+The current working cognitive set and previously completed cognitive sets are available as 'working_cognitive_set' and 'cognitive_model_sets' within <session_context>.
+Do not ask for information that is already clearly established.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "plan": string
+}}

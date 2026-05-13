@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu24.04
 
 RUN apt-get update && apt-get install -y \
     software-properties-common \
@@ -21,22 +21,10 @@ RUN ln -sf /usr/bin/python3.13 /usr/bin/python
 
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
 
-COPY requirements-finetuning.txt /tmp/requirements-finetuning.txt
+RUN apt-get update && apt-get install -y python3.13-venv
+RUN python -m venv /opt/my_env
+ENV PATH="/opt/my_env/bin:$PATH"
 
-RUN pip install --no-cache-dir torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 ninja==1.13.0
-RUN TORCH_CUDA_ARCH_LIST=12.0 pip install --no-cache-dir --no-build-isolation causal-conv1d==1.6.1
-RUN pip install --no-cache-dir -r /tmp/requirements-finetuning.txt
-
-# llama.cpp
-## env vars
-#ENV LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda/lib64/stubs
-RUN ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
-## build llama.cpp
-RUN git clone https://github.com/ggml-org/llama.cpp
-RUN cd llama.cpp && \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH} \
-    cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="120" && \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH} \
-    cmake --build build --config Release -j 24
-
-RUN cd llama.cpp && pip install -r requirements/requirements-convert_hf_to_gguf.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install vllm --extra-index-url https://download.pytorch.org/whl/cu130

@@ -1,0 +1,4 @@
+Generate the therapist's next utterance to present the proposed next-session plan and ask for the patient's reaction.
+The current next-session plan and agreed homework tasks are available as 'next_session_plan' and 'agreed_tasks' within <session_context>.
+Present the plan in a collaborative way, keep it concise, and invite the patient to say whether it fits. Make the plan feel connected to the work already done in this session.
+Respond with plain text.

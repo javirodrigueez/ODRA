@@ -28,9 +28,10 @@ Hello, I'm glad to meet you. How are you feeling today?
       "model": model,
       "max_tokens": max_model_len,
       "messages": [
-          {"role": "system", "content": system},
-          {"role": "assistant", "content": open},
-          {"role": "user", "content": "Hi, well. I have been feeling a bit anxious lately, especially with work and family responsibilities piling up."},
+          #{"role": "system", "content": system},
+          #{"role": "assistant", "content": open},
+          #{"role": "user", "content": "Hi, well. I have been feeling a bit anxious lately, especially with work and family responsibilities piling up."},
+          {"role": "user", "content": text},
       ],
     }
 

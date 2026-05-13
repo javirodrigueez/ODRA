@@ -40,6 +40,64 @@ from simulation import (
 )
 
 
+def _trace_output_for_display(output: Any) -> str:
+  if isinstance(output, str):
+    stripped = output.strip()
+    if not stripped:
+      return ""
+    try:
+      parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+      return stripped
+    return json.dumps(parsed, ensure_ascii=False)
+  if output is None:
+    return ""
+  return json.dumps(output, ensure_ascii=False) if isinstance(output, (dict, list)) else str(output)
+
+
+def _format_reasoning_trace(trace: dict[str, Any]) -> str:
+  step = str(trace.get("step", "")).strip() or "unknown"
+  output = _trace_output_for_display(trace.get("output"))
+  if not output:
+    return f"[{step}]"
+  return f"[{step}] {output}"
+
+
+def _reasoning_for_message(result: dict[str, Any], message: dict[str, Any]) -> str:
+  try:
+    target_index = int(message.get("utterance_index", 0))
+  except (TypeError, ValueError):
+    target_index = 0
+  target_role = str(message.get("role", "")).strip().lower()
+  rendered: list[str] = []
+  for trace_group in result.get("reasoning_traces", []):
+    if not isinstance(trace_group, dict):
+      continue
+    try:
+      trace_index = int(trace_group.get("utterance_index", 0))
+    except (TypeError, ValueError):
+      continue
+    if trace_index != target_index:
+      continue
+    if str(trace_group.get("speaker", "")).strip().lower() != target_role:
+      continue
+    traces = trace_group.get("traces")
+    if not isinstance(traces, list):
+      continue
+    for trace in traces:
+      if isinstance(trace, dict):
+        rendered.append(_format_reasoning_trace(trace))
+  return "\n".join(rendered)
+
+
+def _print_reasoning_for_message(result: dict[str, Any], message: dict[str, Any]) -> None:
+  reasoning = _reasoning_for_message(result, message)
+  if not reasoning:
+    return
+  role = str(message.get("role", "")).capitalize() or "Unknown"
+  print(f"    --> {role} Reasoning:\n<think>\n{reasoning}\n</think>")
+
+
 def run_simulation(
   cfg_path: str,
   profile: dict[str, Any],
@@ -53,6 +111,8 @@ def run_simulation(
   suppress_output: bool = False,
   print_saved_paths: bool = True,
   disable_tib: bool | None = None,
+  include_reasoning: bool = False,
+  parse_text_reasoning: bool = False,
 ) -> dict[str, Any]:
   resolved_disable_tib = bool(disable_tib) if disable_tib is not None else _disable_tib_from_cfg_path(cfg_path)
   result: dict[str, Any] = {
@@ -83,6 +143,15 @@ def run_simulation(
     progress_callback(current)
     last_reported_utterance = current
 
+  def report_reasoning_retry(event: dict[str, Any]) -> None:
+    if suppress_output:
+      return
+    step = event.get("step", "unknown")
+    attempt = event.get("attempt", "?")
+    max_attempts = event.get("max_attempts", "?")
+    error = event.get("error", "")
+    print(f"    <REASONING_RETRY step={step} attempt={attempt}/{max_attempts}> {error}</REASONING_RETRY>")
+
   with ExitStack() as stack:
     if suppress_output:
       devnull = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
@@ -93,6 +162,9 @@ def run_simulation(
       from graph.agent_graph_with_orch import AgentTherapyGraphWithOrchBuilder
 
       builder = AgentTherapyGraphWithOrchBuilder(cfg_path, profile, disable_tib=resolved_disable_tib)
+      builder.parse_text_reasoning = bool(parse_text_reasoning)
+      if include_reasoning and not suppress_output:
+        builder.reasoning_retry_callback = report_reasoning_retry
       chain = builder.create_chain()
       if resume_state is None:
         initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
@@ -101,7 +173,7 @@ def run_simulation(
       result = initial_state
       report_progress(initial_state.get("utterance_index", 0))
 
-      if verbose or progress_callback is not None:
+      if verbose or progress_callback is not None or include_reasoning:
         if verbose:
           print()
         last_msg_count = len(initial_state.get("messages", []))
@@ -110,10 +182,15 @@ def run_simulation(
           current_stage = chunk.get("current_stage", "N/A")
           r = chunk.get("resistance", "N/A")
           pred_r = chunk.get("predicted_resistance", "N/A")
-          if verbose:
+          if verbose or include_reasoning:
             for msg in messages[last_msg_count:]:
               r_print = pred_r if msg["role"] == "therapist" else r
-              print(f'    {msg["role"].capitalize()} ({r_print}) [{current_stage}]: {msg["content"]}')
+              if include_reasoning:
+                _print_reasoning_for_message(chunk, msg)
+              if verbose:
+                print(f'    {msg["role"].capitalize()} ({r_print}) [{current_stage}]: {msg["content"]}')
+              elif include_reasoning:
+                print(f'    {msg["role"].capitalize()} [{current_stage}]: {msg["content"]}')
           last_msg_count = len(messages)
           result = chunk
           report_progress(result.get("utterance_index", 0))
@@ -145,6 +222,10 @@ def run_simulation(
       with transcript_file.open("w", encoding="utf-8") as f:
         messages = cast(list[dict[str, Any]], result.get("messages", []))
         for message in messages:
+          if include_reasoning:
+            reasoning = _reasoning_for_message(result, message)
+            if reasoning:
+              f.write(f"--> {message['role'].capitalize()} Reasoning:\n<think>\n{reasoning}\n</think>\n\n")
           f.write(f'--> {message["role"].capitalize()} [{message.get("stage", "N/A")}]: {message["content"]}\n\n')
       with json_file.open("w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=True)
@@ -159,9 +240,9 @@ def run_simulation(
 
 
 def _run_simulation_batch_worker(
-  args: tuple[int, str, dict[str, Any], int, int, str, Any, bool],
+  args: tuple[int, str, dict[str, Any], int, int, str, Any, bool, bool, bool],
 ) -> dict[str, Any]:
-  run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, disable_tib = args
+  run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, disable_tib, include_reasoning, parse_text_reasoning = args
 
   def progress_callback(utterance_index: int) -> None:
     progress_queue.put((run_index, int(utterance_index)))
@@ -177,6 +258,8 @@ def _run_simulation_batch_worker(
     suppress_output=True,
     print_saved_paths=False,
     disable_tib=disable_tib,
+    include_reasoning=include_reasoning,
+    parse_text_reasoning=parse_text_reasoning,
   )
   progress_callback(int(result.get("utterance_index", 0) or 0))
   return {"run_index": run_index, "profile": profile, "result": result}
@@ -208,6 +291,8 @@ def _run_batch_sequential(
   output_dir: str,
   verbose: bool,
   disable_tib: bool = False,
+  include_reasoning: bool = False,
+  parse_text_reasoning: bool = False,
 ) -> None:
   total_to_run = len(profiles_to_run)
   for run_index, profile in enumerate(profiles_to_run, start=1):
@@ -220,6 +305,8 @@ def _run_batch_sequential(
       output_dir,
       verbose,
       disable_tib=disable_tib,
+      include_reasoning=include_reasoning,
+      parse_text_reasoning=parse_text_reasoning,
     )
     _print_simulation_summary(result)
     _record_simulation_result(manifest, profile, output_dir, result)
@@ -235,6 +322,8 @@ def _run_batch_multiprocessing(
   output_dir: str,
   n_processes: int,
   disable_tib: bool = False,
+  include_reasoning: bool = False,
+  parse_text_reasoning: bool = False,
 ) -> None:
   if not profiles_to_run:
     return
@@ -263,7 +352,7 @@ def _run_batch_multiprocessing(
             bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
             pool.apply_async(
               _run_simulation_batch_worker,
-              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, disable_tib),),
+              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, progress_queue, disable_tib, include_reasoning, parse_text_reasoning),),
               callback=on_success,
               error_callback=on_error,
             )
@@ -315,6 +404,8 @@ def main(
   eval_max_iter: int = 1,
   use_multiprocessing: bool = False,
   n_processes: int | None = None,
+  include_reasoning: bool = False,
+  parse_text_reasoning: bool = False,
 ) -> None:
   from runtime_config import load_runtime_config
 
@@ -350,6 +441,8 @@ def main(
       verbose,
       resume_state=resume_state,
       disable_tib=disable_tib,
+      include_reasoning=include_reasoning and not use_multiprocessing,
+      parse_text_reasoning=parse_text_reasoning,
     )
     _print_simulation_summary(result)
     return
@@ -392,6 +485,8 @@ def main(
       output_dir=output_dir,
       n_processes=cast(int, n_processes),
       disable_tib=disable_tib,
+      include_reasoning=include_reasoning,
+      parse_text_reasoning=parse_text_reasoning,
     )
   else:
     _run_batch_sequential(
@@ -403,6 +498,8 @@ def main(
       output_dir=output_dir,
       verbose=verbose,
       disable_tib=disable_tib,
+      include_reasoning=include_reasoning,
+      parse_text_reasoning=parse_text_reasoning,
     )
 
   if run_eval:
@@ -425,6 +522,8 @@ if __name__ == "__main__":
   parser.add_argument("--eval-max-iter", type=int, default=1, help="Evaluator samples per metric prompt.")
   parser.add_argument("--multiprocessing", action="store_true", dest="use_multiprocessing", help="Run selected batch profiles in parallel.")
   parser.add_argument("--n-processes", type=int, default=None, help="Number of worker processes to use with --multiprocessing.")
+  parser.add_argument("--reasoning", action="store_true", dest="include_reasoning", help="Show reasoning traces in non-multiprocessing console output and TXT transcripts.")
+  parser.add_argument("--parse-text-reasoning", action="store_true", help="Parse text-form therapist reasoning into structured traces before driving the orchestrator.")
   args = parser.parse_args()
   main(
     args.cfg,
@@ -435,4 +534,6 @@ if __name__ == "__main__":
     eval_max_iter=args.eval_max_iter,
     use_multiprocessing=args.use_multiprocessing,
     n_processes=args.n_processes,
+    include_reasoning=args.include_reasoning,
+    parse_text_reasoning=args.parse_text_reasoning,
   )

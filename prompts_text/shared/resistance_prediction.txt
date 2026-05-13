@@ -1,0 +1,59 @@
+Estimate the patient's current psychological resistance level based solely on their latest utterance. The previous predicted resistance is {old_r}. If no previous prediction exists, establish the baseline from the current utterance alone.
+
+### Definitions:
+- Resistance (p_target): A float in [0.0, 1.0]. 
+  - 0.0 - 0.33: Highly open, collaborative, introspective, willing to engage.
+  - 0.33 - 0.66: Ambivalent, hesitant about the process, still engaged but with clear uncertainty.
+  - 0.66 - 0.88: Rejecting therapy, pessimistic, challenging the therapist's logic, closed to follow therapist line.
+  - 0.9 - 1.0: Highly defiant, hostile, completely shut down, or refusing to participate.
+- Signal Clarity (signal_clarity): A float in [0.0, 1.0]. 1.0 means the utterance is explicit and unambiguous; 0.0 means it is entirely vague, mixed, or uninformative for updating the resistance state.
+
+### Output Format (Plain Text):
+You must evaluate the utterance and provide reasoning BEFORE providing your numerical estimates to ensure accurate logical deduction.
+{{
+  "reasoning": "Briefly analyze linguistic markers (e.g. vocabulary, tone, etc.), relate them to the clinical rubric, and explain how the utterance shifts from the previous resistance.",
+  "signal_clarity": 0.0,
+  "p_target": 0.0
+}}
+
+### Examples
+
+Example 1:
+Patient utterance: "It feels like we're circling the same thought. I tell you I'm stuck, you reflect it back, and I'm still stuck. I don't think this is going to work for me."
+Previous predicted resistance: 0.5
+Response: {{"reasoning": "The patient explicitly challenges the efficacy of the therapy and expresses active pessimism ('not going to work'). This is a strong indicator of high resistance, representing a clear escalation from the previous state of 0.5.", "signal_clarity": 0.9, "p_target": 0.8}}
+
+Example 2:
+Patient utterance: "I'm trying to figure out how to fix that, but honestly, I'm not sure talking about it will really change anything."
+Previous predicted resistance: 0.2
+Response: {{"reasoning": "While the patient shows initial willingness ('trying to figure out'), they immediately pivot to doubting the therapeutic process. This shift indicates emerging ambivalence and a breakdown in collaboration.", "signal_clarity": 0.9, "p_target": 0.5}}
+
+Example 3:
+Patient utterance: "I don't know, maybe this will help. I guess I'm open to trying it, but I'm not sure how it will work for me."
+Previous predicted resistance: 0.7
+Response: {{"reasoning": "The patient is expressing hesitation but concedes a willingness to try. This represents a de-escalation from prior high resistance into a state of passive agreement and ambivalence.", "signal_clarity": 0.7, "p_target": 0.4}}
+
+Example 4:
+Patient utterance: "Well, I think I can give it a try and see what happens. At the end you'll know better than I will."
+Previous predicted resistance: 0.3
+Response: {{"reasoning": "The patient shows compliance and delegates authority to the therapist. While lacking deep introspection, the explicit willingness to engage maps to a collaborative, low-resistance state.", "signal_clarity": 0.7, "p_target": 0.2}}
+
+Example 5:
+Patient utterance: "Yeah, whatever. Anyway, did you see the game last night?"
+Previous predicted resistance: 0.6
+Response: {{"reasoning": "The patient provides a dismissive, non-committal response and immediately attempts to change the subject. The therapeutic signal is weak due to the deflection, justifying a low signal clarity score, while the resistance state remains relatively anchored to the prior value.", "signal_clarity": 0.2, "p_target": 0.65}}
+
+Example 6:
+Patient utterance: "Maybe I would've stayed a second longer, maybe even tried to say 'have a good day' or something. But honestly, even if I had done that, I don't think it would have changed the fact that the whole thing felt pointless. It still would have been a transaction, not a connection. So, I'm not sure what that proves."
+Previous predicted resistance: 0.6
+Response: {{"reasoning": "The patient reflects on a missed opportunity for connection and expresses doubt about the effectiveness of the therapeutic process. This indicates a maintenance on resistance as the previous prediction already reflects a moderate resistance level.", "signal_clarity": 0.9, "p_target": 0.6}}
+
+Example 7:
+Patient utterance: "This is a complete waste of my time. I'm not doing your stupid worksheets, and I don't want to talk about this anymore."
+Previous predicted resistance: 0.7
+Response: {{"reasoning": "The patient demonstrates outright hostility, explicitly refusing to participate in the therapeutic exercises and attempting to shut down the conversation entirely. This maps perfectly to the highest tier of defiance and non-compliance.", "signal_clarity": 1.0, "p_target": 0.95}}
+
+---
+Patient utterance: "{current_utterance}"
+Previous predicted resistance: {old_r}
+---

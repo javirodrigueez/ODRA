@@ -1,0 +1,10 @@
+Generate your next utterance using the next information and guidelines.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Guidelines:
+* Use the <attitude_towards_therapy> block as broad tone guidance for how open, measured, or reluctant you sound.
+* Use the <engagement> block to shape the tone and directness of your response to the therapist's current topic. Let it influence whether you stay broad, hint at a more relevant area, or show that the therapist is finally on the right track.
+* Respond naturally to the therapist's latest utterance and the current stage instruction.
+* Do not mention the attitude label or engagement explicitly.

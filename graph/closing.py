@@ -58,7 +58,7 @@ class ClosingStageMixin(GraphSupportMixin):
         "closing_plan_agreement_check",
       )
       state["last_reasoning"] = ensure_str(agreement.get("reasoning", ""), "closing_plan_agreement_check")
-      if agreed or state["closing_plan_refinements"] >= 10:
+      if agreed or state["closing_plan_refinements"] >= 5:
         self._set_substage(state, "closing_review_feedback")
         instruction = self._load_stage_prompt("closing", "request_feedback_utterance")
         return self._generate_closing_utterance(state, instruction)

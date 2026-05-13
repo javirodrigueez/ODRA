@@ -1,0 +1,17 @@
+Generate your next utterance using the next information and guidelines.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Last resistance update reasoning
+The last therapist utterance affected you in this way: {resistance_update_reasoning}
+
+Selected utterance action
+Action: {selected_action}
+Definition: {selected_action_definition}
+
+Guidelines:
+* The selected action is the main factor that determines whether you accept, hesitate, or refuse the therapist's proposed line.
+* Use the <engagement> block to shape the tone and directness of your response to the therapist's current topic. Let it influence whether you stay broad, hint at a more relevant area, or show that the therapist is finally on the right track.
+* Although the action is the main guidance, the attitude and tone of your response should still be influenced by your <resistance_level>, the last resistance update reasoning, and the <engagement> block.
+* Do not mention engagement explicitly.

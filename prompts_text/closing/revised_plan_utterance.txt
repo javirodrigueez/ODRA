@@ -1,0 +1,4 @@
+Generate the therapist's next utterance to acknowledge the patient's concern about the next-session plan, present the revised plan, and ask whether it fits better.
+The revised next-session plan, the latest patient response, and the current number of plan refinements are available as 'next_session_plan', 'last_patient_response', and 'closing_plan_refinements' within <session_context>.
+Acknowledge the concern without becoming defensive. Present the revised plan clearly and end by asking whether this version feels like a better fit.
+Respond with plain text.

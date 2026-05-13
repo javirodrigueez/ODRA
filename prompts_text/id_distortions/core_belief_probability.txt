@@ -1,0 +1,4 @@
+Assign probabilities to the Beck core belief categories for the current working cognitive set.
+The current working cognitive set is available as 'working_cognitive_set' within <session_context>.
+Use the situation, automatic thoughts, emotions, and behaviors in that set to estimate the categories `helplessness`, `unlovability`, and `worthlessness`. Each probability must be a float between 0.0 and 1.0, and the sum of all probabilities must equal 1.0.
+Respond in plain text. Cover the following fields in concise labeled lines: {"helplessness": float, "unlovability": float, "worthlessness": float}

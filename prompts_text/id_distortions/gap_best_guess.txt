@@ -1,0 +1,13 @@
+Generate the most conservative best-supported guess for the current active target Beck cognitive model item.
+The active target, active question, current working cognitive set, and last patient response are available as 'active_cognitive_target', 'active_cognitive_question', 'working_cognitive_set', and 'last_patient_response' within <session_context>. The recent dialogue and prior analysis are available in <last_utterances> and <last_reasoning>.
+Make a conservative guess for the active target only. Leave every non-target field as null, and use `reasoning` to explain the evidence and uncertainty behind the guess.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{
+  "identified_items": {
+    "situation": string or null,
+    "auto_thoughts": list of strings or null,
+    "emotions": list of strings or null,
+    "behaviors": list of strings or null
+  },
+  "reasoning": string
+}

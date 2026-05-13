@@ -1,0 +1,4 @@
+Predict the change in your resistance level towards therapy for the next turn given the last therapist utterance.
+The current patient's resistance is {resistance}, your presenting problem is: {presenting_problem}, your reason for seeking counseling is: {reason_for_seeking_counseling}, and the last therapist utterance is: {last_utterance}.
+Your prediction should reflect how the last therapist messsage helped you to address your presenting problem, and how aligned it was with your motivation to seek counseling. The predicted value should be a float bounded by -0.10 and +0.15. Aditionally, provide your reasoning for this update.
+Respond in plain text covering the same fields: {{"r_change": 0.0, "reasoning":"..."}}

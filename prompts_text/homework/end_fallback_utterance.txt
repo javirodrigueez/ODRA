@@ -1,0 +1,4 @@
+Generate the therapist's next utterance to acknowledge the patient's stance on homework and transition smoothly toward closing.
+The agreed homework tasks, the most recent proposed homework tasks, whether the fallback path has already been used, and the opening-stage problem summary are available as 'agreed_tasks', 'proposed_tasks', 'homework_fallback_done', and 'opening_patient_problem' within <session_context>.
+If homework agreement was not reached, briefly reinforce the value of engaging with treatment without sounding critical or lecturing. If a fallback task was accepted, acknowledge it briefly and then transition forward.
+Respond with plain text.

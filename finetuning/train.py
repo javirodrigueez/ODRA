@@ -318,7 +318,7 @@ def train_model(
             eos_token = tokenizer.eos_token,
             pad_token = tokenizer.pad_token or tokenizer.eos_token,
             packing = False,
-            per_device_train_batch_size = 1,
+            per_device_train_batch_size = 3,
             gradient_accumulation_steps = 4,
             gradient_checkpointing = True,
             warmup_steps = 5,

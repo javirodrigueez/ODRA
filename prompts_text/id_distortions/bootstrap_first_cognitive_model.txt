@@ -1,0 +1,14 @@
+Generate a Beck cognitive model for the first `id_distortions` working set using the ongoing conversation in <full_conversation>.
+The patient's current mood and problem are available as 'opening_patient_mood' and 'opening_patient_problem' within <session_context>.
+A cognitive model must contain `situation`, `auto_thoughts`, `emotions`, and `behaviors`. Only include items that are explicitly supported by the conversation and that you are fully confident about. If information is relevant but not certain enough to commit, explain it in `reasoning` instead of adding it to `items`.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{
+  "items": {
+    "situation": string or null,
+    "auto_thoughts": list of strings,
+    "emotions": list of strings,
+    "behaviors": list of strings
+  },
+  "reasoning": string
+}
+

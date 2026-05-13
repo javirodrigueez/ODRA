@@ -1,0 +1,12 @@
+wandb
+numpy
+backoff
+openai
+tqdm
+omegaconf
+langgraph
+langchain
+langchain_aws
+langchain_huggingface
+torch
+transformers

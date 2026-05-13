@@ -1,0 +1,9 @@
+Check whether the patient is ready to return from meta-conversation to the main CBT flow.
+The patient's opening mood, opening problem summary, current MI topic, previously tried MI topics, recently used MI techniques, MI-only conversation segment, latest predicted resistance, CBT resume stage, last patient response, and stage exchange history are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_topics_tried', 'mi_techniques_used', 'mi_context', 'predicted_resistance', 'cbt_resume_stage', 'last_patient_response', and 'stage_exchange_history' within <session_context>.
+Respond with ready=true only if the patient now seems willing to re-engage with the therapeutic work itself, not merely willing to keep talking about the process. If the patient is still mainly expressing discomfort, mistrust, confusion, disengagement, or a need to stay at the meta-process level, respond with ready=false.
+
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "ready": boolean,
+  "reasoning": string
+}}

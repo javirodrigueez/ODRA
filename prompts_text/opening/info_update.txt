@@ -1,0 +1,7 @@
+Extract information from the last patient response to update the patient's mood and problem if necessary. Only update if the new information provides more specific understanding of the patient's mood or problem. If no update, respond with null. Current patient mood ('opening_patient_mood'), current patient problem ('opening_patient_problem'), and last patient response ('last_patient_response') are available in <session_context>.
+
+Respond in plain text. Cover the following fields in concise labeled lines: 
+{{
+  "mood": string or null, 
+  "problem":string or null
+}}

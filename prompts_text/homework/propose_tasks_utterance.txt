@@ -1,0 +1,4 @@
+Generate the therapist's next utterance to propose the current homework tasks to the patient.
+The current homework tasks, the number of homework proposal attempts, the opening-stage problem summary, and the latest patient response are available as 'proposed_tasks', 'homework_proposal_attempts', 'opening_patient_problem', and 'last_patient_response' within <session_context>.
+If earlier homework proposals were not accepted, acknowledge the adjustment indirectly by making this version feel simpler or better tailored instead of repeating the same framing. Maintain the natural tone of a dialogue, proposing the tasks on a unique paragraph.
+Respond with plain text.

@@ -1,0 +1,23 @@
+You are analyzing how aligned the therapist's current topic feels with what actually motivates you to change.
+
+Recent conversation snippet
+{recent_conversation}
+
+Last therapist utterance
+{last_utterance}
+
+Perceived topic
+{perceived_topic}
+
+Ground-truth motivation topic
+{motivation_topic}
+
+Ground-truth motivation
+{motivation_text}
+
+Current engagement level, ranging from 1 (low) to 4 (high)
+{engagement_level}
+
+Write a concise first-person analysis explaining how aligned or misaligned the therapist's current focus feels with your real motivation, and why. Ground it in the perceived topic and your motivation. Do not mention numeric engagement levels.
+
+Respond in plain text covering the same fields: {{"engagement_analysis":"..."}}

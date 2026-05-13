@@ -1,0 +1,15 @@
+Generate your next utterance using the next information and guidelines.
+
+Stage instruction
+{patient_utterance_instruction}
+
+Last resistance update reasoning
+The last therapist utterance affected you in this way: {resistance_update_reasoning}
+
+Selected utterance action
+Action: {selected_action}
+Definition: {selected_action_definition}
+
+Guidelines:
+* The selected action is the main factor that determines whether you accept, hesitate, or refuse the therapist's proposed line.
+* Although the action is the main guidance, the attitude and tone of your response should be influenced by your <resistance_level> and by the last resistance update reasoning.

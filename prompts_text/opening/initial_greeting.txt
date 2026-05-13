@@ -1,0 +1,1 @@
+Generate the initial greeting for the CBT session. Begin the session with an open and empathetic greeting. It should be brief, for example: "Hello, glad to meet you", or "Hi, how are you doing?"

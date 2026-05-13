@@ -1,0 +1,10 @@
+Choose the next motivational interviewing techniques to be used from this catalog:
+{formatted_catalog}
+The patient's opening mood, opening problem summary, current MI topic, recently used MI techniques, latest predicted resistance, previous MI predicted resistance, CBT resume stage, and last patient response are available as 'opening_patient_mood', 'opening_patient_problem', 'current_mi_topic', 'mi_techniques_used', 'predicted_resistance', 'last_mi_predicted_resistance', 'cbt_resume_stage', and 'last_patient_response' within <session_context>.
+You are working inside the CAMI resistance-handling stage, so the selected techniques should fit the current topic and help the counselor stay anchored there while motivating change.
+Based on the current session context and patient state, analyze and select 1 or 2 appropriate strategies. Your objective is to motivate the client to change, optimally advancing the counseling process.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "techniques": [string],
+  "reasoning": string
+}}

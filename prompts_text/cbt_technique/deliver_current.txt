@@ -1,0 +1,4 @@
+Generate only the next utterance for the currently active CBT technique.
+The active technique object, the detailed plan for that technique, the expected outcome, the latest recorded progress state, the identified Beck cognitive model sets and the partially identified cognitive model sets are available as 'current_selected_technique', 'current_technique_plan', 'current_technique_expected_outcome', 'current_technique_current_progress', 'cognitive_model_sets' and 'shelved_cognitive_sets' within <session_context>.
+The utterance must align with the plan, directly address the patient's problems, and sound like an in-session CBT intervention. Do not describe the plan abstractly and do not list steps.
+Respond with plain text.

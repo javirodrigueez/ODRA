@@ -1,0 +1,10 @@
+Choose 1 additional CBT technique that fits the current session. You must select only from the following catalog and preserve the technique name exactly as written.
+{formatted_catalog}
+The identified Beck cognitive model sets, the partially identified cognitive model sets, the techniques already queued or used this session, the current technique index, the currently active technique object when one is in range, the number of CBT techniques already completed, and recent evaluations of completed techniques are available as 'cognitive_model_sets', 'shelved_cognitive_sets', 'selected_techniques', 'current_technique_index', 'current_selected_technique', 'techniques_completed', and 'technique_evaluations' within <session_context>.
+Choose a technique that complements what has already been tried and addresses the patient's remaining needs. Avoid repeating an approach that recent technique evaluations suggest was ineffective or poorly tolerated unless the conversation clearly supports trying it again.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "name": string,
+  "target_distortion": string,
+  "rationale": string
+}}

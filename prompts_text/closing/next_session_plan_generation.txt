@@ -1,0 +1,7 @@
+Create a concise plan for the next session based on today's outcomes and any agreed homework.
+The opening-stage problem summary, completed cognitive sets, technique evaluations, selected_techniques, and agreed homework tasks are available as 'opening_patient_problem', 'cognitive_model_sets', 'technique_evaluations', 'selected_techniques', and 'agreed_tasks' within <session_context>.
+Keep the plan brief, specific, and aligned with the patient's current therapeutic direction. If the patient previously pushed back on the plan, use 'last_reasoning' and 'closing_plan_refinements' within <session_context> to make the revision better matched to their response. Do not promise work that is disconnected from today's session.
+Respond in plain text. Cover the following fields in concise labeled lines:
+{{
+  "next_session_plan": string
+}}
