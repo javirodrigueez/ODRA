@@ -255,6 +255,23 @@ class MIRoutingTest(unittest.TestCase):
     cfg = normalize_runtime_config({"patient": {}})
     self.assertEqual(cfg["patient"]["prompt_variant"], "base")
 
+  def test_runtime_config_preserves_agent_system_prompt_paths(self) -> None:
+    cfg = normalize_runtime_config(
+      {
+        "therapist": {
+          "system_prompt_path": "agent_prompts/custom_therapist.txt",
+          "ft_system_prompt_path": "ft_prompts/custom.txt",
+        },
+        "patient": {
+          "system_prompt_path": "agent_prompts/custom_patient.txt",
+        },
+      }
+    )
+
+    self.assertEqual(cfg["therapist"]["system_prompt_path"], "agent_prompts/custom_therapist.txt")
+    self.assertEqual(cfg["therapist"]["ft_system_prompt_path"], "ft_prompts/custom.txt")
+    self.assertEqual(cfg["patient"]["system_prompt_path"], "agent_prompts/custom_patient.txt")
+
   def test_runtime_config_preserves_disabled_resistance(self) -> None:
     cfg = normalize_runtime_config({"env": {"resistance": False}})
     self.assertFalse(cfg["env"]["resistance"])

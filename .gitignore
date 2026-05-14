@@ -14,6 +14,7 @@ myenv
 /evaluation/**/miniout_*
 /evaluation/data.json
 /evaluation/eval_*
+!/evaluation/eval_queue_manager.py
 /models
 /cactus
 /axbench
@@ -21,3 +22,6 @@ myenv
 /unsloth_compiled_cache
 /wandb
 outs
+/ft_models_legacy
+/finetuning/train_queue_state.json
+/finetuning/train_queue_logs

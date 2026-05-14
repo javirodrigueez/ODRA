@@ -132,6 +132,15 @@ from datasets import Dataset
 from trl.trainer.sft_config import SFTConfig
 from trl.trainer.sft_trainer import SFTTrainer
 
+SHAREGPT_ROLE_MAP = {
+    "system": "system",
+    "human": "user",
+    "user": "user",
+    "gpt": "assistant",
+    "assistant": "assistant",
+    "tool": "tool",
+}
+
 
 def local_models_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "models"
@@ -149,6 +158,38 @@ def resolve_local_model_path(model_name: str) -> Path:
 
     searched = ", ".join(str(path) for path in candidates)
     raise FileNotFoundError(f"Local model not found. Checked: {searched}")
+
+
+def native_max_seq_length(model_path: Path) -> int:
+    config_path = model_path / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Missing model config: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as file:
+        config = json.load(file)
+
+    max_position_embeddings = config.get("max_position_embeddings") or config.get("text_config").get("max_position_embeddings")
+    if not isinstance(max_position_embeddings, int) or max_position_embeddings <= 0:
+        raise ValueError(
+            f"{config_path} does not define a valid max_position_embeddings value."
+        )
+    return max_position_embeddings
+
+
+def resolve_max_seq_length(model_path: Path, requested_max_seq_length: int | None) -> int:
+    native_length = native_max_seq_length(model_path)
+    if requested_max_seq_length is None:
+        print(f"Using native model max sequence length: {native_length}")
+        return native_length
+
+    if requested_max_seq_length != native_length:
+        raise ValueError(
+            "Refusing to change model context length because that would allow "
+            "Unsloth to apply RoPE scaling. "
+            f"Requested --max-seq-length={requested_max_seq_length}, "
+            f"but {model_path} has native max_position_embeddings={native_length}."
+        )
+    return requested_max_seq_length
 
 
 def apply_training_chat_template(tokenizer: Any, chat_template: str) -> Any:
@@ -187,13 +228,14 @@ def resolve_attn_implementation(attn_implementation: str | None) -> str | None:
 
 def create_model(
     model_name: str,
-    max_seq_length: int,
+    requested_max_seq_length: int | None,
     load_in_4bit: bool = False,
     chat_template: str = "qwen3.6-thinking",
     attn_implementation: str | None = "auto",
-) -> tuple[Any, Any]:
+) -> tuple[Any, Any, int]:
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model_path = resolve_local_model_path(model_name)
+    max_seq_length = resolve_max_seq_length(model_path, requested_max_seq_length)
     print(f"Using local model from: {model_path}")
     resolved_attn_implementation = resolve_attn_implementation(attn_implementation)
     if resolved_attn_implementation:
@@ -226,21 +268,10 @@ def create_model(
         use_rslora = False,  
         loftq_config = None, 
     )
-    return model, tokenizer
+    return model, tokenizer, max_seq_length
 
 
-def load_chatml_session(path: Path) -> dict[str, Any]:
-    try:
-        with Path(path).open("r", encoding="utf-8") as f:
-            payload = json.load(f)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path}: malformed JSON: {exc}") from exc
-    except OSError as exc:
-        raise ValueError(f"{path}: failed to read file: {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: root must be a JSON object.")
-    messages = payload.get("messages")
+def normalize_chatml_messages(path: Path, messages: Any) -> list[dict[str, str]]:
     if not isinstance(messages, list) or not messages:
         raise ValueError(f"{path}: expected non-empty 'messages' list.")
 
@@ -255,6 +286,46 @@ def load_chatml_session(path: Path) -> dict[str, Any]:
         if not isinstance(content, str) or not content.strip():
             raise ValueError(f"{path}: messages[{index}] must have non-empty string content.")
         normalized_messages.append({"role": role, "content": content})
+    return normalized_messages
+
+
+def normalize_sharegpt_conversations(path: Path, conversations: Any) -> list[dict[str, str]]:
+    if not isinstance(conversations, list) or not conversations:
+        raise ValueError(f"{path}: expected non-empty 'conversations' list.")
+
+    normalized_messages = []
+    for index, message in enumerate(conversations, start=1):
+        if not isinstance(message, dict):
+            raise ValueError(f"{path}: conversations[{index}] must be a JSON object.")
+        source_role = str(message.get("from", "")).strip()
+        role = SHAREGPT_ROLE_MAP.get(source_role)
+        content = message.get("value")
+        if role is None:
+            raise ValueError(f"{path}: conversations[{index}] has unsupported role {source_role!r}.")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f"{path}: conversations[{index}] must have non-empty string value.")
+        normalized_messages.append({"role": role, "content": content})
+    return normalized_messages
+
+
+def load_training_session(path: Path) -> dict[str, Any]:
+    try:
+        with Path(path).open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: malformed JSON: {exc}") from exc
+    except OSError as exc:
+        raise ValueError(f"{path}: failed to read file: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path}: root must be a JSON object.")
+
+    if "messages" in payload:
+        normalized_messages = normalize_chatml_messages(path, payload.get("messages"))
+    elif "conversations" in payload:
+        normalized_messages = normalize_sharegpt_conversations(path, payload.get("conversations"))
+    else:
+        raise ValueError(f"{path}: expected either 'messages' or 'conversations'.")
 
     return {
         "messages": normalized_messages,
@@ -262,16 +333,16 @@ def load_chatml_session(path: Path) -> dict[str, Any]:
     }
 
 
-def load_chatml_sessions(input_dir: str | Path) -> list[dict[str, Any]]:
+def load_training_sessions(input_dir: str | Path) -> list[dict[str, Any]]:
     input_dir = Path(input_dir)
     if not input_dir.is_dir():
-        raise ValueError(f"--input-data must be a directory containing ChatML session JSON files: {input_dir}")
+        raise ValueError(f"--input-data must be a directory containing training JSON files: {input_dir}")
 
     input_files = sorted(path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() == ".json")
     if not input_files:
         raise ValueError(f"No .json session files found in {input_dir}")
 
-    return [load_chatml_session(path) for path in input_files]
+    return [load_training_session(path) for path in input_files]
 
 
 def formatting_prompts_func(examples: dict[str, list[Any]], tokenizer: Any) -> dict[str, list[str]]:
@@ -280,7 +351,7 @@ def formatting_prompts_func(examples: dict[str, list[Any]], tokenizer: Any) -> d
             messages,
             tokenize = False,
             add_generation_prompt = False,
-            preserve_thinking = True,
+            #preserve_thinking = True,
         )
         for messages in examples["messages"]
     ]
@@ -288,7 +359,7 @@ def formatting_prompts_func(examples: dict[str, list[Any]], tokenizer: Any) -> d
 
 
 def create_dataset(input_dir: str | Path, tokenizer: Any) -> Dataset:
-    dataset = Dataset.from_list(load_chatml_sessions(input_dir))
+    dataset = Dataset.from_list(load_training_sessions(input_dir))
     dataset = dataset.map(
         lambda examples: formatting_prompts_func(examples, tokenizer),
         batched = True,
@@ -306,6 +377,8 @@ def train_model(
     trainer_output_dir: Path,
     report_to: str,
     run_name: str,
+    instruction_part: str,
+    response_part: str,
 ) -> None:
     trainer = SFTTrainer(
         model = model,
@@ -322,7 +395,7 @@ def train_model(
             gradient_accumulation_steps = 4,
             gradient_checkpointing = True,
             warmup_steps = 5,
-            num_train_epochs = 1,
+            num_train_epochs = 2,
             learning_rate = 2e-4,
             fp16 = not torch.cuda.is_bf16_supported(),
             bf16 = torch.cuda.is_bf16_supported(),
@@ -338,10 +411,20 @@ def train_model(
     )
     trainer = train_on_responses_only(
         trainer,
-        instruction_part = "<|im_start|>user\n",
-        response_part = "<|im_start|>assistant\n",
+        instruction_part = instruction_part,
+        response_part = response_part,
     )
     trainer.train()
+
+
+def response_template_parts(tokenizer: Any) -> tuple[str, str]:
+    chat_template = str(getattr(tokenizer, "chat_template", "") or "")
+    if "<|start_header_id|>" in chat_template:
+        return (
+            "<|start_header_id|>user<|end_header_id|>\n\n",
+            "<|start_header_id|>assistant<|end_header_id|>\n\n",
+        )
+    return ("<|im_start|>user\n", "<|im_start|>assistant\n")
 
 
 def save_model(model: Any, tokenizer: Any, output_dir: str | Path, save_merged: bool = False) -> None:
@@ -360,12 +443,23 @@ def save_model(model: Any, tokenizer: Any, output_dir: str | Path, save_merged: 
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune a Qwen thinking model from ChatML session JSON files.")
+    parser = argparse.ArgumentParser(description="Fine-tune a chat model from ChatML or ShareGPT JSON files.")
     parser.add_argument("--model", type=str, required=True, help="Local model path, or a directory name under ./models.")
     parser.add_argument("--input-data", "--input-dir", type=str, required=True, help="Directory containing ChatML training session JSON files.")
-    parser.add_argument("--max-seq-length", type=int, default=256000, help="Maximum sequence length for training")
+    parser.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help=(
+            "Maximum sequence length for training. Defaults to the model's native "
+            "max_position_embeddings from config.json. Values different from the "
+            "native length are rejected to avoid implicit RoPE scaling."
+        ),
+    )
     parser.add_argument("--chat-template", type=str, default="qwen3.6-thinking", help="Unsloth chat template name to apply to the tokenizer. Default uses the model/tokenizer native Qwen3.6 thinking template via get_chat_template; pass qwen3-thinking to force Unsloth's named Qwen3 template.")
     parser.add_argument("--disable-wandb", action="store_true", help="Disable Weights & Biases logging")
+    parser.add_argument("--group", type=str, default=None, help="Weights & Biases run group.")
+    parser.add_argument("--exp-name", type=str, default=None, help="Weights & Biases experiment/run name.")
     parser.add_argument("--qlora", action="store_true", help="Load model in 4-bit mode (for QLoRA training)")
     parser.add_argument("--save-merged", action="store_true", help="Save merged model in 16-bit format")
     parser.add_argument("--output-dir", "--output_dir", type=str, help="Directory for all training artifacts. Defaults to models/<model>_<timestamp>.")
@@ -383,16 +477,16 @@ def main() -> None:
     trainer_output_dir = output_dir / "trainer_output"
     print(f"Training artifacts will be saved under: {output_dir.resolve()}")
 
-    run_name = f"{args.model}-{int(time.time())}"
+    run_name = args.exp_name or f"{args.model}-{run_timestamp}"
     if not args.disable_wandb:
         os.environ["WANDB_PROJECT"] = "EMNLP26 - ODRA"
-        wandb.init(name=run_name)
+        wandb.init(name=run_name, group=args.group)
         report_to = "wandb"
     else:
         os.environ["WANDB_MODE"] = "disabled"
         report_to = "none"
 
-    model, tokenizer = create_model(
+    model, tokenizer, max_seq_length = create_model(
         args.model,
         args.max_seq_length,
         load_in_4bit=args.qlora,
@@ -403,7 +497,18 @@ def main() -> None:
     dataset = create_dataset(args.input_data, tokenizer)
     print(f"Dataset loaded with {len(dataset)} training session(s).")
     start_time = time.time()
-    train_model(model, tokenizer, dataset, args.max_seq_length, trainer_output_dir, report_to, run_name)
+    instruction_part, response_part = response_template_parts(tokenizer)
+    train_model(
+        model,
+        tokenizer,
+        dataset,
+        max_seq_length,
+        trainer_output_dir,
+        report_to,
+        run_name,
+        instruction_part,
+        response_part,
+    )
     end_time = time.time()
     print(f"Training complete in {end_time - start_time:.2f} seconds. Saving model...")
     save_model(model, tokenizer, output_dir, args.save_merged)

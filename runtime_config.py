@@ -71,6 +71,8 @@ def normalize_runtime_config(cfg: Any) -> Any:
     raise ValueError("Top-level config must be a mapping.")
 
   therapist = _normalize_model_block("therapist", raw_cfg.get("therapist"))
+  therapist.setdefault("system_prompt_path", "")
+  therapist.setdefault("ft_system_prompt_path", "")
   therapist_struct = _normalize_model_block(
     "therapist_struct",
     raw_cfg.get("therapist_struct"),
@@ -87,6 +89,7 @@ def normalize_runtime_config(cfg: Any) -> Any:
     raw_patient,
     include_profiles=True,
   )
+  patient.setdefault("system_prompt_path", "")
   patient.setdefault("prompt_variant", DEFAULT_PROMPT_VARIANT)
   normalized_prompt_variant = normalize_prompt_variant(patient.get("prompt_variant"))
   if normalized_prompt_variant is None:

@@ -22,7 +22,8 @@ from scripts.ft.create_reasoning_instruction_dataset import (  # noqa: E402
 TraceKey = tuple[Any, str]
 TraceFields = list[str] | None
 ReasoningFormat = Literal["text", "json"]
-BuildMode = Literal["session", "turn"]
+BuildMode = Literal["session", "turns"]
+OutputTemplate = Literal["chatml", "sharegpt"]
 PATIENT_INTAKE_FORM_PLACEHOLDER = "{patient_intake_form}"
 GENERIC_WRAPPER_KEYS = {"items", "output", "result", "data", "payload"}
 CORE_BELIEF_PROBABILITY_STEP = "core_belief_probability"
@@ -52,6 +53,12 @@ ROLE_MAP = {
   "assistant": "assistant",
 }
 
+SHAREGPT_ROLE_MAP = {
+  "system": "system",
+  "user": "human",
+  "assistant": "gpt",
+}
+
 CUSTOM_TIB_MESSAGES = {
   "address_tib_enter": "As the therapy-interfering behavior {tib_name} was detected, I should address it",
   "address_tib_replaced": "As the therapy-interfering behavior {tib_name} was detected, I should address it",
@@ -73,14 +80,12 @@ def project_root() -> Path:
 
 
 def load_therapist_system_prompt(root: Path) -> str:
-  prompt_path = root / "agent_prompts" / "therapist_system_ft.txt"
+  prompt_path = root / "ft_prompts" / "standard_short.txt"
   if not prompt_path.is_file():
     raise DatasetBuildError(f"Missing therapist fine-tuning system prompt: {prompt_path}")
-  prompt = prompt_path.read_text(encoding="utf-8")
-  if PATIENT_INTAKE_FORM_PLACEHOLDER not in prompt:
-    raise DatasetBuildError(
-      f"{prompt_path}: missing required {PATIENT_INTAKE_FORM_PLACEHOLDER} placeholder."
-    )
+  prompt = prompt_path.read_text(encoding="utf-8").strip()
+  if not prompt:
+    raise DatasetBuildError(f"{prompt_path}: prompt must be non-empty.")
   return prompt
 
 
@@ -115,6 +120,22 @@ def format_patient_intake_form(profile: dict[str, Any]) -> str:
 def render_system_prompt(system_prompt: str, patient_profile: dict[str, Any]) -> str:
   intake = format_patient_intake_form(patient_profile)
   return system_prompt.replace(PATIENT_INTAKE_FORM_PLACEHOLDER, intake)
+
+
+def render_plain_system_prompt(system_prompt: str) -> str:
+  paragraphs = system_prompt.split("\n\n")
+  rendered = "\n\n".join(
+    paragraph.strip()
+    for paragraph in paragraphs
+    if PATIENT_INTAKE_FORM_PLACEHOLDER not in paragraph
+  ).strip()
+  if PATIENT_INTAKE_FORM_PLACEHOLDER in rendered:
+    raise DatasetBuildError(
+      f"Turn-mode system prompt must not contain {PATIENT_INTAKE_FORM_PLACEHOLDER}."
+    )
+  if not rendered:
+    raise DatasetBuildError("Turn-mode system prompt must be non-empty.")
+  return rendered
 
 
 def load_trace_field_config(root: Path) -> dict[str, TraceFields]:
@@ -716,33 +737,69 @@ def build_chatml_turn_sessions(
     require_dict(raw_message, f"{path}: messages[{idx}]")
     for idx, raw_message in enumerate(messages, start=1)
   ]
-  system_message = {"role": "system", "content": render_system_prompt(system_prompt, patient_profile)}
+  system_message = {"role": "system", "content": render_plain_system_prompt(system_prompt)}
+  patient_intake_form = format_patient_intake_form(patient_profile)
   rendered: list[tuple[str, dict[str, list[dict[str, str]]]]] = []
 
   for target_position, message in enumerate(normalized_messages):
     if message_role(message) != "therapist":
       continue
-    output_messages: list[dict[str, str]] = [dict(system_message)]
-    for context_position, context_message in enumerate(normalized_messages[:target_position], start=1):
-      output_messages.append(
-        {
-          "role": "user",
-          "content": prefixed_turn_content(context_message, f"{path}: messages[{context_position}]"),
-        }
-      )
-    traces = trace_groups.get(message_trace_key(message), [])
-    output_messages.append(
-      chatml_message(
-        message,
-        traces,
-        fields_by_step,
-        f"{path}: messages[{target_position + 1}]",
-        include_reasoning=include_reasoning,
-        reasoning_format=reasoning_format,
-      )
+    history = "\n".join(
+      prefixed_turn_content(context_message, f"{path}: messages[{context_position}]")
+      for context_position, context_message in enumerate(normalized_messages[:target_position], start=1)
     )
+    traces = trace_groups.get(message_trace_key(message), [])
+    target_content = assistant_content(
+      message,
+      traces,
+      fields_by_step,
+      f"{path}: messages[{target_position + 1}]",
+      include_reasoning=include_reasoning,
+      reasoning_format=reasoning_format,
+    )
+    if not target_content:
+      raise DatasetBuildError(f"{path}: messages[{target_position + 1}]: therapist utterance must be non-empty.")
+    output_messages: list[dict[str, str]] = [
+      dict(system_message),
+      {
+        "role": "user",
+        "content": f"Dialogue History: {history}\nClient Profile: {patient_intake_form}",
+      },
+      {"role": "assistant", "content": target_content},
+    ]
     rendered.append((turn_output_name(path, message.get("utterance_index")), {"messages": output_messages}))
   return rendered
+
+
+def convert_chatml_to_sharegpt(
+  sample: dict[str, list[dict[str, str]]],
+  source_label: str,
+) -> dict[str, list[dict[str, str]]]:
+  messages = require_list(sample.get("messages"), f"{source_label}: messages")
+  conversations: list[dict[str, str]] = []
+  for idx, raw_message in enumerate(messages, start=1):
+    message = require_dict(raw_message, f"{source_label}: messages[{idx}]")
+    role = ensure_str(message.get("role")).strip()
+    mapped_role = SHAREGPT_ROLE_MAP.get(role)
+    if mapped_role is None:
+      raise DatasetBuildError(f"{source_label}: unsupported ChatML role for ShareGPT: {role!r}.")
+    content = ensure_str(message.get("content")).strip()
+    if not content:
+      raise DatasetBuildError(f"{source_label}: messages[{idx}]: message content must be non-empty.")
+    conversations.append({"from": mapped_role, "value": content})
+  return {"conversations": conversations}
+
+
+def render_output_template(
+  sample: dict[str, list[dict[str, str]]],
+  template: OutputTemplate,
+  source_label: str,
+) -> dict[str, list[dict[str, str]]]:
+  if template == "chatml":
+    return sample
+  if template == "sharegpt":
+    return convert_chatml_to_sharegpt(sample, source_label)
+  raise DatasetBuildError(f"Unsupported output template: {template!r}.")
 
 
 def build_dataset(
@@ -753,13 +810,16 @@ def build_dataset(
   include_reasoning: bool = False,
   reasoning_format: ReasoningFormat = "text",
   mode: BuildMode = "session",
+  template: OutputTemplate = "chatml",
 ) -> int:
   if not input_dir.is_dir():
     raise DatasetBuildError(f"--input-dir must be a directory: {input_dir}")
   if reasoning_format not in {"text", "json"}:
     raise DatasetBuildError(f"Unsupported reasoning format: {reasoning_format!r}.")
-  if mode not in {"session", "turn"}:
+  if mode not in {"session", "turns"}:
     raise DatasetBuildError(f"Unsupported build mode: {mode!r}.")
+  if template not in {"chatml", "sharegpt"}:
+    raise DatasetBuildError(f"Unsupported output template: {template!r}.")
 
   root = root or project_root()
   system_prompt = load_therapist_system_prompt(root)
@@ -768,7 +828,7 @@ def build_dataset(
 
   rendered_sessions: list[tuple[str, dict[str, list[dict[str, str]]]]] = []
   for input_file in input_files:
-    if mode == "turn":
+    if mode == "turns":
       rendered_sessions.extend(
         build_chatml_turn_sessions(
           input_file,
@@ -795,8 +855,9 @@ def build_dataset(
   output_dir.mkdir(parents=True, exist_ok=True)
   for file_name, session in rendered_sessions:
     output_path = output_dir / file_name
+    rendered = render_output_template(session, template, file_name)
     with output_path.open("w", encoding="utf-8", newline="\n") as f:
-      json.dump(session, f, ensure_ascii=False, indent=2)
+      json.dump(rendered, f, ensure_ascii=False, indent=2)
       f.write("\n")
 
   return len(rendered_sessions)
@@ -804,10 +865,16 @@ def build_dataset(
 
 def main() -> int:
   parser = argparse.ArgumentParser(
-    description="Create a ChatML-like session dataset from raw therapy simulation JSON files."
+    description="Create an instruction-tuning dataset from raw therapy simulation JSON files."
   )
   parser.add_argument("--input-dir", required=True, help="Directory containing raw simulation JSON files.")
-  parser.add_argument("--output-dir", required=True, help="Directory to write one ChatML-like JSON file per session.")
+  parser.add_argument("--output-dir", required=True, help="Directory to write one JSON file per sample.")
+  parser.add_argument(
+    "--template",
+    choices=["chatml", "sharegpt"],
+    default="chatml",
+    help="Output schema: ChatML {'messages': ...} or ShareGPT {'conversations': ...}.",
+  )
   parser.add_argument("--think", action="store_true", help="Include therapist reasoning traces in assistant targets.")
   parser.add_argument(
     "--json",
@@ -817,7 +884,7 @@ def main() -> int:
   )
   parser.add_argument(
     "--mode",
-    choices=["session", "turn"],
+    choices=["session", "turns"],
     default="session",
     help="Create one sample per session or one sample per therapist turn.",
   )
@@ -830,12 +897,13 @@ def main() -> int:
       include_reasoning=args.think,
       reasoning_format="json" if args.json_reasoning else "text",
       mode=args.mode,
+      template=args.template,
     )
   except DatasetBuildError as exc:
     print(f"ERROR: {exc}", file=sys.stderr)
     return 1
 
-  print(f"Wrote {count} ChatML session file(s) to {args.output_dir}", file=sys.stderr)
+  print(f"Wrote {count} {args.template} file(s) to {args.output_dir}", file=sys.stderr)
   return 0
 
 

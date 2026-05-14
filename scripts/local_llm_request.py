@@ -10,28 +10,18 @@ DEFAULT_MAX_MODEL_LEN = 131072
 
 
 def load_request(path: Path, model: str, max_model_len: int) -> dict:
-    open = '''[opening_stage_initial_greeting_reasoning]
-```json
-{
-  "reasoning": "The session is just beginning. The patient's intake form indicates a history of mild anxiety and a request for online support. The initial goal is to establish a safe, 
-empathetic connection. A simple, open-ended greeting is appropriate to encourage the patient to share their current state."
-}
-```
-</think>
-
-Hello, I'm glad to meet you. How are you feeling today?
-'''
+    open = '''Hello, I'm glad to meet you. How are you feeling today?'''
     text = path.read_text(encoding="utf-8")
-    system = Path("./agent_prompts/therapist_system_ft.txt").read_text(encoding="utf-8")
+    system = Path("./ft_prompts/standard.txt").read_text(encoding="utf-8")
 
     return {
       "model": model,
       "max_tokens": max_model_len,
       "messages": [
-          #{"role": "system", "content": system},
-          #{"role": "assistant", "content": open},
-          #{"role": "user", "content": "Hi, well. I have been feeling a bit anxious lately, especially with work and family responsibilities piling up."},
-          {"role": "user", "content": text},
+          {"role": "system", "content": system},
+          {"role": "assistant", "content": open},
+          {"role": "user", "content": "Hi, well. I have been feeling a bit anxious lately, especially with work and family responsibilities piling up."},
+          #{"role": "user", "content": text},
       ],
     }
 
@@ -67,6 +57,7 @@ def main() -> None:
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
     request = load_request(args.request_file, args.model, args.max_model_len)
+    breakpoint()
     if args.stream:
         request["stream"] = True
 

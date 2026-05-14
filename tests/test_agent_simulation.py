@@ -102,6 +102,7 @@ from agents.therapist import (
   TherapistAgent,
   parse_agent_therapist_response,
 )
+from agents.interfaces import LLMFactory, LocalLLM
 from graph.agent_graph import AgentTherapyGraphBuilder
 
 
@@ -157,6 +158,27 @@ class AgentTherapistPromptTest(unittest.TestCase):
     ).strip()
     self.assertIn("AGENT SYSTEM", messages[0]["content"])
     self.assertEqual(messages[1]["content"], expected_prompt)
+
+  def test_uses_configured_agent_system_prompt_paths(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      regular_prompt_path = Path(tmp) / "custom_therapist_system.txt"
+      ft_prompt_path = Path(tmp) / "custom_therapist_system_ft.txt"
+      regular_prompt_path.write_text("CUSTOM REGULAR\n{patient_intake_form}", encoding="utf-8")
+      ft_prompt_path.write_text("CUSTOM FT\n{patient_intake_form}", encoding="utf-8")
+      agent = TherapistAgent(
+        _FakeLLM(),
+        _profile(),
+        agent_system_prompt_path=regular_prompt_path,
+        agent_ft_system_prompt_path=ft_prompt_path,
+      )
+
+      regular_messages = agent.build_agent_utterance_messages("Patient: hello")
+      ft_messages = agent.build_agent_initial_utterance_messages(use_ft_system_prompt=True)
+
+    self.assertIn("CUSTOM REGULAR", regular_messages[0]["content"])
+    self.assertIn("Name: Jason Crawford", regular_messages[0]["content"])
+    self.assertIn("CUSTOM FT", ft_messages[0]["content"])
+    self.assertNotIn("CUSTOM REGULAR", ft_messages[0]["content"])
 
   def test_builds_local_agent_initial_prompt_with_ft_system_prompt(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -257,6 +279,20 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertEqual(llm.calls[0][1]["max_tokens"], LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS)
     self.assertFalse(llm.calls[0][1]["strip_thinking"])
 
+  def test_local_llm_preserves_configured_max_model_len(self) -> None:
+    with mock.patch("agents.interfaces.OpenAI", return_value=object()):
+      llm = LLMFactory.create_from_config(
+        {
+          "type": "local",
+          "base_url": "http://localhost:8000/v1",
+          "model_id": "local-model",
+          "max_model_len": "65536",
+        }
+      )
+
+    self.assertIsInstance(llm, LocalLLM)
+    self.assertEqual(llm.max_model_len, 65536)
+
 
 class AgentGraphTest(unittest.TestCase):
   def _builder(self, *, resistance: bool = False) -> AgentTherapyGraphBuilder:
@@ -300,11 +336,11 @@ class AgentGraphTest(unittest.TestCase):
     self.assertIn("Therapist: <think>Reason 11</think> M11", context)
     self.assertEqual(len(context_lines), 10)
 
-  def test_builds_full_local_chatml_history_with_therapist_reasoning(self) -> None:
+  def test_builds_recent_local_chatml_history_with_therapist_reasoning(self) -> None:
     builder = self._builder()
     messages = [
       {"utterance_index": idx, "role": "patient" if idx % 2 == 0 else "therapist", "content": f"M{idx}"}
-      for idx in range(1, 13)
+      for idx in range(1, 25)
     ]
     state = {
       "messages": messages,
@@ -331,18 +367,16 @@ class AgentGraphTest(unittest.TestCase):
 
     self.assertEqual(request_messages[0]["role"], "system")
     self.assertIn("FT SYSTEM", request_messages[0]["content"])
-    self.assertEqual(len(request_messages), 13)
-    self.assertEqual(request_messages[1], {"role": "assistant", "content": "M1"})
-    self.assertEqual(request_messages[2], {"role": "user", "content": "M2"})
+    self.assertEqual(len(request_messages), 21)
+    self.assertEqual(request_messages[1], {"role": "assistant", "content": "M5"})
+    self.assertEqual(request_messages[2], {"role": "user", "content": "M6"})
+    self.assertFalse(any(message.get("content") == "M1" for message in request_messages))
+    self.assertFalse(any(message.get("content") == "M4" for message in request_messages))
     self.assertEqual(
-      request_messages[3],
-      {"role": "assistant", "content": "<think>\nReason 3\n</think>\nM3"},
-    )
-    self.assertEqual(
-      request_messages[11],
+      request_messages[7],
       {"role": "assistant", "content": "<think>\nReason 11\n</think>\nM11"},
     )
-    self.assertEqual(request_messages[12], {"role": "user", "content": "M12"})
+    self.assertEqual(request_messages[-1], {"role": "user", "content": "M24"})
 
   def test_local_therapist_turn_uses_chatml_messages_without_continuation_instruction(self) -> None:
     builder = self._builder(resistance=False)
@@ -427,6 +461,40 @@ class AgentGraphTest(unittest.TestCase):
     self.assertIn("AGENT PATIENT [/END]", builder.patient.system_prompt)
     self.assertNotIn("AGENT PATIENT [/END]", builder.patient.system_prompt_structured)
     self.assertNotIn("[/END]", standard_patient.system_prompt)
+
+  def test_init_agents_uses_configured_system_prompt_paths(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      therapist_prompt = Path(tmp) / "therapist_system.txt"
+      therapist_ft_prompt = Path(tmp) / "therapist_system_ft.txt"
+      patient_prompt = Path(tmp) / "patient_system.txt"
+      therapist_prompt.write_text("CFG THERAPIST\n{patient_intake_form}", encoding="utf-8")
+      therapist_ft_prompt.write_text("CFG FT\n{patient_intake_form}", encoding="utf-8")
+      patient_prompt.write_text(
+        "CFG PATIENT\n{persona}\n{more_info}\n{patterns}\n{presenting_problem}\n{reason_seeking_counseling}",
+        encoding="utf-8",
+      )
+      builder = self._builder(resistance=False)
+      builder.cfg = SimpleNamespace(
+        therapist={
+          "type": "deepseek",
+          "system_prompt_path": str(therapist_prompt),
+          "ft_system_prompt_path": str(therapist_ft_prompt),
+        },
+        patient={
+          "type": "deepseek",
+          "prompt_variant": "base",
+          "system_prompt_path": str(patient_prompt),
+        },
+        env={"resistance": False, "max_turns": 8, "min_turns": 0},
+      )
+      with mock.patch("graph.agent_graph.LLMFactory.create_from_config", return_value=_FakeLLM()):
+        builder._init_agents()
+
+      therapist_messages = builder.therapist.build_agent_utterance_messages("none")
+      therapist_ft_messages = builder.therapist.build_agent_initial_utterance_messages(use_ft_system_prompt=True)
+      self.assertIn("CFG THERAPIST", therapist_messages[0]["content"])
+      self.assertIn("CFG FT", therapist_ft_messages[0]["content"])
+      self.assertIn("CFG PATIENT", builder.patient.system_prompt)
 
   def test_rejects_local_patient_config(self) -> None:
     builder = self._builder(resistance=False)

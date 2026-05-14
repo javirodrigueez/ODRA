@@ -28,7 +28,6 @@ GENERATION_CONFIG_KEYS = (
   "max_tokens",
 )
 
-
 class ChatMessage(TypedDict):
   role: MessageRole
   content: str
@@ -96,6 +95,20 @@ def ensure_str(value: Any, default: str = "") -> str:
   if value is None:
     return default
   return str(value).strip()
+
+
+def ensure_optional_int(value: Any, name: str) -> int | None:
+  if value is None:
+    return None
+  if isinstance(value, str) and not value.strip():
+    return None
+  try:
+    parsed = int(value)
+  except (TypeError, ValueError) as exc:
+    raise ValueError(f"{name} must be an integer.") from exc
+  if parsed < 1:
+    raise ValueError(f"{name} must be a positive integer.")
+  return parsed
 
 
 def ensure_str_list(value: Any) -> list[str]:
@@ -203,15 +216,22 @@ class BedrockLLM(LLM):
     return str(response.content)
 
 class LocalLLM(LLM):
-  def __init__(self, host: str, model_id: str):
+  def __init__(
+    self,
+    host: str,
+    model_id: str,
+    max_model_len: int | None = None,
+  ):
     self.chat_model = OpenAI(api_key="test", base_url=host)
     self.model_id = model_id
+    self.max_model_len = max_model_len
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     strip_thinking = coerce_bool(kwargs.get("strip_thinking"), True)
     create_kwargs: dict[str, Any] = {
       "model": self.model_id,
       "messages": messages,
+      "max_completion_tokens": self.max_model_len,
     }
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:
@@ -262,7 +282,11 @@ class LLMFactory:
         elif llm_type == "local":
           if model_id is None or base_url is None:
             raise ValueError("local LLM requires a host model_id/base URL")
-          return LocalLLM(base_url, model_id)
+          return LocalLLM(
+            base_url,
+            model_id,
+            max_model_len=ensure_optional_int(kwargs.get("max_model_len"), "max_model_len"),
+          )
         elif llm_type == "deepseek":
           return DeepseekLLM(model_id or "deepseek-chat", base_url=base_url or "https://api.deepseek.com/v1")
         raise ValueError(f"Unsupported LLM type: {llm_type}")

@@ -170,6 +170,8 @@ class AgentTherapyGraphBuilder:
       therapist_llm,
       self.profile,
       generation_defaults=extract_generation_config(self.cfg.therapist),
+      agent_system_prompt_path=self._config_value(self.cfg.therapist, "system_prompt_path") or None,
+      agent_ft_system_prompt_path=self._config_value(self.cfg.therapist, "ft_system_prompt_path") or None,
     )
     self.patient = PatientAgent(
       patient_llm,
@@ -177,7 +179,7 @@ class AgentTherapyGraphBuilder:
       generation_defaults=extract_generation_config(self.cfg.patient),
       resistance_enabled=self._resistance_enabled(),
       prompt_variant=prompt_ablation["prompt_variant"],
-      utterance_system_prompt_path=AGENT_PATIENT_SYSTEM_PROMPT,
+      utterance_system_prompt_path=self._config_value(self.cfg.patient, "system_prompt_path") or AGENT_PATIENT_SYSTEM_PROMPT,
     )
 
   def initial_state(self, max_turns: int, min_turns: int = 0) -> dict[str, Any]:
@@ -335,12 +337,12 @@ class AgentTherapyGraphBuilder:
       return content
     return f"<think>\n{reasoning}\n</think>\n{content}"
 
-  def _build_local_therapist_chatml_history(self, state: dict[str, Any]) -> list[ChatMessage]:
+  def _build_local_therapist_chatml_history(self, state: dict[str, Any], limit: int = 20) -> list[ChatMessage]:
     history: list[ChatMessage] = []
     raw_messages = state.get("messages", [])
     if not isinstance(raw_messages, list):
       return history
-    for message in raw_messages:
+    for message in raw_messages[-limit:]:
       if not isinstance(message, dict):
         continue
       role = ensure_str(message.get("role")).strip().lower()
@@ -638,7 +640,6 @@ class AgentTherapyGraphBuilder:
           utterance, reasoning, _raw = self.therapist.generate_agent_initial_utterance()
       elif self._therapist_uses_local_chatml():
         request_messages = self._build_local_therapist_request_messages(s)
-        #breakpoint() #devlog
         context = json.dumps(request_messages, ensure_ascii=True)
         utterance, reasoning, _raw = self.therapist.generate_agent_messages(
           request_messages,

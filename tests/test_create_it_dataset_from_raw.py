@@ -33,6 +33,13 @@ def _trace_group(idx: int, speaker: str, traces: list[dict]) -> dict:
 
 
 def _project_root(base: Path) -> Path:
+  ft_prompts = base / "ft_prompts"
+  ft_prompts.mkdir(parents=True)
+  (ft_prompts / "standard.txt").write_text(
+    "FT SYSTEM PROMPT\n\nThis is the intake form from your patient:\n{patient_intake_form}",
+    encoding="utf-8",
+  )
+
   agent_prompts = base / "agent_prompts"
   agent_prompts.mkdir(parents=True)
   (agent_prompts / "therapist_system_ft.txt").write_text(
@@ -273,6 +280,7 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
       root = _project_root(base / "project")
       input_dir = base / "input"
       output_dir = base / "out"
+      sharegpt_output_dir = base / "sharegpt_out"
       input_dir.mkdir()
       (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
 
@@ -282,24 +290,54 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
         root,
         include_reasoning=True,
         reasoning_format="json",
-        mode="turn",
+        mode="turns",
+      )
+      sharegpt_count = builder.build_dataset(
+        input_dir,
+        sharegpt_output_dir,
+        root,
+        include_reasoning=True,
+        reasoning_format="json",
+        mode="turns",
+        template="sharegpt",
       )
       first = json.loads((output_dir / "simulation.turn_0001.json").read_text(encoding="utf-8"))
       target = json.loads((output_dir / "simulation.turn_0003.json").read_text(encoding="utf-8"))
+      sharegpt_target = json.loads(
+        (sharegpt_output_dir / "simulation.turn_0003.json").read_text(encoding="utf-8")
+      )
       output_names = [path.name for path in sorted(output_dir.iterdir())]
 
     self.assertEqual(count, 3)
+    self.assertEqual(sharegpt_count, 3)
     self.assertEqual(output_names, [
       "simulation.turn_0001.json",
       "simulation.turn_0003.json",
       "simulation.turn_0005.json",
     ])
-    self.assertEqual([message["role"] for message in first["messages"]], ["system", "assistant"])
-    self.assertEqual([message["role"] for message in target["messages"]], ["system", "user", "user", "assistant"])
-    self.assertEqual(target["messages"][1]["content"], "Therapist: T1 plain opening.")
-    self.assertEqual(target["messages"][2]["content"], "Patient: P2 with patient trace.")
+    self.assertEqual([message["role"] for message in first["messages"]], ["system", "user", "assistant"])
+    self.assertEqual([message["role"] for message in target["messages"]], ["system", "user", "assistant"])
+    self.assertEqual(first["messages"][0]["content"], "FT SYSTEM PROMPT")
+    self.assertNotIn("{patient_intake_form}", target["messages"][0]["content"])
+    self.assertEqual(
+      first["messages"][1]["content"],
+      "Dialogue History: \nClient Profile: Personal Info:\nName: Jason Crawford\nAge: 44\n\nReason Seeking Counseling:\nNeed help with commute stress.",
+    )
+    self.assertEqual(
+      target["messages"][1]["content"],
+      "Dialogue History: Therapist: T1 plain opening.\nPatient: P2 with patient trace.\nClient Profile: Personal Info:\nName: Jason Crawford\nAge: 44\n\nReason Seeking Counseling:\nNeed help with commute stress.",
+    )
     self.assertTrue(target["messages"][-1]["content"].startswith("<think>\n"))
-    self.assertFalse(target["messages"][-1]["content"].split("</think>\n", 1)[1].startswith("Therapist:"))
+    self.assertTrue(target["messages"][-1]["content"].endswith("</think>\nTarget therapist response."))
+    self.assertEqual(
+      [message["from"] for message in sharegpt_target["conversations"]],
+      ["system", "human", "gpt"],
+    )
+    self.assertEqual(
+      sharegpt_target["conversations"][1]["value"],
+      target["messages"][1]["content"],
+    )
+    self.assertEqual(sharegpt_target["conversations"][-1]["value"], target["messages"][-1]["content"])
 
   def test_missing_patient_profile_fails_fast(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:

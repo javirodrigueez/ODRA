@@ -2,6 +2,9 @@ therapist:
   type: 
   model_id: 
   base_url:
+  system_prompt_path: # optional path for agent_simulation therapist system prompt
+  ft_system_prompt_path: # optional path for local/ChatML agent_simulation therapist system prompt
+  max_model_len: # alias for max completion tokens
   temperature:
   top_p:
   presence_penalty:
@@ -12,6 +15,8 @@ patient:
   type: 
   model_id:
   base_url:
+  max_model_len: # alias for max completion tokens
+  system_prompt_path: # optional path for agent_simulation patient utterance system prompt
   prompt_variant:
   temperature:
   top_p:

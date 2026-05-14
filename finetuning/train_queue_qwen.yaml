@@ -1,0 +1,28 @@
+defaults:
+  python: python
+  script: finetuning/train.py
+  group: w_r_wo_think
+  common_args:
+    chat-template: none
+    qlora: true
+    save-merged: true
+
+jobs:
+  - id: llama-odra-r
+    model: models/Llama3-8B-Instruct/
+    input-data: /outs/eval_full_catus/it_turns/
+    group: w_r_wo_think
+    exp-name: Llama3-8B-Instruct-turns-w_r-ODRA
+    output-dir: ft_models/Llama3-8B-Instruct-turns-w_r-ODRA/
+  - id: qwen-odra-r
+    model: models/Qwen3.5-9B-Instruct/
+    input-data: /outs/eval_full_catus/it_turns/
+    group: w_r_wo_think
+    exp-name: Qwen3.5-9B-Instruct-turns-w_r-wo_t-ODRA
+    output-dir: ft_models/Qwen3.5-9B-Instruct-turns-w_r-wo_t-ODRA/
+  - id: qwen-odra-t
+    model: models/Qwen3.5-9B-Instruct/
+    input-data: /outs/eval_full_catus/it_turns_think/
+    group: w_r_w_think
+    exp-name: Qwen3.5-9B-Instruct-turns-w_r-w_t-ODRA
+    output-dir: ft_models/Qwen3.5-9B-Instruct-turns-w_r-w_t-ODRA/

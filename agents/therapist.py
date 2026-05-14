@@ -8,7 +8,7 @@ from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_pro
 
 
 AGENT_THERAPIST_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system.txt"
-AGENT_THERAPIST_FT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system_ft.txt"
+AGENT_THERAPIST_FT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "ft_prompts" / "standard.txt"
 AGENT_THERAPIST_CONTINUATION = "Continue with the ongoing therapy session."
 AGENT_INITIAL_GREETING_PROMPT = "opening/initial_greeting.txt"
 AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 8192
@@ -40,6 +40,8 @@ class TherapistAgent(Agent):
     llm: LLM,
     profile: dict[str, Any],
     generation_defaults: dict[str, Any] | None = None,
+    agent_system_prompt_path: str | Path | None = None,
+    agent_ft_system_prompt_path: str | Path | None = None,
   ):
     super().__init__(
       llm,
@@ -54,6 +56,12 @@ class TherapistAgent(Agent):
       "therapist_system_structured.txt",
       patient_intake_form=self._format_patient_intake_form(),
     )
+    self.agent_system_prompt_path = (
+      Path(agent_system_prompt_path) if agent_system_prompt_path else AGENT_THERAPIST_SYSTEM_PROMPT
+    )
+    self.agent_ft_system_prompt_path = (
+      Path(agent_ft_system_prompt_path) if agent_ft_system_prompt_path else AGENT_THERAPIST_FT_SYSTEM_PROMPT
+    )
     self.agent_system_prompt: str | None = None
     self.agent_ft_system_prompt: str | None = None
 
@@ -66,12 +74,12 @@ class TherapistAgent(Agent):
 
   def _build_agent_system_prompt(self) -> str:
     if self.agent_system_prompt is None:
-      self.agent_system_prompt = self._render_agent_system_prompt(AGENT_THERAPIST_SYSTEM_PROMPT)
+      self.agent_system_prompt = self._render_agent_system_prompt(self.agent_system_prompt_path)
     return self.agent_system_prompt
 
   def _build_agent_ft_system_prompt(self) -> str:
     if self.agent_ft_system_prompt is None:
-      self.agent_ft_system_prompt = self._render_agent_system_prompt(AGENT_THERAPIST_FT_SYSTEM_PROMPT)
+      self.agent_ft_system_prompt = self._render_agent_system_prompt(self.agent_ft_system_prompt_path)
     return self.agent_ft_system_prompt
 
   def _build_agent_system_prompt_for_mode(self, use_ft_system_prompt: bool) -> str:

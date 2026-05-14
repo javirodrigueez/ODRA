@@ -138,6 +138,42 @@ def ensure_output_dir(output_dir, overwrite, protected_paths):
     return output_dir
 
 
+def load_base_rope_theta(base_model_ref):
+    base_path = Path(base_model_ref).expanduser()
+    if not base_path.is_dir():
+        return None
+
+    config_path = base_path / "config.json"
+    if not config_path.is_file():
+        return None
+
+    with config_path.open("r", encoding="utf-8") as file:
+        config = json.load(file)
+    return config.get("rope_theta")
+
+
+def normalize_rope_config_for_save(model_config, base_model_ref):
+    """Fill fields required by Transformers 5 RoPE validation after Unsloth patching."""
+    rope_parameters = getattr(model_config, "rope_parameters", None)
+    if not isinstance(rope_parameters, dict):
+        return
+
+    rope_type = rope_parameters.get("rope_type") or rope_parameters.get("type")
+    if rope_type != "linear" or rope_parameters.get("rope_theta") is not None:
+        return
+
+    rope_theta = getattr(model_config, "rope_theta", None)
+    if rope_theta is None:
+        rope_theta = load_base_rope_theta(base_model_ref)
+    if rope_theta is None:
+        return
+
+    rope_parameters["rope_theta"] = rope_theta
+    setattr(model_config, "rope_parameters", rope_parameters)
+    if getattr(model_config, "rope_theta", None) is None:
+        setattr(model_config, "rope_theta", rope_theta)
+
+
 def main():
     args = parse_args()
 
@@ -181,6 +217,7 @@ def main():
             load_in_4bit=args.load_in_4bit,
             device_map={"": 0},
         )
+        normalize_rope_config_for_save(model.config, base_model_ref)
 
         print(f"Saving merged model to: {output_dir.resolve()}")
         model.save_pretrained_merged(

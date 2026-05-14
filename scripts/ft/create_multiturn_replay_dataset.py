@@ -25,19 +25,37 @@ from scripts.ft.create_it_dataset_from_raw import (  # noqa: E402
 
 OutputFormat = Literal["chatml", "sharegpt"]
 TraceOutputFormat = Literal["raw-json", "text"]
+FallbackPolicy = Literal["exclude", "include", "only"]
 PROMPTS_DIR = ROOT / "prompts"
 PROMPTS_TEXT_DIR = ROOT / "prompts_text"
 THERAPIST_ROLE = "therapist"
 PATIENT_ROLE = "patient"
+COMPACT_THERAPIST_SYSTEM_TEMPLATE = """You are an expert therapist specializing in CBT techniques.
+
+Review the patient's background before responding:
+{patient_intake_form}
+
+Guidelines:
+- Respond only with the therapist's next utterance.
+- Use a natural therapist voice and do not repeat the same wording from recent turns
+
+Continue the therapy session using the provided conversation, reasoning, session context, and instruction."""
+COMPACT_REASONING_SYSTEM_TEMPLATE = """You are an expert CBT reasoning model.
+
+Review the patient's background before responding:
+{patient_intake_form}
+
+Be concise and preserve the fields or labels requested by the instruction."""
+REASONING_GUIDELINES = (
+  "Answer only the requested reasoning step. Be concise. Preserve requested fields and avoid extra commentary."
+)
+UTTERANCE_GUIDELINES = (
+  "Respond only with the therapist's next utterance. Use a natural therapist voice and do not repeat the same wording from recent turns."
+)
 
 
 class ReplayError(DatasetBuildError):
   pass
-
-
-class _NoopLLM:
-  def generate(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
-    raise ReplayError("Replay LLM should never be called directly.")
 
 
 def ensure_str(value: Any) -> str:
@@ -151,8 +169,90 @@ def load_stage_prompt_from_root(self: Any, stage: str, name: str, **values: Any)
     stage = "mi_techniques_with_te"
   filename = f"{stage}/{name}.txt"
   if values:
-    return render_prompt_from_root(self.prompt_root, filename, **values)
-  return load_prompt_from_root(self.prompt_root, filename)
+    return dataset_suffix(render_prompt_from_root(self.prompt_root, filename, **values))
+  return dataset_suffix(load_prompt_from_root(self.prompt_root, filename))
+
+
+def format_patient_intake_form(profile: dict[str, Any]) -> str:
+  personal_info = profile.get("personal_info", {})
+  more_info = profile.get("more_information", {})
+
+  sections: list[str] = []
+  if isinstance(personal_info, dict) and personal_info:
+    sections.append(
+      "Personal Info:\n"
+      + "\n".join(f"{str(key).replace('_', ' ').title()}: {value}" for key, value in personal_info.items())
+    )
+
+  reason = ensure_str(profile.get("reason_seeking_counseling")).strip()
+  if reason:
+    sections.append(f"Reason Seeking Counseling:\n{reason}")
+
+  if isinstance(more_info, dict) and more_info:
+    lines = [
+      f"{str(key).replace('_', ' ').title()}:\n{value}"
+      for key, value in more_info.items()
+      if value
+    ]
+    if lines:
+      sections.append("More Information:\n" + "\n\n".join(lines))
+
+  return "\n\n".join(sections)
+
+
+def render_compact_system_prompt(template: str, profile: dict[str, Any]) -> str:
+  return template.replace("{patient_intake_form}", format_patient_intake_form(profile))
+
+
+def compact_user_prompt(
+  *,
+  full_conversation: str,
+  last_reasoning: str,
+  session_context: str,
+  guidelines: str,
+  instruction: str,
+  suffix: str,
+) -> str:
+  return (
+    f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
+    f"<last_reasoning>\n{last_reasoning}\n</last_reasoning>\n\n"
+    f"<session_context>\n{session_context or 'N/A'}\n</session_context>\n\n"
+    f"<guidelines>\n{guidelines}\n</guidelines>\n\n"
+    f"Instruction: {instruction}\n"
+    f"{suffix}"
+  )
+
+
+def dataset_suffix(text: str) -> str:
+  replacements = [
+    ("the most recent exchanges <last_utterances>, and ", ""),
+    (" and with the most recent exchanges <last_utterances>", ""),
+    ("Check carefully <last_utterances> to avoid repeating ideas or expressions. ", "Check carefully <full_conversation> to avoid repeating ideas or expressions. "),
+    ("Pay special attention to the last therapist utterance in <last_utterances>", "Pay special attention to the last therapist utterance in <full_conversation>"),
+    ("<last_utterances>", "<full_conversation>"),
+  ]
+  for old, new in replacements:
+    text = text.replace(old, new)
+  return text
+
+
+def format_recent_conversation(messages: list[dict[str, Any]], limit: int) -> str:
+  if not messages:
+    return "(no utterances yet)"
+  recent = messages[-max(0, int(limit)):]
+  if not recent:
+    return "(no utterances yet)"
+  lines: list[str] = []
+  for message in recent:
+    role = ensure_str(message.get("role")).strip().capitalize() or "Unknown"
+    content = ensure_str(message.get("content")).strip()
+    if content:
+      lines.append(f"{role}: {content}")
+  return "\n".join(lines) if lines else "(no utterances yet)"
+
+
+def fixed_recent_conversation_for_prompt(self: Any, state: dict[str, Any]) -> str:
+  return format_recent_conversation(state.get("messages", []), int(getattr(self, "dataset_context_window", 10)))
 
 
 def make_chatml_sample(messages: list[dict[str, str]], metadata: dict[str, Any]) -> dict[str, Any]:
@@ -193,11 +293,17 @@ def make_sample(
 
 
 class SampleCollector:
-  def __init__(self, output_format: OutputFormat):
+  def __init__(self, output_format: OutputFormat, fallback_policy: FallbackPolicy = "exclude"):
     self.output_format = output_format
+    self.fallback_policy = fallback_policy
     self.samples: list[dict[str, Any]] = []
 
   def add(self, messages: list[dict[str, str]], target: str, metadata: dict[str, Any]) -> None:
+    is_fallback = bool(metadata.get("replay_status"))
+    if self.fallback_policy == "exclude" and is_fallback:
+      return
+    if self.fallback_policy == "only" and not is_fallback:
+      return
     normalized_messages = [dict(message) for message in messages]
     normalized_messages.append({"role": "assistant", "content": target})
     self.samples.append(make_sample(normalized_messages, dict(metadata), self.output_format))
@@ -213,19 +319,14 @@ class ReplayTherapist:
     source_file: str,
     trace_output_format: TraceOutputFormat,
     fields_by_step: dict[str, TraceFields],
-    rollup_summary: str,
   ):
-    from agents.therapist import TherapistAgent
-
-    self.agent = TherapistAgent(_NoopLLM(), profile)
-    self.agent.system_prompt = self.agent._render_agent_system_prompt(prompt_root / "therapist_system.txt")
-    self.agent.system_prompt_structured = self.agent._render_agent_system_prompt(prompt_root / "therapist_system_structured.txt")
+    self.system_prompt = render_compact_system_prompt(COMPACT_THERAPIST_SYSTEM_TEMPLATE, profile)
+    self.system_prompt_structured = render_compact_system_prompt(COMPACT_REASONING_SYSTEM_TEMPLATE, profile)
     self.prompt_root = prompt_root
     self.collector = collector
     self.source_file = source_file
     self.trace_output_format = trace_output_format
     self.fields_by_step = fields_by_step
-    self.rollup_summary = rollup_summary
     self.message: dict[str, Any] | None = None
     self.traces: list[dict[str, Any]] = []
     self.trace_index = 0
@@ -262,17 +363,17 @@ class ReplayTherapist:
     session_context: str,
     instruction: str,
   ) -> list[dict[str, str]]:
-    suffix = load_prompt_from_root(self.prompt_root, "shared/structured_suffix.txt")
-    user_prompt = self.agent._build_user_prompt(
+    suffix = dataset_suffix(load_prompt_from_root(self.prompt_root, "shared/structured_suffix.txt"))
+    user_prompt = compact_user_prompt(
       instruction=instruction,
       full_conversation=full_conversation,
-      last_utterances=last_utterances,
       last_reasoning=last_reasoning,
       session_context=session_context,
+      guidelines=REASONING_GUIDELINES,
       suffix=suffix,
     )
     return [
-      {"role": "system", "content": self.agent.system_prompt_structured},
+      {"role": "system", "content": self.system_prompt_structured},
       {"role": "user", "content": user_prompt},
     ]
 
@@ -284,18 +385,17 @@ class ReplayTherapist:
     session_context: str,
     instruction: str,
   ) -> list[dict[str, str]]:
-    suffix = load_prompt_from_root(self.prompt_root, "shared/utterance_suffix.txt")
-    user_prompt = self.agent._build_user_prompt(
+    suffix = dataset_suffix(load_prompt_from_root(self.prompt_root, "shared/utterance_suffix.txt"))
+    user_prompt = compact_user_prompt(
       instruction=instruction,
       full_conversation=full_conversation,
-      last_utterances=last_utterances,
       last_reasoning=last_reasoning,
       session_context=session_context,
+      guidelines=UTTERANCE_GUIDELINES,
       suffix=suffix,
-      utterance=True,
     )
     return [
-      {"role": "system", "content": self.agent.system_prompt},
+      {"role": "system", "content": self.system_prompt},
       {"role": "user", "content": user_prompt},
     ]
 
@@ -316,13 +416,11 @@ class ReplayTherapist:
     self,
     *,
     full_conversation: str,
-    last_utterances: str,
     last_reasoning: str,
     session_context: str,
   ) -> None:
     self.last_prompt_context = {
       "full_conversation": full_conversation,
-      "last_utterances": last_utterances,
       "last_reasoning": last_reasoning,
       "session_context": session_context,
     }
@@ -334,14 +432,13 @@ class ReplayTherapist:
     if not context:
       context = {
         "full_conversation": "(unavailable during replay fallback)",
-        "last_utterances": "(unavailable during replay fallback)",
         "last_reasoning": "",
         "session_context": "{}",
       }
     instruction = ensure_str(trace.get("input")).strip()
     messages = self.build_structured_messages(
       full_conversation=context["full_conversation"],
-      last_utterances=context["last_utterances"],
+      last_utterances="",
       last_reasoning=context["last_reasoning"],
       session_context=context["session_context"],
       instruction=instruction,
@@ -369,14 +466,13 @@ class ReplayTherapist:
     if not context:
       context = {
         "full_conversation": "(unavailable during replay fallback)",
-        "last_utterances": "(unavailable during replay fallback)",
         "last_reasoning": "",
         "session_context": "{}",
       }
     instruction = "Continue with the next therapist utterance for the current therapy stage."
     messages = self.build_utterance_messages(
       full_conversation=context["full_conversation"],
-      last_utterances=context["last_utterances"],
+      last_utterances="",
       last_reasoning=context["last_reasoning"],
       session_context=context["session_context"],
       instruction=instruction,
@@ -394,10 +490,6 @@ class ReplayTherapist:
       },
     )
 
-  def _is_rollup_instruction(self, instruction: str) -> bool:
-    lowered = instruction.lower()
-    return "conversation_summary" in lowered and "summarize the conversation" in lowered
-
   def generate_structured(
     self,
     full_conversation: str,
@@ -411,15 +503,9 @@ class ReplayTherapist:
   ) -> tuple[Any, dict[str, Any]]:
     self._remember_prompt_context(
       full_conversation=full_conversation,
-      last_utterances=last_utterances,
       last_reasoning=last_reasoning,
       session_context=session_context,
     )
-    if self._is_rollup_instruction(instruction):
-      return {
-        "conversation_summary": self.rollup_summary or "Conversation summary unavailable in replay source."
-      }, {"raw": "", "attempts": 1, "parse_mode": "replay_rollup"}
-
     trace = self._next_trace()
     output = ensure_str(trace.get("output")).strip()
     messages = self.build_structured_messages(
@@ -458,7 +544,6 @@ class ReplayTherapist:
   ) -> str:
     self._remember_prompt_context(
       full_conversation=full_conversation,
-      last_utterances=last_utterances,
       last_reasoning=last_reasoning,
       session_context=session_context,
     )
@@ -547,7 +632,7 @@ def replay_builder(
   source_file: str,
   trace_output_format: TraceOutputFormat,
   fields_by_step: dict[str, TraceFields],
-  rollup_summary: str,
+  context_window: int,
 ) -> Any:
   from graph.graph import TherapyGraphBuilder
   from runtime_config import load_runtime_config
@@ -557,7 +642,10 @@ def replay_builder(
   builder.profile = profile
   builder.disable_tib = bool(disable_tib)
   builder.prompt_root = prompt_root
+  builder.dataset_context_window = max(1, int(context_window))
   builder._load_stage_prompt = MethodType(load_stage_prompt_from_root, builder)
+  builder._full_conversation_for_prompt = MethodType(fixed_recent_conversation_for_prompt, builder)
+  builder._current_prompt_conversation_text = MethodType(fixed_recent_conversation_for_prompt, builder)
   builder.therapist = ReplayTherapist(
     profile=profile,
     prompt_root=prompt_root,
@@ -565,7 +653,6 @@ def replay_builder(
     source_file=source_file,
     trace_output_format=trace_output_format,
     fields_by_step=fields_by_step,
-    rollup_summary=rollup_summary,
   )
   builder.patient = ReplayPatient(source_file=source_file)
   builder.cbt_techniques = builder._load_techniques()
@@ -596,6 +683,8 @@ def build_samples_for_session(
   output_format: OutputFormat,
   trace_output_format: TraceOutputFormat,
   fields_by_step: dict[str, TraceFields],
+  context_window: int = 10,
+  fallback_policy: FallbackPolicy = "exclude",
 ) -> list[dict[str, Any]]:
   payload = load_json_object(path)
   profile = require_dict(payload.get("patient_profile"), f"{path}: patient_profile")
@@ -606,7 +695,7 @@ def build_samples_for_session(
   if not prompt_root.is_dir():
     raise ReplayError(f"Prompt root is missing: {prompt_root}")
 
-  collector = SampleCollector(output_format)
+  collector = SampleCollector(output_format, fallback_policy=fallback_policy)
   max_utterance_index = max((coerce_int(message.get("utterance_index"), f"{path}: message utterance_index") for message in messages), default=0)
   builder = replay_builder(
     cfg_path=cfg_path,
@@ -617,7 +706,7 @@ def build_samples_for_session(
     source_file=path.name,
     trace_output_format=trace_output_format,
     fields_by_step=fields_by_step,
-    rollup_summary=ensure_str(payload.get("conversation_rollup_summary")),
+    context_window=context_window,
   )
   state = builder.initial_state(
     max_turns=int(payload.get("max_turns") or max_utterance_index + 2),
@@ -656,11 +745,17 @@ def build_dataset(
   cfg_path: str,
   output_format: OutputFormat,
   trace_output_format: TraceOutputFormat,
+  context_window: int = 10,
+  fallback_policy: FallbackPolicy = "exclude",
 ) -> int:
   if output_format not in {"chatml", "sharegpt"}:
     raise ReplayError(f"Unsupported --output-format: {output_format!r}.")
   if trace_output_format not in {"raw-json", "text"}:
     raise ReplayError(f"Unsupported --trace-output-format: {trace_output_format!r}.")
+  if fallback_policy not in {"exclude", "include", "only"}:
+    raise ReplayError(f"Unsupported --fallback-policy: {fallback_policy!r}.")
+  if int(context_window) < 1:
+    raise ReplayError("--context-window must be at least 1.")
   if not input_dir.is_dir():
     raise ReplayError(f"--input-dir must be a directory: {input_dir}")
   if not Path(cfg_path).is_file():
@@ -683,6 +778,8 @@ def build_dataset(
             output_format=output_format,
             trace_output_format=trace_output_format,
             fields_by_step=fields_by_step,
+            context_window=int(context_window),
+            fallback_policy=fallback_policy,
           )
       for sample in samples:
         f.write(json.dumps(sample, ensure_ascii=False))
@@ -700,6 +797,18 @@ def main() -> int:
   parser.add_argument("--cfg", required=True, help="Runtime config used to generate the raw simulations.")
   parser.add_argument("--output-format", choices=["chatml", "sharegpt"], default="chatml")
   parser.add_argument("--trace-output-format", choices=["raw-json", "text"], default="raw-json")
+  parser.add_argument(
+    "--context-window",
+    type=int,
+    default=10,
+    help="Number of recent raw transcript messages to place inside <full_conversation>.",
+  )
+  parser.add_argument(
+    "--fallback-policy",
+    choices=["exclude", "include", "only"],
+    default="exclude",
+    help="Whether to keep fallback samples from old sessions that diverge from the current graph.",
+  )
   args = parser.parse_args()
 
   try:
@@ -709,6 +818,8 @@ def main() -> int:
       cfg_path=args.cfg,
       output_format=args.output_format,
       trace_output_format=args.trace_output_format,
+      context_window=args.context_window,
+      fallback_policy=args.fallback_policy,
     )
   except DatasetBuildError as exc:
     print(f"ERROR: {exc}", file=sys.stderr)
