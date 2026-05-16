@@ -268,6 +268,22 @@ class DeepseekLLM(LLM):
     response = self.chat_model.chat.completions.create(**create_kwargs)
     return str(response.choices[0].message.content).replace('\n', '').removeprefix('```json').removesuffix('```')
 
+class OpenaiLLM(LLM):
+  def __init__(self, model_id: str = "gpt-3.5-turbo-0125", base_url: str = "https://api.openai.com/v1"):
+    self.model_id = model_id
+    self.chat_model = OpenAI(api_key=os.getenv("GPT_API_KEY") or "", base_url=base_url, timeout=60, max_retries=3)
+
+  def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
+    create_kwargs: dict[str, Any] = {
+      "model": self.model_id,
+      "messages": messages,
+    }
+    for key in GENERATION_CONFIG_KEYS:
+      if key in kwargs and kwargs[key] is not None:
+        create_kwargs[key] = kwargs[key]
+    response = self.chat_model.chat.completions.create(**create_kwargs)
+    return str(response.choices[0].message.content).replace('\n', '').removeprefix('```json').removesuffix('```')
+
 class LLMFactory:
     @staticmethod
     def create(llm_type: str, base_url: str | None = None, model_id: str | None = None, **kwargs: Any) -> LLM:
@@ -289,6 +305,8 @@ class LLMFactory:
           )
         elif llm_type == "deepseek":
           return DeepseekLLM(model_id or "deepseek-chat", base_url=base_url or "https://api.deepseek.com/v1")
+        elif llm_type == "openai":
+          return OpenaiLLM(model_id or "gpt-4o", base_url=base_url or "https://api.openai.com/v1")
         raise ValueError(f"Unsupported LLM type: {llm_type}")
 
     @staticmethod

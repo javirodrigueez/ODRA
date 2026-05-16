@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import queue
 import sys
@@ -102,7 +103,7 @@ from agents.therapist import (
   TherapistAgent,
   parse_agent_therapist_response,
 )
-from agents.interfaces import LLMFactory, LocalLLM
+from agents.interfaces import LLMFactory, LocalLLM, OpenaiLLM
 from graph.agent_graph import AgentTherapyGraphBuilder
 
 
@@ -127,6 +128,21 @@ class _FakeLLM:
   def generate(self, messages, **kwargs):
     self.calls.append((messages, kwargs))
     return self.response
+
+
+class _RecordingCompletions:
+  def __init__(self) -> None:
+    self.kwargs = {}
+
+  def create(self, **kwargs):
+    self.kwargs = kwargs
+    return SimpleNamespace(
+      choices=[
+        SimpleNamespace(
+          message=SimpleNamespace(content="ok"),
+        )
+      ]
+    )
 
 
 class AgentTherapistPromptTest(unittest.TestCase):
@@ -293,6 +309,28 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertIsInstance(llm, LocalLLM)
     self.assertEqual(llm.max_model_len, 65536)
 
+  def test_openai_llm_uses_gpt_api_key_and_omits_extra_body(self) -> None:
+    completions = _RecordingCompletions()
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    with mock.patch.dict(os.environ, {"GPT_API_KEY": "test-key"}):
+      with mock.patch("agents.interfaces.OpenAI", return_value=fake_client) as openai_cls:
+        llm = LLMFactory.create("openai", model_id="gpt-test")
+        output = llm.generate(
+          [{"role": "user", "content": "hello"}],
+          max_tokens=12,
+          temperature=0.2,
+        )
+
+    self.assertIsInstance(llm, OpenaiLLM)
+    self.assertEqual(openai_cls.call_args.kwargs["api_key"], "test-key")
+    self.assertEqual(openai_cls.call_args.kwargs["base_url"], "https://api.openai.com/v1")
+    self.assertEqual(output, "ok")
+    self.assertEqual(completions.kwargs["model"], "gpt-test")
+    self.assertEqual(completions.kwargs["messages"], [{"role": "user", "content": "hello"}])
+    self.assertEqual(completions.kwargs["max_tokens"], 12)
+    self.assertEqual(completions.kwargs["temperature"], 0.2)
+    self.assertNotIn("extra_body", completions.kwargs)
+
 
 class AgentGraphTest(unittest.TestCase):
   def _builder(self, *, resistance: bool = False) -> AgentTherapyGraphBuilder:
@@ -436,7 +474,7 @@ class AgentGraphTest(unittest.TestCase):
     self.assertNotIn("Private therapist reasoning", therapist_message["content"])
     self.assertEqual(therapist_trace["input"], "")
     self.assertEqual(therapist_trace["output"], "Private therapist reasoning")
-    self.assertNotIn("Private therapist reasoning", builder.patient.last_kwargs["full_conversation"])
+    self.assertIsNone(builder.patient.last_kwargs["full_conversation"])
     self.assertNotIn("Private therapist reasoning", builder.patient.last_kwargs["last_utterances"])
     self.assertEqual(after_patient["messages"][-1]["content"], "Patient response.")
 
@@ -495,6 +533,50 @@ class AgentGraphTest(unittest.TestCase):
       self.assertIn("CFG THERAPIST", therapist_messages[0]["content"])
       self.assertIn("CFG FT", therapist_ft_messages[0]["content"])
       self.assertIn("CFG PATIENT", builder.patient.system_prompt)
+
+  def test_cactus_patient_cli_mode_overrides_configured_patient_utterance_prompts(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      therapist_prompt = Path(tmp) / "therapist_system.txt"
+      patient_prompt = Path(tmp) / "patient_system.txt"
+      cactus_system = Path(tmp) / "cactus_system_patient.txt"
+      cactus_user = Path(tmp) / "cactus_utterance_patient.txt"
+      therapist_prompt.write_text("CFG THERAPIST\n{patient_intake_form}", encoding="utf-8")
+      patient_prompt.write_text(
+        "CFG PATIENT\n{persona}\n{more_info}\n{patterns}\n{presenting_problem}\n{reason_seeking_counseling}",
+        encoding="utf-8",
+      )
+      cactus_system.write_text("CACTUS SYSTEM", encoding="utf-8")
+      cactus_user.write_text("CACTUS USER {attitude} {history}", encoding="utf-8")
+      builder = self._builder(resistance=False)
+      builder.cactus_patient = True
+      builder.cfg = SimpleNamespace(
+        therapist={
+          "type": "deepseek",
+          "system_prompt_path": str(therapist_prompt),
+        },
+        patient={
+          "type": "deepseek",
+          "prompt_variant": "base",
+          "system_prompt_path": str(patient_prompt),
+        },
+        env={"resistance": False, "max_turns": 8, "min_turns": 0},
+      )
+      with mock.patch("graph.agent_graph.CACTUS_PATIENT_SYSTEM_PROMPT", cactus_system):
+        with mock.patch("graph.agent_graph.CACTUS_PATIENT_USER_PROMPT", cactus_user):
+          with mock.patch("graph.agent_graph.LLMFactory.create_from_config", return_value=_FakeLLM()):
+            builder._init_agents()
+
+      messages = builder.patient.build_utterance_messages(
+        full_conversation=None,
+        last_utterances="Therapist: Hello.",
+        resistance_level=None,
+        instruction="Respond naturally.",
+      )
+
+    self.assertEqual(builder._patient_prompt_ablation()["cactus_patient"], "true")
+    self.assertEqual(messages[0]["content"], "CACTUS SYSTEM")
+    self.assertIn("CACTUS USER Neutral Therapist: Hello.", messages[1]["content"])
+    self.assertNotIn("CFG PATIENT", messages[0]["content"])
 
   def test_rejects_local_patient_config(self) -> None:
     builder = self._builder(resistance=False)
@@ -591,6 +673,7 @@ class AgentTranscriptAndBatchTest(unittest.TestCase):
       )
       _FakeTqdm.reset()
       _FakePool.include_reasoning_values = []
+      _FakePool.cactus_patient_values = []
 
       with mock.patch("agent_simulation._load_tqdm", return_value=_FakeTqdm):
         with mock.patch("agent_simulation.multiprocessing.Manager", _FakeManager):
@@ -604,9 +687,11 @@ class AgentTranscriptAndBatchTest(unittest.TestCase):
               output_dir=tmp,
               n_processes=1,
               include_reasoning=True,
+              cactus_patient=True,
             )
 
     self.assertEqual(_FakePool.include_reasoning_values, [True])
+    self.assertEqual(_FakePool.cactus_patient_values, [True])
     self.assertTrue(manifest["profiles"]["1"]["executed"])
 
 
@@ -733,6 +818,7 @@ class _FakeTqdm:
 
 class _FakePool:
   include_reasoning_values: list[bool] = []
+  cactus_patient_values: list[bool] = []
 
   def __init__(self, processes: int) -> None:
     self.processes = processes
@@ -746,6 +832,7 @@ class _FakePool:
   def apply_async(self, func, args, callback, error_callback) -> None:
     worker_args = args[0]
     self.include_reasoning_values.append(worker_args[6])
+    self.cactus_patient_values.append(worker_args[7])
     run_index = worker_args[0]
     profile = worker_args[2]
     callback(

@@ -25,6 +25,7 @@ class PatientAgent(Agent):
     resistance_enabled: bool = True,
     prompt_variant: str = DEFAULT_PROMPT_VARIANT,
     utterance_system_prompt_path: str | Path | None = None,
+    utterance_user_prompt_path: str | Path | None = None,
   ):
     super().__init__(
       llm,
@@ -48,6 +49,7 @@ class PatientAgent(Agent):
     system_structured_path = Path(__file__).parent.parent / "prompts" / system_structured_filename
     self.system_prompt = self._build_system_prompt(system_path)
     self.system_prompt_structured = self._build_system_prompt(system_structured_path)
+    self.utterance_user_prompt_path = Path(utterance_user_prompt_path) if utterance_user_prompt_path is not None else None
 
   def _build_system_prompt(self, filename: str | Path) -> str:
     template = load_prompt(filename)
@@ -141,19 +143,22 @@ class PatientAgent(Agent):
   def _build_user_prompt(
     self,
     instruction: str,
-    full_conversation: str,
+    full_conversation: str | None,
     last_utterances: str,
     resistance_level: float | None,
     suffix: str,
     engagement_block: str | None = None,
     structured: bool = False,
   ) -> str:
+    conversation_section = ""
+    if full_conversation:
+      conversation_section = f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
     engagement_section = ""
     if engagement_block:
       engagement_section = f"<engagement>\n{engagement_block}\n</engagement>\n\n"
     patient_state_block = self._render_patient_state_block(resistance_level, structured)
     return (
-      f"<full_conversation>\n{full_conversation}\n</full_conversation>\n\n"
+      f"{conversation_section}"
       f"<last_utterances>\n{last_utterances}\n</last_utterances>\n\n"
       f"{patient_state_block}"
       f"{engagement_section}"
@@ -161,23 +166,64 @@ class PatientAgent(Agent):
       f"{suffix}"
     )
 
+  def _build_utterance_user_prompt(
+    self,
+    last_utterances: str,
+    resistance_level: float | None,
+    instruction: str,
+  ) -> str:
+    if self.utterance_user_prompt_path is None:
+      raise ValueError("utterance_user_prompt_path is required for custom utterance user prompts.")
+    template = load_prompt(self.utterance_user_prompt_path)
+    prompt_template = PromptTemplate.from_template(template)
+    resolved_resistance = 0.0 if resistance_level is None else float(resistance_level)
+    resistance = self._render_resistance_prompt(resolved_resistance) if self.resistance_enabled else ""
+    custom_instruction = self._custom_utterance_instruction(instruction)
+    return prompt_template.format(
+      persona=self._format_persona(),
+      more_info=self._format_more_info(),
+      patterns=self._format_patterns(),
+      presenting_problem=self.profile["presenting_problem"],
+      reason_seeking_counseling=self.profile["reason_seeking_counseling"],
+      attitude=self._attitude_towards_therapy(),
+      resistance=resistance,
+      history=last_utterances,
+      instruction=custom_instruction,
+    )
+
+  def _custom_utterance_instruction(self, instruction: str) -> str:
+    if not self.resistance_enabled:
+      return instruction
+    marker = "Last resistance update reasoning"
+    compressed = instruction
+    if marker in compressed:
+      compressed = marker + compressed.split(marker, 1)[1]
+    return compressed.replace("your <resistance_level>", "your resistance").strip()
+
   def build_utterance_messages(
     self,
-    full_conversation: str,
+    full_conversation: str | None,
     last_utterances: str,
     resistance_level: float | None,
     instruction: str,
     engagement_block: str | None = None,
   ) -> list[ChatMessage]:
-    suffix = load_prompt("shared/patient_utterance_suffix.txt")
-    user_prompt = self._build_user_prompt(
-      instruction=instruction,
-      full_conversation=full_conversation,
-      last_utterances=last_utterances,
-      resistance_level=resistance_level,
-      suffix=suffix,
-      engagement_block=engagement_block,
-    )
+    if self.utterance_user_prompt_path is not None:
+      user_prompt = self._build_utterance_user_prompt(
+        last_utterances=last_utterances,
+        resistance_level=resistance_level,
+        instruction=instruction,
+      )
+    else:
+      suffix = load_prompt("shared/patient_utterance_suffix.txt")
+      user_prompt = self._build_user_prompt(
+        instruction=instruction,
+        full_conversation=full_conversation,
+        last_utterances=last_utterances,
+        resistance_level=resistance_level,
+        suffix=suffix,
+        engagement_block=engagement_block,
+      )
     #breakpoint() #devlog
     return [
       {"role": "system", "content": self.system_prompt},
@@ -186,7 +232,7 @@ class PatientAgent(Agent):
 
   def build_structured_messages(
     self,
-    full_conversation: str,
+    full_conversation: str | None,
     last_utterances: str,
     resistance_level: float | None,
     instruction: str,
@@ -209,7 +255,7 @@ class PatientAgent(Agent):
 
   def generate_utterance(
     self,
-    full_conversation: str,
+    full_conversation: str | None,
     last_utterances: str,
     resistance_level: float | None,
     instruction: str,
@@ -247,7 +293,7 @@ class PatientAgent(Agent):
 
   def generate_structured(
     self,
-    full_conversation: str,
+    full_conversation: str | None,
     last_utterances: str,
     resistance_level: float | None,
     instruction: str,

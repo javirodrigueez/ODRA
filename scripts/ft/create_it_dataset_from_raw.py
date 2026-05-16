@@ -79,8 +79,9 @@ def project_root() -> Path:
   return Path(__file__).resolve().parents[2]
 
 
-def load_therapist_system_prompt(root: Path) -> str:
-  prompt_path = root / "ft_prompts" / "standard_short.txt"
+def load_therapist_system_prompt(root: Path, *, thinking: bool = False) -> str:
+  prompt_name = "thinking_short.txt" if thinking else "standard_short.txt"
+  prompt_path = root / "ft_prompts" / prompt_name
   if not prompt_path.is_file():
     raise DatasetBuildError(f"Missing therapist fine-tuning system prompt: {prompt_path}")
   prompt = prompt_path.read_text(encoding="utf-8").strip()
@@ -822,7 +823,7 @@ def build_dataset(
     raise DatasetBuildError(f"Unsupported output template: {template!r}.")
 
   root = root or project_root()
-  system_prompt = load_therapist_system_prompt(root)
+  system_prompt = load_therapist_system_prompt(root, thinking=include_reasoning)
   fields_by_step = load_trace_field_config(root)
   input_files = sorted(path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() == ".json")
 

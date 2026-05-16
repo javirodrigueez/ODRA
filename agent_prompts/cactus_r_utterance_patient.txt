@@ -1,0 +1,16 @@
+## Patient persona
+You are {persona}. Your background information is {more_info}. You have been struggling with the next problem: {presenting_problem}. Given that problem, you decided to seek therapy because: {reason_seeking_counseling}.
+
+## Resistance
+You have the following resistance towards therapy: 
+{resistance}
+
+## Action guidance
+Use the action guidance provided below to determine the behavior of your next utterance.
+
+{instruction}
+
+## Counseling Dialogue History:
+{history}
+
+Generate the next patient utterance for the dialogue.

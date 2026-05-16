@@ -37,6 +37,20 @@ from simulation import (
 )
 
 
+def _prompt_ablation_with_cactus_patient(prompt_ablation: dict[str, str], cactus_patient: bool) -> dict[str, str]:
+  metadata = dict(prompt_ablation)
+  if cactus_patient:
+    metadata["cactus_patient"] = "true"
+  return metadata
+
+
+def _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path: str | None, cactus_patient: bool) -> dict[str, str]:
+  return _prompt_ablation_with_cactus_patient(
+    _prompt_ablation_from_cfg_path(cfg_path),
+    cactus_patient,
+  )
+
+
 def _therapist_reasoning_for_utterance(result: dict[str, Any], utterance_index: int) -> str:
   for trace_group in result.get("reasoning_traces", []):
     if not isinstance(trace_group, dict):
@@ -101,6 +115,7 @@ def run_simulation(
   suppress_output: bool = False,
   print_saved_paths: bool = True,
   include_reasoning: bool = False,
+  cactus_patient: bool = False,
 ) -> dict[str, Any]:
   result: dict[str, Any] = {
     "messages": [],
@@ -110,7 +125,7 @@ def run_simulation(
     "session_ended_reason": "",
     "conversation_error": "",
     "patient_profile": profile,
-    "prompt_ablation": _prompt_ablation_from_cfg_path(cfg_path),
+    "prompt_ablation": _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path, cactus_patient),
   }
   error_printed = False
   last_reported_utterance = 0
@@ -139,7 +154,7 @@ def run_simulation(
 
       if resume_state is not None:
         raise ValueError("agent_simulation.py does not support partial-session resume state.")
-      builder = AgentTherapyGraphBuilder(cfg_path, profile)
+      builder = AgentTherapyGraphBuilder(cfg_path, profile, cactus_patient=cactus_patient)
       chain = builder.create_chain()
       initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
       result = initial_state
@@ -196,9 +211,9 @@ def run_simulation(
 
 
 def _run_simulation_batch_worker(
-  args: tuple[int, str, dict[str, Any], int, int, str, bool, Any],
+  args: tuple[int, str, dict[str, Any], int, int, str, bool, bool, Any],
 ) -> dict[str, Any]:
-  run_index, cfg_path, profile, max_turns, min_turns, output_dir, include_reasoning, progress_queue = args
+  run_index, cfg_path, profile, max_turns, min_turns, output_dir, include_reasoning, cactus_patient, progress_queue = args
 
   def progress_callback(utterance_index: int) -> None:
     progress_queue.put((run_index, int(utterance_index)))
@@ -214,6 +229,7 @@ def _run_simulation_batch_worker(
     suppress_output=True,
     print_saved_paths=False,
     include_reasoning=include_reasoning,
+    cactus_patient=cactus_patient,
   )
   progress_callback(int(result.get("utterance_index", 0) or 0))
   return {
@@ -249,6 +265,7 @@ def _run_batch_sequential(
   output_dir: str,
   verbose: bool,
   include_reasoning: bool,
+  cactus_patient: bool,
 ) -> None:
   total_to_run = len(profiles_to_run)
   for run_index, profile in enumerate(profiles_to_run, start=1):
@@ -261,6 +278,7 @@ def _run_batch_sequential(
       output_dir,
       verbose,
       include_reasoning=include_reasoning,
+      cactus_patient=cactus_patient,
     )
     _write_agent_simulation_summary(result)
     _record_simulation_result(manifest, profile, output_dir, result)
@@ -276,6 +294,7 @@ def _run_batch_multiprocessing(
   output_dir: str,
   n_processes: int,
   include_reasoning: bool,
+  cactus_patient: bool,
 ) -> None:
   if not profiles_to_run:
     return
@@ -307,7 +326,7 @@ def _run_batch_multiprocessing(
             bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
             pool.apply_async(
               _run_simulation_batch_worker,
-              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, include_reasoning, progress_queue),),
+              args=((run_index, cfg_path, profile, max_turns, min_turns, output_dir, include_reasoning, cactus_patient, progress_queue),),
               callback=on_success,
               error_callback=on_error,
             )
@@ -364,6 +383,7 @@ def main(
   use_multiprocessing: bool = False,
   n_processes: int | None = None,
   include_reasoning: bool = False,
+  cactus_patient: bool = False,
 ) -> None:
   from runtime_config import load_runtime_config
 
@@ -376,7 +396,10 @@ def main(
   output_dir = str(cfg.env.output_dir or "")
   verbose = bool(cfg.env.verbose)
   resume_file = cfg.env.get("resume_file")
-  prompt_ablation = _prompt_ablation_from_patient_config(cfg.patient)
+  prompt_ablation = _prompt_ablation_with_cactus_patient(
+    _prompt_ablation_from_patient_config(cfg.patient),
+    cactus_patient,
+  )
 
   if resume_file:
     raise ValueError("agent_simulation.py does not support cfg.env.resume_file partial-session resume.")
@@ -428,6 +451,7 @@ def main(
       output_dir=output_dir,
       n_processes=cast(int, n_processes),
       include_reasoning=include_reasoning,
+      cactus_patient=cactus_patient,
     )
   else:
     _run_batch_sequential(
@@ -439,6 +463,7 @@ def main(
       output_dir=output_dir,
       verbose=verbose,
       include_reasoning=include_reasoning,
+      cactus_patient=cactus_patient,
     )
 
   if run_eval:
@@ -462,6 +487,7 @@ if __name__ == "__main__":
   parser.add_argument("--multiprocessing", action="store_true", dest="use_multiprocessing", help="Run selected batch profiles in parallel.")
   parser.add_argument("--n-processes", type=int, default=None, help="Number of worker processes to use with --multiprocessing.")
   parser.add_argument("--reasoning", action="store_true", dest="include_reasoning", help="Include therapist reasoning traces in TXT transcripts.")
+  parser.add_argument("--cactus-patient", action="store_true", help="Use cactus patient utterance prompts for agent simulations.")
   args = parser.parse_args()
   main(
     args.cfg,
@@ -473,4 +499,5 @@ if __name__ == "__main__":
     use_multiprocessing=args.use_multiprocessing,
     n_processes=args.n_processes,
     include_reasoning=args.include_reasoning,
+    cactus_patient=args.cactus_patient,
   )

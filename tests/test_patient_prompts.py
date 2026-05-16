@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -278,6 +279,117 @@ class PatientPromptTest(unittest.TestCase):
     user_prompt = messages[1]["content"]
     self.assertIn("<attitude_towards_therapy>\nNegative\n</attitude_towards_therapy>", user_prompt)
     self.assertNotIn("<resistance_level>", user_prompt)
+
+  def test_patient_prompt_omits_full_conversation_when_none(self) -> None:
+    agent = PatientAgent(FakeLLM(), dict(TEST_PROFILE))
+
+    messages = agent.build_utterance_messages(
+      full_conversation=None,
+      last_utterances="Therapist: Hello.",
+      resistance_level=0.5,
+      instruction="Respond naturally.",
+    )
+
+    user_prompt = messages[1]["content"]
+    self.assertNotIn("<full_conversation>", user_prompt)
+    self.assertIn("<last_utterances>\nTherapist: Hello.\n</last_utterances>", user_prompt)
+
+  def test_cactus_patient_prompt_uses_custom_utterance_template_only(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      system_prompt = Path(tmp) / "cactus_system.txt"
+      user_prompt = Path(tmp) / "cactus_user.txt"
+      system_prompt.write_text("CACTUS SYSTEM", encoding="utf-8")
+      user_prompt.write_text(
+        "Persona: {persona}\nInfo: {more_info}\nProblem: {presenting_problem}\n"
+        "Reason: {reason_seeking_counseling}\nAttitude: {attitude}\nHistory: {history}",
+        encoding="utf-8",
+      )
+      agent = PatientAgent(
+        FakeLLM(),
+        dict(TEST_PROFILE),
+        resistance_enabled=False,
+        utterance_system_prompt_path=system_prompt,
+        utterance_user_prompt_path=user_prompt,
+      )
+
+      messages = agent.build_utterance_messages(
+        full_conversation="Therapist: Old context.",
+        last_utterances="Therapist: Hello.",
+        resistance_level=0.5,
+        instruction="Respond naturally.",
+      )
+      structured_messages = agent.build_structured_messages(
+        full_conversation=None,
+        last_utterances="Therapist: Hello.",
+        resistance_level=0.5,
+        instruction="Return JSON.",
+      )
+
+    self.assertEqual(messages[0]["content"], "CACTUS SYSTEM")
+    self.assertIn("Name: Alex", messages[1]["content"])
+    self.assertIn("Attitude: Neutral", messages[1]["content"])
+    self.assertIn("History: Therapist: Hello.", messages[1]["content"])
+    self.assertNotIn("Old context", messages[1]["content"])
+    self.assertNotIn("<last_utterances>", messages[1]["content"])
+    self.assertNotIn("Instruction:", messages[1]["content"])
+    self.assertNotIn("CACTUS SYSTEM", structured_messages[0]["content"])
+    self.assertIn("<attitude_towards_therapy>", structured_messages[1]["content"])
+
+  def test_cactus_resistance_patient_prompt_renders_existing_resistance_guidance(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      system_prompt = Path(tmp) / "cactus_r_system.txt"
+      user_prompt = Path(tmp) / "cactus_r_user.txt"
+      system_prompt.write_text("CACTUS R SYSTEM", encoding="utf-8")
+      user_prompt.write_text(
+        "Resistance:\n{resistance}\nGuidance:\n{instruction}\nHistory:\n{history}",
+        encoding="utf-8",
+      )
+      agent = PatientAgent(
+        FakeLLM(),
+        dict(TEST_PROFILE),
+        resistance_enabled=True,
+        utterance_system_prompt_path=system_prompt,
+        utterance_user_prompt_path=user_prompt,
+      )
+
+      messages = agent.build_utterance_messages(
+        full_conversation=None,
+        last_utterances="Therapist: Hello.",
+        resistance_level=0.5,
+        instruction=(
+          "Generate your next utterance using the next information and guidelines.\n\n"
+          "Stage instruction\n"
+          "Respond naturally and in character according to your current resistance level.\n\n"
+          "Last resistance update reasoning\n"
+          "The last therapist utterance affected you in this way: I feel slightly less resistant.\n\n"
+          "Selected utterance action\n"
+          "Action: Hesitation\n"
+          "Definition: Stay in the exchange, but foreground meaningful doubts.\n\n"
+          "Guidelines:\n"
+          "* The selected action is the main factor that determines whether you accept, hesitate, or refuse.\n"
+          "* Although the action is the main guidance, the attitude and tone of your response should be influenced by your <resistance_level> and by the last resistance update reasoning."
+        ),
+      )
+      structured_messages = agent.build_structured_messages(
+        full_conversation=None,
+        last_utterances="Therapist: Hello.",
+        resistance_level=0.5,
+        instruction="Return JSON.",
+      )
+
+    self.assertEqual(messages[0]["content"], "CACTUS R SYSTEM")
+    self.assertIn("Resistance:", messages[1]["content"])
+    self.assertIn("If 5.0 is in", messages[1]["content"])
+    self.assertNotIn("Generate your next utterance", messages[1]["content"])
+    self.assertNotIn("Stage instruction", messages[1]["content"])
+    self.assertIn("I feel slightly less resistant", messages[1]["content"])
+    self.assertIn("Action: Hesitation", messages[1]["content"])
+    self.assertIn("foreground meaningful doubts", messages[1]["content"])
+    self.assertIn("influenced by your resistance and by the last resistance update reasoning", messages[1]["content"])
+    self.assertNotIn("your <resistance_level>", messages[1]["content"])
+    self.assertIn("History:\nTherapist: Hello.", messages[1]["content"])
+    self.assertNotIn("CACTUS R SYSTEM", structured_messages[0]["content"])
+    self.assertIn("bounded in the interval 0.0,1.0", structured_messages[1]["content"])
 
   def test_weak_patient_utterance_core_omits_action_and_resistance_reasoning(self) -> None:
     rendered = render_prompt_text(

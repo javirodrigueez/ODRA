@@ -35,6 +35,14 @@ def _trace_group(idx: int, speaker: str, traces: list[dict]) -> dict:
 def _project_root(base: Path) -> Path:
   ft_prompts = base / "ft_prompts"
   ft_prompts.mkdir(parents=True)
+  (ft_prompts / "standard_short.txt").write_text(
+    "FT SYSTEM PROMPT\n\nThis is the intake form from your patient:\n{patient_intake_form}",
+    encoding="utf-8",
+  )
+  (ft_prompts / "thinking_short.txt").write_text(
+    "THINKING FT SYSTEM PROMPT\n\nThis is the intake form from your patient:\n{patient_intake_form}",
+    encoding="utf-8",
+  )
   (ft_prompts / "standard.txt").write_text(
     "FT SYSTEM PROMPT\n\nThis is the intake form from your patient:\n{patient_intake_form}",
     encoding="utf-8",
@@ -198,7 +206,7 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
     self.assertEqual(set(output_payload.keys()), {"messages"})
     messages = output_payload["messages"]
     self.assertEqual([message["role"] for message in messages], ["system", "assistant", "user", "assistant", "user", "assistant"])
-    self.assertTrue(messages[0]["content"].startswith("FT SYSTEM PROMPT"))
+    self.assertTrue(messages[0]["content"].startswith("THINKING FT SYSTEM PROMPT"))
     self.assertIn("Name: Jason Crawford", messages[0]["content"])
     self.assertEqual(messages[1]["content"], "T1 plain opening.")
     self.assertNotIn("<think>", messages[1]["content"])
@@ -317,7 +325,7 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
     ])
     self.assertEqual([message["role"] for message in first["messages"]], ["system", "user", "assistant"])
     self.assertEqual([message["role"] for message in target["messages"]], ["system", "user", "assistant"])
-    self.assertEqual(first["messages"][0]["content"], "FT SYSTEM PROMPT")
+    self.assertEqual(first["messages"][0]["content"], "THINKING FT SYSTEM PROMPT")
     self.assertNotIn("{patient_intake_form}", target["messages"][0]["content"])
     self.assertEqual(
       first["messages"][1]["content"],
@@ -338,6 +346,24 @@ class CreateItDatasetFromRawTest(unittest.TestCase):
       target["messages"][1]["content"],
     )
     self.assertEqual(sharegpt_target["conversations"][-1]["value"], target["messages"][-1]["content"])
+
+  def test_thinking_prompt_is_only_used_with_reasoning(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      root = _project_root(base / "project")
+      input_dir = base / "input"
+      plain_output_dir = base / "plain_out"
+      thinking_output_dir = base / "thinking_out"
+      input_dir.mkdir()
+      (input_dir / "simulation.json").write_text(json.dumps(_session_payload()), encoding="utf-8")
+
+      builder.build_dataset(input_dir, plain_output_dir, root)
+      builder.build_dataset(input_dir, thinking_output_dir, root, include_reasoning=True)
+      plain_payload = json.loads((plain_output_dir / "simulation.json").read_text(encoding="utf-8"))
+      thinking_payload = json.loads((thinking_output_dir / "simulation.json").read_text(encoding="utf-8"))
+
+    self.assertTrue(plain_payload["messages"][0]["content"].startswith("FT SYSTEM PROMPT"))
+    self.assertTrue(thinking_payload["messages"][0]["content"].startswith("THINKING FT SYSTEM PROMPT"))
 
   def test_missing_patient_profile_fails_fast(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:

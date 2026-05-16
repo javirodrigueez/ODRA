@@ -38,6 +38,10 @@ from .resistance import (
 
 AGENT_END_TAG = "[/END]"
 AGENT_PATIENT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "patient_system.txt"
+CACTUS_PATIENT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "cactus_system_patient.txt"
+CACTUS_PATIENT_USER_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "cactus_utterance_patient.txt"
+CACTUS_RESISTANCE_PATIENT_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "cactus_r_system_patient.txt"
+CACTUS_RESISTANCE_PATIENT_USER_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "cactus_r_utterance_patient.txt"
 THERAPIST_ROLE = "therapist"
 PATIENT_ROLE = "patient"
 CONVERSATION_ROLES = {THERAPIST_ROLE, PATIENT_ROLE}
@@ -106,9 +110,10 @@ class AgentSimulationChain:
 
 
 class AgentTherapyGraphBuilder:
-  def __init__(self, config_path: str, profile: dict[str, Any]):
+  def __init__(self, config_path: str, profile: dict[str, Any], *, cactus_patient: bool = False):
     self.cfg = load_runtime_config(config_path)
     self.profile = profile
+    self.cactus_patient = bool(cactus_patient)
     self._init_agents()
 
   def _env_value(self, name: str, default: Any) -> Any:
@@ -136,15 +141,22 @@ class AgentTherapyGraphBuilder:
   def _resistance_enabled(self) -> bool:
     return self._env_bool("resistance", True)
 
+  def _cactus_patient_enabled(self) -> bool:
+    return bool(getattr(self, "cactus_patient", False))
+
   def _patient_prompt_ablation(self) -> dict[str, str]:
     patient_cfg = getattr(self.cfg, "patient", {})
     if isinstance(patient_cfg, dict):
-      return resolve_prompt_ablation_settings(
+      settings = resolve_prompt_ablation_settings(
         patient_cfg.get("prompt_variant", DEFAULT_PROMPT_VARIANT),
       )
-    return resolve_prompt_ablation_settings(
-      getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
-    )
+    else:
+      settings = resolve_prompt_ablation_settings(
+        getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
+      )
+    if self._cactus_patient_enabled():
+      settings["cactus_patient"] = "true"
+    return settings
 
   def _config_value(self, block: Any, name: str, default: Any = None) -> Any:
     if isinstance(block, dict):
@@ -159,6 +171,20 @@ class AgentTherapyGraphBuilder:
 
   def _patient_uses_local_model(self) -> bool:
     return self._model_type(getattr(self.cfg, "patient", {})) == "local"
+
+  def _patient_utterance_system_prompt_path(self) -> str | Path:
+    if self._cactus_patient_enabled():
+      if self._resistance_enabled():
+        return CACTUS_RESISTANCE_PATIENT_SYSTEM_PROMPT
+      return CACTUS_PATIENT_SYSTEM_PROMPT
+    return self._config_value(self.cfg.patient, "system_prompt_path") or AGENT_PATIENT_SYSTEM_PROMPT
+
+  def _patient_utterance_user_prompt_path(self) -> str | Path | None:
+    if not self._cactus_patient_enabled():
+      return None
+    if self._resistance_enabled():
+      return CACTUS_RESISTANCE_PATIENT_USER_PROMPT
+    return CACTUS_PATIENT_USER_PROMPT
 
   def _init_agents(self) -> None:
     if self._patient_uses_local_model():
@@ -179,7 +205,8 @@ class AgentTherapyGraphBuilder:
       generation_defaults=extract_generation_config(self.cfg.patient),
       resistance_enabled=self._resistance_enabled(),
       prompt_variant=prompt_ablation["prompt_variant"],
-      utterance_system_prompt_path=self._config_value(self.cfg.patient, "system_prompt_path") or AGENT_PATIENT_SYSTEM_PROMPT,
+      utterance_system_prompt_path=self._patient_utterance_system_prompt_path(),
+      utterance_user_prompt_path=self._patient_utterance_user_prompt_path(),
     )
 
   def initial_state(self, max_turns: int, min_turns: int = 0) -> dict[str, Any]:
@@ -473,7 +500,7 @@ class AgentTherapyGraphBuilder:
   ) -> Any:
     try:
       parsed, _meta = self.patient.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=None,
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,
@@ -500,7 +527,7 @@ class AgentTherapyGraphBuilder:
     fallback_reason = ""
     try:
       parsed, _meta = self.patient.generate_structured(
-        full_conversation=self._format_conversation(state["messages"]),
+        full_conversation=None,
         last_utterances=self._format_last_utterances(state["messages"]),
         resistance_level=state["resistance"],
         instruction=instruction,
@@ -645,6 +672,7 @@ class AgentTherapyGraphBuilder:
           request_messages,
           default_max_tokens=LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS,
         )
+        #breakpoint()
       else:
         context = self._format_agent_prompt_context(s)
         utterance, reasoning, _raw = self.therapist.generate_agent_utterance(context)
@@ -724,11 +752,12 @@ class AgentTherapyGraphBuilder:
         selected_action=selected_action,
       )
       utterance = self.patient.generate_utterance(
-        full_conversation=self._format_conversation(s["messages"]),
+        full_conversation=None,
         last_utterances=self._format_last_utterances(s["messages"]),
         resistance_level=s["resistance"],
         instruction=utterance_instruction,
       )
+      breakpoint()
       if not utterance:
         raise AgentConversationProcessingError("Patient generated an empty utterance.")
 

@@ -25,3 +25,7 @@ outs
 /ft_models_legacy
 /finetuning/train_queue_state.json
 /finetuning/train_queue_logs
+/evaluation/**/metadata
+/finetuning/**/metadata
+/finetuning/**/configs
+/evaluation/**/configs
