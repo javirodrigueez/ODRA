@@ -35,6 +35,9 @@ DEFAULT_VLLM_ARGS = {
     "enable-chunked-prefill": True,
     "max-num-seqs": 150,
 }
+VLLM_MANAGER_ARGS = {"davinci"}
+DAVINCI_NCCL_ENV = "NCCL_P2P_DISABLE=1"
+DAVINCI_VLLM_ARG = "disable-custom-all-reduce"
 
 DEFAULT_EVAL_SETTINGS = {
     "enabled": True,
@@ -43,6 +46,7 @@ DEFAULT_EVAL_SETTINGS = {
     "max_iter": 3,
     "n_processes": 1,
     "azure": False,
+    "batch": False,
     "panas_v2": False,
 }
 ALLOWED_EVAL_METRICS = {"ctrs", "wai", "panas"}
@@ -64,6 +68,7 @@ class EvalSettings:
     max_iter: int
     n_processes: int
     azure: bool
+    batch: bool
     panas_v2: bool
     input_dir: Path | None = None
     output_dir: Path | None = None
@@ -351,13 +356,18 @@ def parse_eval_settings(defaults: dict[str, Any], job_data: dict[str, Any]) -> E
     job_id = str(job_data.get("id") or "<unknown>")
     enabled = bool_value(merged.get("enabled"), f"Job {job_id!r}.eval.enabled")
     metrics = parse_eval_metrics(merged.get("metrics"), f"Job {job_id!r}.eval.metrics")
+    azure = bool_value(merged.get("azure"), f"Job {job_id!r}.eval.azure")
+    batch = bool_value(merged.get("batch"), f"Job {job_id!r}.eval.batch")
+    if azure and batch:
+        raise QueueConfigError(f"Job {job_id!r}.eval.batch is incompatible with eval.azure.")
     return EvalSettings(
         enabled=enabled,
         metrics=metrics,
         model=str(merged.get("model") or DEFAULT_EVAL_SETTINGS["model"]),
         max_iter=positive_int(merged.get("max_iter"), f"Job {job_id!r}.eval.max_iter"),
         n_processes=positive_int(merged.get("n_processes"), f"Job {job_id!r}.eval.n_processes"),
-        azure=bool_value(merged.get("azure"), f"Job {job_id!r}.eval.azure"),
+        azure=azure,
+        batch=batch,
         panas_v2=bool_value(merged.get("panas_v2"), f"Job {job_id!r}.eval.panas_v2"),
         input_dir=optional_path(merged.get("input_dir"), f"Job {job_id!r}.eval.input_dir"),
         output_dir=optional_path(merged.get("output_dir"), f"Job {job_id!r}.eval.output_dir"),
@@ -404,10 +414,13 @@ def load_job_runtime_values(cfg_path: Path) -> tuple[str, str, Path]:
 def normalize_vllm_args(raw_args: dict[str, Any]) -> list[str]:
     command_args: list[str] = []
     for key, value in raw_args.items():
+        normalized_key = str(key).replace("_", "-")
+        if normalized_key in VLLM_MANAGER_ARGS:
+            continue
         if value is None or value is False:
             continue
 
-        flag = f"--{str(key).replace('_', '-')}"
+        flag = f"--{normalized_key}"
         if value is True:
             command_args.append(flag)
             continue
@@ -419,6 +432,34 @@ def normalize_vllm_args(raw_args: dict[str, Any]) -> list[str]:
 
         command_args.extend([flag, str(value)])
     return command_args
+
+
+def vllm_arg_names(raw_args: dict[str, Any]) -> set[str]:
+    return {
+        str(key).replace("_", "-")
+        for key, value in raw_args.items()
+        if value is not None and value is not False
+    }
+
+
+def davinci_vllm_enabled(raw_args: dict[str, Any], name: str) -> bool:
+    if "davinci" not in raw_args:
+        return False
+    return bool_value(raw_args["davinci"], name)
+
+
+def split_env_prefix(command: list[str]) -> tuple[list[str], dict[str, str]]:
+    env: dict[str, str] = {}
+    index = 0
+    for token in command:
+        if "=" not in token:
+            break
+        key, value = token.split("=", 1)
+        if not key or not key.replace("_", "").isalnum():
+            break
+        env[key] = value
+        index += 1
+    return command[index:], env
 
 
 def load_jobs(config_path: Path) -> list[Job]:
@@ -480,6 +521,14 @@ def load_jobs(config_path: Path) -> list[Job]:
         default_vllm_args = dict(DEFAULT_VLLM_ARGS)
         configured_vllm_args = merge_mapping(defaults, raw_job, "vllm_args")
         vllm_args = {**default_vllm_args, **configured_vllm_args}
+        try:
+            if "davinci" in vllm_args:
+                vllm_args["davinci"] = bool_value(
+                    vllm_args["davinci"],
+                    f"Job {job_id!r}.vllm_args.davinci",
+                )
+        except QueueConfigError as exc:
+            raise SystemExit(str(exc)) from exc
 
         jobs.append(
             Job(
@@ -505,6 +554,10 @@ def load_jobs(config_path: Path) -> list[Job]:
 
 def build_vllm_command(job: Job) -> list[str]:
     host, port = host_port_from_base_url(job.base_url)
+    davinci_enabled = davinci_vllm_enabled(
+        job.vllm_args,
+        f"Job {job.id!r}.vllm_args.davinci",
+    )
     command = [
         "vllm",
         "serve",
@@ -517,10 +570,13 @@ def build_vllm_command(job: Job) -> list[str]:
         job.model_id,
     ]
     command.extend(normalize_vllm_args(job.vllm_args))
-    if job.gpu_count > 1 and "tensor-parallel-size" not in {
-        str(key).replace("_", "-") for key in job.vllm_args
-    }:
+    configured_vllm_arg_names = vllm_arg_names(job.vllm_args)
+    if davinci_enabled and DAVINCI_VLLM_ARG not in configured_vllm_arg_names:
+        command.append(f"--{DAVINCI_VLLM_ARG}")
+    if job.gpu_count > 1 and "tensor-parallel-size" not in configured_vllm_arg_names:
         command.extend(["--tensor-parallel-size", str(job.gpu_count)])
+    if davinci_enabled:
+        command = [DAVINCI_NCCL_ENV, *command]
     return command
 
 
@@ -543,19 +599,20 @@ def build_simulation_command(job: Job) -> list[str]:
 
 def build_eval_command(job: Job) -> list[str]:
     settings = job.eval_settings or EvalSettings(**DEFAULT_EVAL_SETTINGS)  # type: ignore[arg-type]
+    if settings.azure and settings.batch:
+        raise QueueConfigError(f"Job {job.id!r}.eval.batch is incompatible with eval.azure.")
     input_dir = settings.input_dir or (job.output_dir / "json")
     output_dir = settings.output_dir or (job.output_dir / "eval")
     command = [
         job.python,
-        "evaluation/run_api_metrics.py",
+        "evaluation/run_batch_metrics.py" if settings.batch else "evaluation/run_api_metrics.py",
         str(input_dir),
         str(output_dir),
         str(settings.max_iter),
-        "--model",
-        settings.model,
-        "--n-processes",
-        str(settings.n_processes),
     ]
+    if not settings.batch:
+        command.extend(["--model", settings.model])
+        command.extend(["--n-processes", str(settings.n_processes)])
     if "wai" not in settings.metrics:
         command.append("--exc-wai")
     if "ctrs" not in settings.metrics:
@@ -567,6 +624,10 @@ def build_eval_command(job: Job) -> list[str]:
     if settings.panas_v2:
         command.append("--panas-v2")
     return command
+
+
+def eval_script_name(settings: EvalSettings) -> str:
+    return "run_batch_metrics.py" if settings.batch else "run_api_metrics.py"
 
 
 def parse_gpus(raw_gpus: str | None) -> list[str]:
@@ -667,6 +728,8 @@ def start_job(
         env["CUDA_VISIBLE_DEVICES"] = ",".join(gpus)
 
     vllm_command = build_vllm_command(job)
+    vllm_process_command, vllm_env = split_env_prefix(vllm_command)
+    server_env = {**env, **vllm_env}
     simulation_command = build_simulation_command(job)
     eval_command = build_eval_command(job) if run_eval and job.eval_settings and job.eval_settings.enabled else None
     started_at = time.time()
@@ -685,10 +748,10 @@ def start_job(
     log_handle.flush()
 
     server_process = subprocess.Popen(
-        vllm_command,
+        vllm_process_command,
         stdout=log_handle,
         stderr=subprocess.STDOUT,
-        env=env,
+        env=server_env,
     )
 
     state.setdefault("jobs", {})[job.id] = {
@@ -1035,7 +1098,7 @@ def run_queue(args: argparse.Namespace) -> int:
                 and running.job.eval_settings.enabled
             ):
                 eval_command = build_eval_command(running.job)
-                running.log_handle.write("\n--- run_api_metrics.py ---\n")
+                running.log_handle.write(f"\n--- {eval_script_name(running.job.eval_settings)} ---\n")
                 running.log_handle.flush()
                 set_progress_value(running.simulation_progress, running.job.n_profiles, running.job.n_profiles)
                 terminate_process(running.server_process)

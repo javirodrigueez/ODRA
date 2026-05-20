@@ -91,6 +91,7 @@ def normalize_runtime_config(cfg: Any) -> Any:
   )
   patient.setdefault("system_prompt_path", "")
   patient.setdefault("prompt_variant", DEFAULT_PROMPT_VARIANT)
+  patient["cactus"] = _coerce_bool(patient.get("cactus"), False)
   normalized_prompt_variant = normalize_prompt_variant(patient.get("prompt_variant"))
   if normalized_prompt_variant is None:
     allowed = ", ".join(PROMPT_VARIANTS)

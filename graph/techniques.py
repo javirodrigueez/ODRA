@@ -143,17 +143,18 @@ class TechniqueStageMixin(GraphSupportMixin):
 
   def _evaluate_technique(self, state: SessionState, traces: list[dict[str, Any]]) -> None:
     instruction = self._load_stage_prompt("cbt_technique", "technique_evaluation")
-    evaluation = ensure_str(
-      self._run_therapist_structured(
-        state,
-        traces,
-        "technique_evaluation",
-        instruction,
-        expected_type=str,
-      )
-    ).strip()
-    if not evaluation:
-      raise ConversationProcessingError("technique_evaluation must return a non-empty string.")
+    parsed = self._run_therapist_structured(
+      state,
+      traces,
+      "technique_evaluation",
+      instruction,
+    )
+    payload = self._require_dict(parsed, "technique_evaluation")
+    evaluation = self._require_non_empty_string(
+      payload,
+      "evaluation",
+      "technique_evaluation",
+    )
     state["technique_evaluations"].append(evaluation)
 
   def _should_apply_more_techniques(self, state: SessionState, traces: list[dict[str, Any]]) -> bool:

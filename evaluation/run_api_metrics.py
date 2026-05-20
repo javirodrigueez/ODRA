@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import multiprocessing
 import os
 import sys
@@ -10,6 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,6 +33,7 @@ from evaluation.run_batch_metrics import (
   collect_existing_before_payloads,
   discover_conversations,
   ensure_output_dirs,
+  estimate_request_enqueued_tokens,
   get_field,
   make_openai_client,
   parse_phase_outputs,
@@ -45,7 +48,12 @@ from evaluation.run_batch_metrics import (
 
 DEFAULT_N_PROCESSES = 1
 DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_WAIT_SECONDS = 5.0
+DEFAULT_RETRY_WAIT_SECONDS = 30.0
+DEFAULT_AZURE_REQUESTS_PER_MINUTE = 600
+DEFAULT_AZURE_TOKENS_PER_MINUTE = 100_000
+DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE = 100
+RATE_LIMIT_WINDOW_SECONDS = 60.0
+LOGGER = logging.getLogger(__name__)
 
 
 def _load_tqdm() -> Any:
@@ -56,6 +64,16 @@ def _load_tqdm() -> Any:
   except ImportError:
     return None
   return tqdm
+
+
+def configure_rate_limit_logging() -> None:
+  if LOGGER.handlers:
+    return
+  handler = logging.StreamHandler()
+  handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+  LOGGER.addHandler(handler)
+  LOGGER.setLevel(logging.INFO)
+  LOGGER.propagate = False
 
 
 @dataclass(frozen=True)
@@ -76,11 +94,154 @@ class ApiWorkerPayload:
   output_cost_per_1m: float
   max_retries: int
   retry_wait_seconds: float
+  rate_limit_requests_per_minute: int
+  rate_limit_tokens_per_minute: int
+  rate_limit_output_token_reserve: int
+  rate_limiter_state: Any | None = None
+  rate_limiter_lock: Any | None = None
 
 
 def atomic_append_jsonl(path: Path, payloads: list[dict[str, Any]]) -> None:
   lines = [json.dumps(payload, ensure_ascii=True) for payload in payloads]
   atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
+
+
+def append_jsonl_line(path: Path, payload: dict[str, Any]) -> None:
+  path.parent.mkdir(parents=True, exist_ok=True)
+  with path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(payload, ensure_ascii=True))
+    f.write("\n")
+    f.flush()
+
+
+class ApiRateLimiter:
+  def __init__(
+    self,
+    *,
+    requests_per_minute: int,
+    tokens_per_minute: int,
+    state: Any | None = None,
+    lock: Any | None = None,
+    log_label: str = "api worker",
+  ) -> None:
+    self.requests_per_minute = int(requests_per_minute)
+    self.tokens_per_minute = int(tokens_per_minute)
+    self.state = state or {
+      "window_start": time.monotonic(),
+      "request_count": 0,
+      "token_count": 0,
+    }
+    self.lock = lock
+    self.log_label = log_label
+
+  def enabled(self) -> bool:
+    return self.requests_per_minute > 0 or self.tokens_per_minute > 0
+
+  def wait_for_capacity(self, *, request_tokens: int) -> None:
+    if not self.enabled():
+      return
+    request_tokens = max(0, int(request_tokens))
+    if self.tokens_per_minute > 0 and request_tokens > self.tokens_per_minute:
+      raise BatchMetricsError(
+        f"Single request needs {request_tokens} estimated tokens, exceeding "
+        f"the configured token/minute limit {self.tokens_per_minute}."
+      )
+
+    while True:
+      wait_seconds = 0.0
+      wait_reason = ""
+      request_count = 0
+      token_count = 0
+      lock = self.lock
+      if lock is None:
+        wait_seconds, wait_reason, request_count, token_count = self._reserve_or_wait(request_tokens)
+      else:
+        with lock:
+          wait_seconds, wait_reason, request_count, token_count = self._reserve_or_wait(request_tokens)
+      if wait_seconds <= 0:
+        return
+      LOGGER.info(
+        "%s sleeping %.2fs to stay within API rate limits (%s; current window: %s/%s requests, %s/%s estimated tokens; next request: %s estimated tokens)",
+        self.log_label,
+        wait_seconds,
+        wait_reason,
+        request_count,
+        self.requests_per_minute or "unlimited",
+        token_count,
+        self.tokens_per_minute or "unlimited",
+        request_tokens,
+      )
+      time.sleep(wait_seconds)
+
+  def _reserve_or_wait(self, request_tokens: int) -> tuple[float, str, int, int]:
+    now = time.monotonic()
+    window_start = float(self.state.get("window_start", now))
+    elapsed = now - window_start
+    if elapsed >= RATE_LIMIT_WINDOW_SECONDS or elapsed < 0:
+      self.state["window_start"] = now
+      self.state["request_count"] = 0
+      self.state["token_count"] = 0
+      window_start = now
+
+    request_count = int(self.state.get("request_count", 0))
+    token_count = int(self.state.get("token_count", 0))
+    request_limited = self.requests_per_minute > 0 and request_count + 1 > self.requests_per_minute
+    token_limited = self.tokens_per_minute > 0 and token_count + request_tokens > self.tokens_per_minute
+    if request_limited or token_limited:
+      reasons = []
+      if request_limited:
+        reasons.append("request/minute budget")
+      if token_limited:
+        reasons.append("token/minute budget")
+      return (
+        max(0.0, RATE_LIMIT_WINDOW_SECONDS - (now - window_start)) + 0.05,
+        " and ".join(reasons),
+        request_count,
+        token_count,
+      )
+
+    self.state["request_count"] = request_count + 1
+    self.state["token_count"] = token_count + request_tokens
+    return 0.0, "", request_count + 1, token_count + request_tokens
+
+
+def estimate_api_request_tokens(spec: BatchRequest, output_token_reserve: int) -> int:
+  n = spec.body.get("n", 1)
+  try:
+    response_count = max(1, int(n))
+  except (TypeError, ValueError):
+    response_count = 1
+  return estimate_request_enqueued_tokens(spec) + max(0, int(output_token_reserve)) * response_count
+
+
+def retry_after_seconds(exc: Exception) -> float | None:
+  response = getattr(exc, "response", None)
+  headers = getattr(response, "headers", None)
+  if headers is None:
+    return None
+  for key in ("retry-after-ms", "Retry-After-Ms"):
+    value = headers.get(key) if hasattr(headers, "get") else None
+    if value is None:
+      continue
+    try:
+      return max(0.0, float(value) / 1000.0)
+    except (TypeError, ValueError):
+      return None
+  for key in ("retry-after", "Retry-After"):
+    value = headers.get(key) if hasattr(headers, "get") else None
+    if value is None:
+      continue
+    try:
+      return max(0.0, float(value))
+    except (TypeError, ValueError):
+      try:
+        retry_at = parsedate_to_datetime(str(value))
+      except (TypeError, ValueError):
+        return None
+      if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+      return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+  return None
 
 
 def chunk_filenames(filenames: list[str], n_processes: int) -> list[list[str]]:
@@ -136,11 +297,17 @@ def execute_api_request(
   *,
   max_retries: int,
   retry_wait_seconds: float,
+  rate_limiter: ApiRateLimiter | None = None,
+  rate_limit_output_token_reserve: int = DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE,
 ) -> dict[str, Any]:
   attempt = 0
   while True:
     attempt += 1
     try:
+      if rate_limiter is not None:
+        rate_limiter.wait_for_capacity(
+          request_tokens=estimate_api_request_tokens(spec, rate_limit_output_token_reserve),
+        )
       response = client.chat.completions.create(**spec.body)
       return response_to_batch_line(spec, response)
     except Exception as exc:
@@ -148,7 +315,10 @@ def execute_api_request(
         raise BatchMetricsError(
           f"API request failed for {spec.custom_id} after {attempt} attempt(s): {exc}"
         ) from exc
-      time.sleep(max(0.0, retry_wait_seconds) * attempt)
+      wait_seconds = retry_after_seconds(exc)
+      if wait_seconds is None:
+        wait_seconds = max(0.0, retry_wait_seconds) * attempt
+      time.sleep(wait_seconds)
 
 
 def execute_specs_to_jsonl(
@@ -158,27 +328,29 @@ def execute_specs_to_jsonl(
   azure: bool,
   max_retries: int,
   retry_wait_seconds: float,
+  rate_limiter: ApiRateLimiter | None = None,
+  rate_limit_output_token_reserve: int = DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE,
   progress: Any | None = None,
 ) -> None:
   if not specs:
     atomic_append_jsonl(output_jsonl, [])
     return
   client = make_openai_client(azure=azure)
-  lines = []
+  atomic_write_text(output_jsonl, "")
   for spec in specs:
     if progress is not None:
       progress.set_postfix_str(spec.custom_id[:80], refresh=False)
-    lines.append(
-      execute_api_request(
-        client,
-        spec,
-        max_retries=max_retries,
-        retry_wait_seconds=retry_wait_seconds,
-      )
+    line = execute_api_request(
+      client,
+      spec,
+      max_retries=max_retries,
+      retry_wait_seconds=retry_wait_seconds,
+      rate_limiter=rate_limiter,
+      rate_limit_output_token_reserve=rate_limit_output_token_reserve,
     )
+    append_jsonl_line(output_jsonl, line)
     if progress is not None:
       progress.update(1)
-  atomic_append_jsonl(output_jsonl, lines)
 
 
 def worker_artifact_path(artifact_dir: Path, worker_index: int, phase_name: str, filename: str) -> Path:
@@ -192,6 +364,7 @@ def run_worker_phase(
   specs: list[BatchRequest],
   records_by_filename: dict[str, Any],
   staged_outputs: dict[str, dict[str, Any]],
+  rate_limiter: ApiRateLimiter | None = None,
   progress: Any | None = None,
 ) -> dict[str, Any]:
   artifact_dir = Path(payload.artifact_dir)
@@ -210,6 +383,8 @@ def run_worker_phase(
       azure=payload.azure,
       max_retries=payload.max_retries,
       retry_wait_seconds=payload.retry_wait_seconds,
+      rate_limiter=rate_limiter,
+      rate_limit_output_token_reserve=payload.rate_limit_output_token_reserve,
       progress=progress,
     )
     parsed_outputs, parse_report = parse_phase_outputs(
@@ -250,6 +425,13 @@ def run_api_metrics_worker(payload: ApiWorkerPayload) -> dict[str, Any]:
   phases: dict[str, Any] = {}
   progress = None
   tqdm = _load_tqdm()
+  rate_limiter = ApiRateLimiter(
+    requests_per_minute=payload.rate_limit_requests_per_minute,
+    tokens_per_minute=payload.rate_limit_tokens_per_minute,
+    state=payload.rate_limiter_state,
+    lock=payload.rate_limiter_lock,
+    log_label=f"worker {payload.worker_index}",
+  )
 
   phase1_specs = (
     []
@@ -295,6 +477,7 @@ def run_api_metrics_worker(payload: ApiWorkerPayload) -> dict[str, Any]:
         specs=phase1_specs,
         records_by_filename=records_by_filename,
         staged_outputs=staged_outputs,
+        rate_limiter=rate_limiter,
         progress=progress,
       )
     else:
@@ -323,6 +506,7 @@ def run_api_metrics_worker(payload: ApiWorkerPayload) -> dict[str, Any]:
       specs=phase2_specs,
       records_by_filename=records_by_filename,
       staged_outputs=staged_outputs,
+      rate_limiter=rate_limiter,
       progress=progress,
     )
   finally:
@@ -351,6 +535,9 @@ def create_api_manifest(
   n_processes: int,
   excluded_metrics: set[str],
   panas_v2: bool,
+  rate_limit_requests_per_minute: int,
+  rate_limit_tokens_per_minute: int,
+  rate_limit_output_token_reserve: int,
 ) -> tuple[Path, dict[str, Any]]:
   run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
   artifact_dir = output_dir / "_api_artifacts" / run_id
@@ -370,6 +557,12 @@ def create_api_manifest(
     "conversation_count": len(filenames),
     "excluded_metrics": sorted(excluded_metrics),
     "panas_after_prompt": panas_after_prompt_filename(panas_v2),
+    "rate_limits": {
+      "requests_per_minute": rate_limit_requests_per_minute,
+      "tokens_per_minute": rate_limit_tokens_per_minute,
+      "output_token_reserve": rate_limit_output_token_reserve,
+      "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
+    },
     "workers": [],
   }
   atomic_write_json(artifact_dir / "manifest.json", manifest)
@@ -392,6 +585,9 @@ def build_api_dry_run_plan(
   exc_panas: bool,
   panas_v2: bool,
   n_processes: int,
+  rate_limit_requests_per_minute: int,
+  rate_limit_tokens_per_minute: int,
+  rate_limit_output_token_reserve: int,
 ) -> dict[str, Any]:
   excluded_metrics = excluded_metrics_from_flags(exc_wai=exc_wai, exc_ctrs=exc_ctrs, exc_panas=exc_panas)
   chunks = chunk_filenames([record.filename for record in records], n_processes)
@@ -422,8 +618,46 @@ def build_api_dry_run_plan(
       "panas_before": {"request_count": len(phase1_specs)},
       "main": {"request_count": len(phase2_specs)},
     },
+    "rate_limits": {
+      "requests_per_minute": rate_limit_requests_per_minute,
+      "tokens_per_minute": rate_limit_tokens_per_minute,
+      "output_token_reserve": rate_limit_output_token_reserve,
+      "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
+    },
     "request_count": len(phase1_specs) + len(phase2_specs),
   }
+
+
+def resolve_rate_limit_settings(
+  *,
+  azure: bool,
+  requests_per_minute: int | None,
+  tokens_per_minute: int | None,
+  output_token_reserve: int,
+) -> tuple[int, int, int]:
+  if output_token_reserve < 0:
+    raise BatchMetricsError(
+      f"--rate-limit-output-token-reserve must be non-negative, got: {output_token_reserve}"
+    )
+  resolved_requests = (
+    DEFAULT_AZURE_REQUESTS_PER_MINUTE
+    if azure and requests_per_minute is None
+    else int(requests_per_minute or 0)
+  )
+  resolved_tokens = (
+    DEFAULT_AZURE_TOKENS_PER_MINUTE
+    if azure and tokens_per_minute is None
+    else int(tokens_per_minute or 0)
+  )
+  if resolved_requests < 0:
+    raise BatchMetricsError(
+      f"--rate-limit-requests-per-minute must be non-negative, got: {resolved_requests}"
+    )
+  if resolved_tokens < 0:
+    raise BatchMetricsError(
+      f"--rate-limit-tokens-per-minute must be non-negative, got: {resolved_tokens}"
+    )
+  return resolved_requests, resolved_tokens, output_token_reserve
 
 
 def run_api_metrics(
@@ -443,6 +677,9 @@ def run_api_metrics(
   dry_run: bool = False,
   max_retries: int = DEFAULT_MAX_RETRIES,
   retry_wait_seconds: float = DEFAULT_RETRY_WAIT_SECONDS,
+  rate_limit_requests_per_minute: int | None = None,
+  rate_limit_tokens_per_minute: int | None = None,
+  rate_limit_output_token_reserve: int = DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE,
 ) -> dict[str, Any]:
   if max_iter < 1:
     raise BatchMetricsError(f"MAX_ITER must be a positive integer, got: {max_iter}")
@@ -458,6 +695,12 @@ def run_api_metrics(
     else (EVALUATION_ROOT / "results").resolve()
   )
   records = discover_conversations(input_path)
+  resolved_rate_limit_requests_per_minute, resolved_rate_limit_tokens_per_minute, resolved_rate_limit_output_token_reserve = resolve_rate_limit_settings(
+    azure=azure,
+    requests_per_minute=rate_limit_requests_per_minute,
+    tokens_per_minute=rate_limit_tokens_per_minute,
+    output_token_reserve=rate_limit_output_token_reserve,
+  )
   if dry_run:
     return build_api_dry_run_plan(
       records,
@@ -469,6 +712,9 @@ def run_api_metrics(
       exc_panas=exc_panas,
       panas_v2=panas_v2,
       n_processes=n_processes,
+      rate_limit_requests_per_minute=resolved_rate_limit_requests_per_minute,
+      rate_limit_tokens_per_minute=resolved_rate_limit_tokens_per_minute,
+      rate_limit_output_token_reserve=resolved_rate_limit_output_token_reserve,
     )
 
   ensure_output_dirs(output_path)
@@ -485,33 +731,59 @@ def run_api_metrics(
     n_processes=len(chunks),
     excluded_metrics=excluded_metrics,
     panas_v2=panas_v2,
+    rate_limit_requests_per_minute=resolved_rate_limit_requests_per_minute,
+    rate_limit_tokens_per_minute=resolved_rate_limit_tokens_per_minute,
+    rate_limit_output_token_reserve=resolved_rate_limit_output_token_reserve,
   )
 
-  payloads = [
-    ApiWorkerPayload(
-      worker_index=index + 1,
-      input_dir=str(input_path),
-      filenames=chunk,
-      output_dir=str(output_path),
-      artifact_dir=str(artifact_dir),
-      max_iter=max_iter,
-      model=model,
-      exc_wai=exc_wai,
-      exc_ctrs=exc_ctrs,
-      exc_panas=exc_panas,
-      panas_v2=panas_v2,
-      azure=azure,
-      input_cost_per_1m=input_cost_per_1m,
-      output_cost_per_1m=output_cost_per_1m,
-      max_retries=max_retries,
-      retry_wait_seconds=retry_wait_seconds,
-    )
-    for index, chunk in enumerate(chunks)
-  ]
+  def make_payloads(rate_limiter_state: Any | None = None, rate_limiter_lock: Any | None = None) -> list[ApiWorkerPayload]:
+    return [
+      ApiWorkerPayload(
+        worker_index=index + 1,
+        input_dir=str(input_path),
+        filenames=chunk,
+        output_dir=str(output_path),
+        artifact_dir=str(artifact_dir),
+        max_iter=max_iter,
+        model=model,
+        exc_wai=exc_wai,
+        exc_ctrs=exc_ctrs,
+        exc_panas=exc_panas,
+        panas_v2=panas_v2,
+        azure=azure,
+        input_cost_per_1m=input_cost_per_1m,
+        output_cost_per_1m=output_cost_per_1m,
+        max_retries=max_retries,
+        retry_wait_seconds=retry_wait_seconds,
+        rate_limit_requests_per_minute=resolved_rate_limit_requests_per_minute,
+        rate_limit_tokens_per_minute=resolved_rate_limit_tokens_per_minute,
+        rate_limit_output_token_reserve=resolved_rate_limit_output_token_reserve,
+        rate_limiter_state=rate_limiter_state,
+        rate_limiter_lock=rate_limiter_lock,
+      )
+      for index, chunk in enumerate(chunks)
+    ]
 
   try:
+    rate_limiter_enabled = (
+      resolved_rate_limit_requests_per_minute > 0 or resolved_rate_limit_tokens_per_minute > 0
+    )
+    payloads = make_payloads()
     if len(payloads) == 1:
       worker_results = [run_api_metrics_worker(payloads[0])]
+    elif rate_limiter_enabled:
+      with multiprocessing.Manager() as manager:
+        shared_state = manager.dict(
+          {
+            "window_start": time.monotonic(),
+            "request_count": 0,
+            "token_count": 0,
+          }
+        )
+        shared_lock = manager.Lock()
+        payloads = make_payloads(shared_state, shared_lock)
+        with multiprocessing.Pool(processes=len(payloads)) as pool:
+          worker_results = pool.map(run_api_metrics_worker, payloads)
     else:
       with multiprocessing.Pool(processes=len(payloads)) as pool:
         worker_results = pool.map(run_api_metrics_worker, payloads)
@@ -561,6 +833,33 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser.add_argument("--n-processes", type=int, default=DEFAULT_N_PROCESSES)
   parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES)
   parser.add_argument("--retry-wait-seconds", type=float, default=DEFAULT_RETRY_WAIT_SECONDS)
+  parser.add_argument(
+    "--rate-limit-requests-per-minute",
+    type=int,
+    default=None,
+    help=(
+      "Client-side request limit. Default: 600 with --azure, disabled otherwise. "
+      "Use 0 to disable."
+    ),
+  )
+  parser.add_argument(
+    "--rate-limit-tokens-per-minute",
+    type=int,
+    default=None,
+    help=(
+      "Client-side estimated token limit. Default: 100000 with --azure, disabled otherwise. "
+      "Use 0 to disable."
+    ),
+  )
+  parser.add_argument(
+    "--rate-limit-output-token-reserve",
+    type=int,
+    default=DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE,
+    help=(
+      "Estimated output tokens reserved per requested completion for rate limiting. "
+      f"Default: {DEFAULT_RATE_LIMIT_OUTPUT_TOKEN_RESERVE}"
+    ),
+  )
   parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
   parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
   parser.add_argument("--dry-run", action="store_true", help="Print planned API request counts without calling the API.")
@@ -585,6 +884,13 @@ def print_dry_run_plan(plan: dict[str, Any]) -> None:
   print(f"Conversations: {plan['conversation_count']}")
   print(f"Processes: {plan['n_processes']}")
   print(f"Total requests: {plan['request_count']}")
+  rate_limits = plan.get("rate_limits") or {}
+  print(
+    "Rate limits: "
+    f"{rate_limits.get('requests_per_minute', 0)} req/min, "
+    f"{rate_limits.get('tokens_per_minute', 0)} estimated tokens/min, "
+    f"{rate_limits.get('output_token_reserve', 0)} output-token reserve"
+  )
   for phase_name, phase in plan.get("phases", {}).items():
     print(f"{phase_name}: {phase['request_count']} request(s)")
   for chunk in plan.get("chunks", []):
@@ -593,6 +899,7 @@ def print_dry_run_plan(plan: dict[str, Any]) -> None:
 
 def main(argv: Iterable[str] | None = None) -> int:
   args = parse_args(argv)
+  configure_rate_limit_logging()
   try:
     manifest = run_api_metrics(
       args.input_dir,
@@ -608,6 +915,9 @@ def main(argv: Iterable[str] | None = None) -> int:
       dry_run=args.dry_run,
       max_retries=args.max_retries,
       retry_wait_seconds=args.retry_wait_seconds,
+      rate_limit_requests_per_minute=args.rate_limit_requests_per_minute,
+      rate_limit_tokens_per_minute=args.rate_limit_tokens_per_minute,
+      rate_limit_output_token_reserve=args.rate_limit_output_token_reserve,
       input_cost_per_1m=args.input_cost_per_1m,
       output_cost_per_1m=args.output_cost_per_1m,
     )

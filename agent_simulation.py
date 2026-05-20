@@ -44,10 +44,35 @@ def _prompt_ablation_with_cactus_patient(prompt_ablation: dict[str, str], cactus
   return metadata
 
 
-def _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path: str | None, cactus_patient: bool) -> dict[str, str]:
+def _cactus_patient_from_cfg(cfg: Any) -> bool:
+  patient_cfg = getattr(cfg, "patient", {})
+  value = patient_cfg.get("cactus", False) if isinstance(patient_cfg, dict) else getattr(patient_cfg, "cactus", False)
+  return bool(value)
+
+
+def _resolve_cactus_patient(cactus_patient: bool | None, cfg: Any) -> bool:
+  if cactus_patient is not None:
+    return bool(cactus_patient)
+  return _cactus_patient_from_cfg(cfg)
+
+
+def _cactus_patient_from_cfg_path(cfg_path: str | None) -> bool:
+  if not cfg_path:
+    return False
+  try:
+    from runtime_config import load_runtime_config
+
+    cfg = load_runtime_config(cfg_path)
+  except Exception:
+    return False
+  return _cactus_patient_from_cfg(cfg)
+
+
+def _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path: str | None, cactus_patient: bool | None) -> dict[str, str]:
+  resolved_cactus_patient = bool(cactus_patient) if cactus_patient is not None else _cactus_patient_from_cfg_path(cfg_path)
   return _prompt_ablation_with_cactus_patient(
     _prompt_ablation_from_cfg_path(cfg_path),
-    cactus_patient,
+    resolved_cactus_patient,
   )
 
 
@@ -115,8 +140,9 @@ def run_simulation(
   suppress_output: bool = False,
   print_saved_paths: bool = True,
   include_reasoning: bool = False,
-  cactus_patient: bool = False,
+  cactus_patient: bool | None = None,
 ) -> dict[str, Any]:
+  resolved_cactus_patient = bool(cactus_patient) if cactus_patient is not None else _cactus_patient_from_cfg_path(cfg_path)
   result: dict[str, Any] = {
     "messages": [],
     "reasoning_traces": [],
@@ -125,7 +151,7 @@ def run_simulation(
     "session_ended_reason": "",
     "conversation_error": "",
     "patient_profile": profile,
-    "prompt_ablation": _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path, cactus_patient),
+    "prompt_ablation": _prompt_ablation_from_cfg_path_with_cactus_patient(cfg_path, resolved_cactus_patient),
   }
   error_printed = False
   last_reported_utterance = 0
@@ -154,7 +180,7 @@ def run_simulation(
 
       if resume_state is not None:
         raise ValueError("agent_simulation.py does not support partial-session resume state.")
-      builder = AgentTherapyGraphBuilder(cfg_path, profile, cactus_patient=cactus_patient)
+      builder = AgentTherapyGraphBuilder(cfg_path, profile, cactus_patient=resolved_cactus_patient)
       chain = builder.create_chain()
       initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
       result = initial_state
@@ -383,13 +409,14 @@ def main(
   use_multiprocessing: bool = False,
   n_processes: int | None = None,
   include_reasoning: bool = False,
-  cactus_patient: bool = False,
+  cactus_patient: bool | None = None,
 ) -> None:
   from runtime_config import load_runtime_config
 
   load_dotenv()
 
   cfg = load_runtime_config(cfg_path)
+  resolved_cactus_patient = _resolve_cactus_patient(cactus_patient, cfg)
 
   max_turns = cfg.env.max_turns
   min_turns = cfg.env.get("min_turns", 0)
@@ -398,7 +425,7 @@ def main(
   resume_file = cfg.env.get("resume_file")
   prompt_ablation = _prompt_ablation_with_cactus_patient(
     _prompt_ablation_from_patient_config(cfg.patient),
-    cactus_patient,
+    resolved_cactus_patient,
   )
 
   if resume_file:
@@ -451,7 +478,7 @@ def main(
       output_dir=output_dir,
       n_processes=cast(int, n_processes),
       include_reasoning=include_reasoning,
-      cactus_patient=cactus_patient,
+      cactus_patient=resolved_cactus_patient,
     )
   else:
     _run_batch_sequential(
@@ -463,7 +490,7 @@ def main(
       output_dir=output_dir,
       verbose=verbose,
       include_reasoning=include_reasoning,
-      cactus_patient=cactus_patient,
+      cactus_patient=resolved_cactus_patient,
     )
 
   if run_eval:
@@ -487,7 +514,7 @@ if __name__ == "__main__":
   parser.add_argument("--multiprocessing", action="store_true", dest="use_multiprocessing", help="Run selected batch profiles in parallel.")
   parser.add_argument("--n-processes", type=int, default=None, help="Number of worker processes to use with --multiprocessing.")
   parser.add_argument("--reasoning", action="store_true", dest="include_reasoning", help="Include therapist reasoning traces in TXT transcripts.")
-  parser.add_argument("--cactus-patient", action="store_true", help="Use cactus patient utterance prompts for agent simulations.")
+  parser.add_argument("--cactus-patient", action="store_true", default=None, help="Use cactus patient utterance prompts for agent simulations.")
   args = parser.parse_args()
   main(
     args.cfg,

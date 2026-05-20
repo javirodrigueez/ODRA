@@ -29,3 +29,4 @@ outs
 /finetuning/**/metadata
 /finetuning/**/configs
 /evaluation/**/configs
+configs/

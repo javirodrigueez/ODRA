@@ -232,6 +232,9 @@ class LocalLLM(LLM):
       "model": self.model_id,
       "messages": messages,
       "max_completion_tokens": self.max_model_len,
+      "extra_body": {
+        "chat_template_kwargs": { "enable_thinking": False }
+      }
     }
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:
@@ -242,8 +245,10 @@ class LocalLLM(LLM):
       create_kwargs["response_format"] = kwargs["response_format"]
     response = self.chat_model.chat.completions.create(**create_kwargs)
     content = ensure_str(response.choices[0].message.content)
+    #breakpoint()
     if strip_thinking and '</think>' in content:
       content = content.split('</think>')[-1].strip()
+    content = content.replace('\n', '').removeprefix('```json').removesuffix('```')
     return content
 
 class DeepseekLLM(LLM):

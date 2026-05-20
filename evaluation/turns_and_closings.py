@@ -2,15 +2,25 @@ import os
 import json
 import glob
 import argparse
+import re
 from collections import defaultdict
 
-def analyze_sessions(input_dir: str) -> None:
+WORD_RE = re.compile(r"\b[\w']+\b")
+
+
+def count_words(text: object) -> int:
+    return len(WORD_RE.findall(str(text or "")))
+
+
+def analyze_sessions(input_dir: str) -> dict:
     """
     Parses JSON session files to compute turn metrics and analyze session termination reasons,
     stratified by user attitude.
     """
     total_sessions = 0
     total_turns = 0
+    total_therapist_words = 0
+    total_therapist_messages = 0
     
     # Aggregation dictionaries
     attitude_metrics = defaultdict(lambda: {"sessions": 0, "turns": 0})
@@ -25,13 +35,28 @@ def analyze_sessions(input_dir: str) -> None:
                 data = json.load(f)
 
             # Extract schema fields with strict fallbacks
-            turns = len(data.get("messages", []))
+            messages = data.get("messages", [])
+            if not isinstance(messages, list):
+                messages = []
+
+            turns = len(messages)
             attitude = data.get("patient_profile", {}).get("attitude", "unspecified")
             end_reason = data.get("session_ended_reason", "unspecified")
+            therapist_messages = [
+                message
+                for message in messages
+                if isinstance(message, dict)
+                and str(message.get("role", "")).strip().lower() == "therapist"
+            ]
+            therapist_words = sum(
+                count_words(message.get("content", "")) for message in therapist_messages
+            )
 
             # Aggregate overarching state
             total_sessions += 1
             total_turns += turns
+            total_therapist_words += therapist_words
+            total_therapist_messages += len(therapist_messages)
             overall_reasons[end_reason] += 1
 
             # Aggregate state conditioned on attitude
@@ -45,17 +70,44 @@ def analyze_sessions(input_dir: str) -> None:
     # Compute and evaluate results
     if total_sessions == 0:
         print("No valid JSON sessions found in the provided directory.")
-        return
+        return {
+            "input_dir": input_dir,
+            "total_sessions": 0,
+            "avg_turns_overall": 0.0,
+            "avg_therapist_words_per_session": 0.0,
+            "avg_therapist_words_per_therapist_turn": 0.0,
+            "attitudes": {},
+            "overall_reasons": {},
+            "attitude_reasons": {},
+        }
 
     # 1. Evaluate Turn Metrics
     avg_turns_overall = total_turns / total_sessions
+    avg_therapist_words_per_session = total_therapist_words / total_sessions
+    avg_therapist_words_per_therapist_turn = (
+        total_therapist_words / total_therapist_messages
+        if total_therapist_messages
+        else 0.0
+    )
     print(f"--- Turn Metrics ---")
     print(f"Total Sessions: {total_sessions}")
     print(f"Overall Average Turns per Session: {avg_turns_overall:.2f}\n")
+    print("Therapist Word Metrics:")
+    print(f"Average Therapist Words per Session: {avg_therapist_words_per_session:.2f}")
+    print(
+        "Average Therapist Words per Therapist Turn: "
+        f"{avg_therapist_words_per_therapist_turn:.2f}\n"
+    )
 
     print("Average Turns Grouped by Attitude:")
+    attitude_summary = {}
     for att, stats in sorted(attitude_metrics.items()):
         avg_turns = stats["turns"] / stats["sessions"]
+        attitude_summary[att] = {
+            "sessions": stats["sessions"],
+            "turns": stats["turns"],
+            "avg_turns": avg_turns,
+        }
         print(f" - [{att.upper()}]: {avg_turns:.2f} turns/session (n={stats['sessions']})")
     
     # 2. Evaluate Termination Distributions
@@ -69,6 +121,22 @@ def analyze_sessions(input_dir: str) -> None:
         print(f" [{att.upper()}]:")
         for reason, count in sorted(reasons.items(), key=lambda x: x[1], reverse=True):
             print(f"    - {reason}: {count}")
+
+    return {
+        "input_dir": input_dir,
+        "total_sessions": total_sessions,
+        "total_turns": total_turns,
+        "avg_turns_overall": avg_turns_overall,
+        "total_therapist_words": total_therapist_words,
+        "total_therapist_messages": total_therapist_messages,
+        "avg_therapist_words_per_session": avg_therapist_words_per_session,
+        "avg_therapist_words_per_therapist_turn": avg_therapist_words_per_therapist_turn,
+        "attitudes": attitude_summary,
+        "overall_reasons": dict(overall_reasons),
+        "attitude_reasons": {
+            attitude: dict(reasons) for attitude, reasons in attitude_reasons.items()
+        },
+    }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

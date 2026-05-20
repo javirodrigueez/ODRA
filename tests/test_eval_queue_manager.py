@@ -81,6 +81,7 @@ jobs:
     self.assertEqual(job.output_dir, Path("/tmp/eval-out"))
 
     vllm = manager.build_vllm_command(job)
+    self.assertEqual(vllm[:2], ["vllm", "serve"])
     self.assertIn("vllm", vllm)
     self.assertIn("--host", vllm)
     self.assertIn("127.0.0.1", vllm)
@@ -88,6 +89,9 @@ jobs:
     self.assertIn("8123", vllm)
     self.assertIn("--quantization", vllm)
     self.assertIn("fp8", vllm)
+    self.assertNotIn("NCCL_P2P_DISABLE=1", vllm)
+    self.assertNotIn("--davinci", vllm)
+    self.assertNotIn("--disable-custom-all-reduce", vllm)
     self.assertNotIn("--tensor-parallel-size", vllm)
 
     simulation = manager.build_simulation_command(job)
@@ -105,6 +109,129 @@ jobs:
     self.assertIn("--azure", eval_command)
     self.assertIn("--panas-v2", eval_command)
     self.assertEqual(eval_command[eval_command.index("--n-processes") + 1], "4")
+
+  def test_davinci_vllm_args_add_nccl_prefix_and_all_reduce_flag(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      cfg = base / "local.yaml"
+      queue = base / "queue.yaml"
+      _write_runtime_config(cfg)
+      _write_yaml(
+        queue,
+        f"""
+jobs:
+  - id: davinci-eval
+    cfg: {cfg}
+    profiles_path: profiles.json
+    n_profiles: 1
+    multiprocessing: false
+    vllm_args:
+      davinci: true
+      max-num-seqs: 32
+""",
+      )
+
+      jobs = manager.load_jobs(queue)
+
+    command = manager.build_vllm_command(jobs[0])
+    self.assertEqual(command[:3], ["NCCL_P2P_DISABLE=1", "vllm", "serve"])
+    self.assertIn("--disable-custom-all-reduce", command)
+    self.assertNotIn("--davinci", command)
+    self.assertIn("--max-num-seqs", command)
+    self.assertEqual(command[command.index("--max-num-seqs") + 1], "32")
+    process_command, env = manager.split_env_prefix(command)
+    self.assertEqual(process_command[:2], ["vllm", "serve"])
+    self.assertEqual(env, {"NCCL_P2P_DISABLE": "1"})
+
+  def test_davinci_vllm_arg_must_be_boolean(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      cfg = base / "local.yaml"
+      queue = base / "queue.yaml"
+      _write_runtime_config(cfg)
+      _write_yaml(
+        queue,
+        f"""
+jobs:
+  - id: davinci-invalid
+    cfg: {cfg}
+    profiles_path: profiles.json
+    n_profiles: 1
+    multiprocessing: false
+    vllm_args:
+      davinci: maybe
+""",
+      )
+
+      with self.assertRaises(SystemExit) as error:
+        manager.load_jobs(queue)
+
+    self.assertIn("vllm_args.davinci", str(error.exception))
+
+  def test_eval_batch_uses_run_batch_metrics_command(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      cfg = base / "local.yaml"
+      queue = base / "queue.yaml"
+      _write_runtime_config(cfg)
+      _write_yaml(
+        queue,
+        f"""
+jobs:
+  - id: batch-eval
+    cfg: {cfg}
+    profiles_path: profiles.json
+    n_profiles: 1
+    multiprocessing: false
+    eval:
+      batch: true
+      metrics: [wai]
+      model: gpt-4o-mini
+      max_iter: 2
+      n_processes: 3
+      panas_v2: true
+""",
+      )
+
+      jobs = manager.load_jobs(queue)
+
+    job = jobs[0]
+    self.assertTrue(job.eval_settings.batch)
+    eval_command = manager.build_eval_command(job)
+    self.assertEqual(eval_command[:2], ["python", "evaluation/run_batch_metrics.py"])
+    self.assertIn("--exc-ctrs", eval_command)
+    self.assertIn("--exc-panas", eval_command)
+    self.assertNotIn("--exc-wai", eval_command)
+    self.assertNotIn("--azure", eval_command)
+    self.assertIn("--panas-v2", eval_command)
+    self.assertEqual(eval_command[eval_command.index("--n-processes") + 1], "3")
+    self.assertEqual(manager.eval_script_name(job.eval_settings), "run_batch_metrics.py")
+
+  def test_eval_batch_rejects_azure(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      cfg = base / "local.yaml"
+      queue = base / "queue.yaml"
+      _write_runtime_config(cfg)
+      _write_yaml(
+        queue,
+        f"""
+jobs:
+  - id: batch-azure
+    cfg: {cfg}
+    profiles_path: profiles.json
+    n_profiles: 1
+    multiprocessing: false
+    eval:
+      batch: true
+      azure: true
+""",
+      )
+
+      with self.assertRaises(SystemExit) as error:
+        manager.load_jobs(queue)
+
+    self.assertIn("incompatible", str(error.exception))
 
   def test_multi_gpu_adds_tensor_parallel_size(self) -> None:
     job = manager.Job(

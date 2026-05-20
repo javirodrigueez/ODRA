@@ -213,9 +213,9 @@ def resolve_prompt_ablation_settings(
 
 def resistance_interval_for_level(resistance_level: float) -> ResistanceInterval:
   scaled = scaled_resistance_value(resistance_level)
-  if scaled < 3.3:
+  if scaled <= 3.3:
     return "positive"
-  if scaled < 6.6:
+  if scaled <= 6.6:
     return "neutral"
   return "negative"
 

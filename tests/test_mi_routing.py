@@ -255,6 +255,14 @@ class MIRoutingTest(unittest.TestCase):
     cfg = normalize_runtime_config({"patient": {}})
     self.assertEqual(cfg["patient"]["prompt_variant"], "base")
 
+  def test_runtime_config_sets_default_patient_cactus_disabled(self) -> None:
+    cfg = normalize_runtime_config({"patient": {}})
+    self.assertFalse(cfg["patient"]["cactus"])
+
+  def test_runtime_config_preserves_patient_cactus(self) -> None:
+    cfg = normalize_runtime_config({"patient": {"cactus": "yes"}})
+    self.assertTrue(cfg["patient"]["cactus"])
+
   def test_runtime_config_preserves_agent_system_prompt_paths(self) -> None:
     cfg = normalize_runtime_config(
       {

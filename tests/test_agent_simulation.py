@@ -145,6 +145,41 @@ class _RecordingCompletions:
     )
 
 
+class _ModeratorCompletions:
+  def __init__(self, effects: list[object]) -> None:
+    self.effects = list(effects)
+    self.calls: list[dict] = []
+
+  def create(self, **kwargs):
+    self.calls.append(kwargs)
+    if not self.effects:
+      raise AssertionError("No moderator effect configured.")
+    effect = self.effects.pop(0)
+    if isinstance(effect, Exception):
+      raise effect
+    return SimpleNamespace(
+      choices=[
+        SimpleNamespace(
+          message=SimpleNamespace(content=str(effect)),
+        )
+      ]
+    )
+
+
+def _moderator_openai_factory(effects: list[object], clients: list[SimpleNamespace]):
+  def factory(**kwargs):
+    completions = _ModeratorCompletions(effects)
+    client = SimpleNamespace(
+      kwargs=kwargs,
+      chat=SimpleNamespace(completions=completions),
+      completions=completions,
+    )
+    clients.append(client)
+    return client
+
+  return factory
+
+
 class AgentTherapistPromptTest(unittest.TestCase):
   def test_builds_exact_agent_prompt_shape(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -578,6 +613,14 @@ class AgentGraphTest(unittest.TestCase):
     self.assertIn("CACTUS USER Neutral Therapist: Hello.", messages[1]["content"])
     self.assertNotIn("CFG PATIENT", messages[0]["content"])
 
+  def test_cactus_patient_defaults_to_config_when_no_cli_override(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.cfg.patient = {"type": "deepseek", "prompt_variant": "base", "cactus": True}
+
+    self.assertTrue(builder._resolve_cactus_patient(None))
+    self.assertFalse(builder._resolve_cactus_patient(False))
+    self.assertTrue(builder._resolve_cactus_patient(True))
+
   def test_rejects_local_patient_config(self) -> None:
     builder = self._builder(resistance=False)
     builder.cfg.patient = {"type": "local", "prompt_variant": "base"}
@@ -609,6 +652,105 @@ class AgentGraphTest(unittest.TestCase):
     self.assertNotIn("stage", result["messages"][0])
     self.assertNotIn("substage", result["messages"][0])
     self.assertEqual(result["reasoning_traces"][0]["traces"][0]["output"], "Closing reason")
+
+  def test_moderator_yes_gets_one_final_patient_reply_and_moderator_end_reason(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeContinuingTherapist()
+    builder.patient = _FakePatient()
+    clients: list[SimpleNamespace] = []
+
+    with mock.patch.dict(os.environ, {"OR_API_KEY": "or-key"}):
+      with mock.patch(
+        "graph.agent_graph.OpenAI",
+        side_effect=_moderator_openai_factory(["Yes"], clients),
+      ) as openai_cls:
+        result = builder.create_chain().invoke(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["session_ended_reason"], "moderator_detected_closing")
+    self.assertEqual([message["role"] for message in result["messages"]], ["therapist", "patient"])
+    self.assertEqual(result["messages"][0]["content"], "Hello.")
+    self.assertEqual(result["messages"][1]["content"], "Okay, bye.")
+    self.assertEqual(openai_cls.call_args.kwargs["api_key"], "or-key")
+    self.assertEqual(openai_cls.call_args.kwargs["base_url"], "https://openrouter.ai/api/v1")
+    request = clients[0].completions.calls[0]
+    self.assertEqual(request["model"], "deepseek/deepseek-v3.2")
+    self.assertEqual(request["temperature"], 0)
+    self.assertEqual(request["max_tokens"], 3)
+    self.assertEqual(request["messages"][0]["role"], "system")
+    self.assertIn("Answer only Yes or No", request["messages"][0]["content"])
+    self.assertIn("Hello.", request["messages"][1]["content"])
+    self.assertEqual(
+      request["extra_body"]["provider"],
+      {
+        "order": ["deepseek", "atlas-cloud/fp8", "novita/fp8"],
+        "allow_fallbacks": False,
+      },
+    )
+
+  def test_moderator_no_allows_session_to_continue(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeContinuingTherapist()
+    builder.patient = _FakePatient()
+    clients: list[SimpleNamespace] = []
+
+    with mock.patch(
+      "graph.agent_graph.OpenAI",
+      side_effect=_moderator_openai_factory(["No"], clients),
+    ):
+      state = builder.therapist_turn(builder.initial_state(max_turns=6))
+
+    self.assertFalse(state["session_ended"])
+    self.assertFalse(state["final_patient_pending_end"])
+    self.assertEqual(state["session_ended_reason"], "")
+    self.assertEqual(len(clients[0].completions.calls), 1)
+
+  def test_moderator_invalid_response_retries_once_and_uses_second_answer(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeContinuingTherapist()
+    builder.patient = _FakePatient()
+    clients: list[SimpleNamespace] = []
+
+    with mock.patch(
+      "graph.agent_graph.OpenAI",
+      side_effect=_moderator_openai_factory(["Maybe", "Yes"], clients),
+    ):
+      result = builder.create_chain().invoke(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["session_ended_reason"], "moderator_detected_closing")
+    self.assertEqual(len(clients[0].completions.calls), 2)
+
+  def test_moderator_failure_retries_once_then_falls_back_to_no(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeContinuingTherapist()
+    builder.patient = _FakePatient()
+    clients: list[SimpleNamespace] = []
+
+    with mock.patch(
+      "graph.agent_graph.OpenAI",
+      side_effect=_moderator_openai_factory([RuntimeError("timeout"), RuntimeError("timeout")], clients),
+    ):
+      state = builder.therapist_turn(builder.initial_state(max_turns=6))
+
+    self.assertFalse(state["session_ended"])
+    self.assertFalse(state["final_patient_pending_end"])
+    self.assertEqual(state["session_ended_reason"], "")
+    self.assertEqual(len(clients[0].completions.calls), 2)
+
+  def test_explicit_therapist_end_tag_takes_precedence_over_moderator_no(self) -> None:
+    builder = self._builder(resistance=False)
+    builder.therapist = _FakeTherapist()
+    builder.patient = _FakePatient()
+    clients: list[SimpleNamespace] = []
+
+    with mock.patch(
+      "graph.agent_graph.OpenAI",
+      side_effect=_moderator_openai_factory(["No"], clients),
+    ):
+      result = builder.create_chain().invoke(builder.initial_state(max_turns=6))
+
+    self.assertEqual(result["session_ended_reason"], "therapist_requested_end")
+    self.assertEqual([message["role"] for message in result["messages"]], ["therapist", "patient"])
+    self.assertEqual(len(clients[0].completions.calls), 1)
 
   def test_patient_end_tag_ends_session_and_is_preserved(self) -> None:
     builder = self._builder(resistance=False)

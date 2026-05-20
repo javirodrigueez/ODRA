@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 from typing import Any, Iterator, Literal, Mapping, cast
+
+from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
 from agents.interfaces import (
   ChatMessage,
@@ -45,6 +48,16 @@ CACTUS_RESISTANCE_PATIENT_USER_PROMPT = Path(__file__).resolve().parent.parent /
 THERAPIST_ROLE = "therapist"
 PATIENT_ROLE = "patient"
 CONVERSATION_ROLES = {THERAPIST_ROLE, PATIENT_ROLE}
+MODERATOR_MODEL_ID = "deepseek/deepseek-v3.2"
+MODERATOR_BASE_URL = "https://openrouter.ai/api/v1"
+MODERATOR_MAX_ATTEMPTS = 2
+MODERATOR_SYSTEM_PROMPT = "Answer only Yes or No."
+MODERATOR_USER_PROMPT_TEMPLATE = (
+  "Does this therapist utterance clearly close or end the therapy session? "
+  "Answer Yes only for explicit goodbye, final wrap-up, or session-ending language. "
+  "Answer No for ordinary summaries, homework, or next steps without a clear ending.\n\n"
+  "Therapist utterance:\n{utterance}"
+)
 
 
 class AgentConversationProcessingError(RuntimeError):
@@ -110,10 +123,10 @@ class AgentSimulationChain:
 
 
 class AgentTherapyGraphBuilder:
-  def __init__(self, config_path: str, profile: dict[str, Any], *, cactus_patient: bool = False):
+  def __init__(self, config_path: str, profile: dict[str, Any], *, cactus_patient: bool | None = None):
     self.cfg = load_runtime_config(config_path)
     self.profile = profile
-    self.cactus_patient = bool(cactus_patient)
+    self.cactus_patient = self._resolve_cactus_patient(cactus_patient)
     self._init_agents()
 
   def _env_value(self, name: str, default: Any) -> Any:
@@ -140,6 +153,30 @@ class AgentTherapyGraphBuilder:
 
   def _resistance_enabled(self) -> bool:
     return self._env_bool("resistance", True)
+
+  def _config_bool(self, block: Any, name: str, default: bool) -> bool:
+    if isinstance(block, dict):
+      value = block.get(name, default)
+    else:
+      value = getattr(block, name, default)
+    if value is None:
+      return default
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, str):
+      normalized = value.strip().lower()
+      if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+      if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    if isinstance(value, (int, float)):
+      return bool(value)
+    return default
+
+  def _resolve_cactus_patient(self, cactus_patient: bool | None) -> bool:
+    if cactus_patient is not None:
+      return bool(cactus_patient)
+    return self._config_bool(getattr(self.cfg, "patient", {}), "cactus", False)
 
   def _cactus_patient_enabled(self) -> bool:
     return bool(getattr(self, "cactus_patient", False))
@@ -646,6 +683,60 @@ class AgentTherapyGraphBuilder:
       state["session_ended_reason"] = "max_turns"
     return True
 
+  def _closing_moderator_client(self) -> Any:
+    client = getattr(self, "_closing_moderator_client_instance", None)
+    if client is None:
+      client = OpenAI(
+        api_key=os.getenv("OR_API_KEY") or "",
+        base_url=MODERATOR_BASE_URL,
+        timeout=60,
+        max_retries=0,
+      )
+      self._closing_moderator_client_instance = client
+    return client
+
+  def _parse_closing_moderator_response(self, value: Any) -> bool | None:
+    text = ensure_str(value).strip().strip("`").strip()
+    text = text.removeprefix("```").removesuffix("```").strip()
+    normalized = text.rstrip(".!").strip().lower()
+    if normalized == "yes":
+      return True
+    if normalized == "no":
+      return False
+    return None
+
+  def _closing_moderator_messages(self, therapist_utterance: str) -> list[ChatMessage]:
+    return [
+      {"role": "system", "content": MODERATOR_SYSTEM_PROMPT},
+      {
+        "role": "user",
+        "content": MODERATOR_USER_PROMPT_TEMPLATE.format(utterance=therapist_utterance),
+      },
+    ]
+
+  def _moderator_detects_closing(self, therapist_utterance: str) -> bool:
+    messages = self._closing_moderator_messages(therapist_utterance)
+    for _attempt in range(MODERATOR_MAX_ATTEMPTS):
+      try:
+        response = self._closing_moderator_client().chat.completions.create(
+          model=MODERATOR_MODEL_ID,
+          messages=messages,
+          temperature=0,
+          max_tokens=3,
+          extra_body={
+            "provider": {
+              "order": ["deepseek", "atlas-cloud/fp8", "novita/fp8"],
+              "allow_fallbacks": False,
+            }
+          },
+        )
+        decision = self._parse_closing_moderator_response(response.choices[0].message.content)
+      except Exception:
+        decision = None
+      if decision is not None:
+        return decision
+    return False
+
   def therapist_turn(self, state: dict[str, Any]) -> dict[str, Any]:
     s = self._ensure_state_defaults(state)
     if s["session_ended"]:
@@ -689,12 +780,21 @@ class AgentTherapyGraphBuilder:
       )
       idx = self._append_message(s, THERAPIST_ROLE, utterance)
       self._append_trace(s, idx, THERAPIST_ROLE, traces)
+      moderator_detected_end = self._moderator_detects_closing(utterance)
+      #breakpoint()
       if requested_end:
         if self._max_turns_reached(s):
           s["session_ended"] = True
           s["session_ended_reason"] = "therapist_requested_end"
         else:
           s["final_patient_pending_end"] = True
+        return s
+      if moderator_detected_end:
+        if self._max_turns_reached(s):
+          s["session_ended"] = True
+        else:
+          s["final_patient_pending_end"] = True
+        s["session_ended_reason"] = "moderator_detected_closing"
         return s
       self._end_for_max_turns_if_needed(s)
     except AgentConversationProcessingError as exc:
@@ -757,7 +857,7 @@ class AgentTherapyGraphBuilder:
         resistance_level=s["resistance"],
         instruction=utterance_instruction,
       )
-      breakpoint()
+      #breakpoint()
       if not utterance:
         raise AgentConversationProcessingError("Patient generated an empty utterance.")
 
@@ -771,7 +871,8 @@ class AgentTherapyGraphBuilder:
         return s
       if s["final_patient_pending_end"]:
         s["session_ended"] = True
-        s["session_ended_reason"] = "therapist_requested_end"
+        if not s["session_ended_reason"]:
+          s["session_ended_reason"] = "therapist_requested_end"
         s["final_patient_pending_end"] = False
         return s
       self._end_for_max_turns_if_needed(s)

@@ -277,7 +277,7 @@ class PatientAgent(Agent):
       engagement_block=engagement_block,
     )
     generation_kwargs = self._build_generation_kwargs(
-      default_values={"max_tokens": 5000, "temperature": 0.8},
+      default_values={"max_tokens": 4096, "temperature": 0.8},
       override_values={
         "max_tokens": max_tokens,
         "temperature": temperature,

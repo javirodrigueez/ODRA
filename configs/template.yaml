@@ -18,6 +18,7 @@ patient:
   max_model_len: # alias for max completion tokens
   system_prompt_path: # optional path for agent_simulation patient utterance system prompt
   prompt_variant:
+  cactus: false # optional: use cactus patient utterance prompts in agent_simulation
   temperature:
   top_p:
   presence_penalty:
