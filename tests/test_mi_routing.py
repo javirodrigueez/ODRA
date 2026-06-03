@@ -305,6 +305,9 @@ class MIRoutingTest(unittest.TestCase):
     self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_max_delta"], 0.3)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.15)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_later_max_delta"], 0.15)
+    self.assertEqual(cfg["env"]["patient_resistance_update_min_delta"], -0.10)
+    self.assertEqual(cfg["env"]["patient_resistance_update_max_delta"], 0.15)
+    self.assertEqual(cfg["env"]["moderate_emotional_recovery_rate"], 0.15)
 
   def test_runtime_config_preserves_custom_long_session_threshold(self) -> None:
     cfg = normalize_runtime_config({"env": {"long_session_turn_threshold": 55}})
@@ -319,6 +322,9 @@ class MIRoutingTest(unittest.TestCase):
           "resistance_prediction_clip_initial_max_delta": 0.35,
           "resistance_prediction_clip_later_min_delta": -0.05,
           "resistance_prediction_clip_later_max_delta": 0.12,
+          "patient_resistance_update_min_delta": -0.2,
+          "patient_resistance_update_max_delta": 0.3,
+          "moderate_emotional_recovery_rate": 0.05,
         }
       }
     )
@@ -328,6 +334,9 @@ class MIRoutingTest(unittest.TestCase):
     self.assertEqual(cfg["env"]["resistance_prediction_clip_initial_max_delta"], 0.35)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_later_min_delta"], -0.05)
     self.assertEqual(cfg["env"]["resistance_prediction_clip_later_max_delta"], 0.12)
+    self.assertEqual(cfg["env"]["patient_resistance_update_min_delta"], -0.2)
+    self.assertEqual(cfg["env"]["patient_resistance_update_max_delta"], 0.3)
+    self.assertEqual(cfg["env"]["moderate_emotional_recovery_rate"], 0.05)
 
   def test_initial_state_uses_configured_long_session_threshold(self) -> None:
     builder = self._make_builder()

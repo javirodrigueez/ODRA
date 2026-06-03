@@ -45,3 +45,6 @@ env:
   resistance_prediction_clip_initial_max_delta:
   resistance_prediction_clip_later_min_delta:
   resistance_prediction_clip_later_max_delta:
+  patient_resistance_update_min_delta:
+  patient_resistance_update_max_delta:
+  moderate_emotional_recovery_rate:

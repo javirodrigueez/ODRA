@@ -95,7 +95,7 @@ def _attitude_from_path(path: Path) -> str:
   return "unknown"
 
 
-def _attitude_for_file(path: Path, data: dict[str, Any]) -> str:
+def _attitude_for_payload(data: dict[str, Any]) -> str | None:
   attitude = _normalize_attitude(data.get("attitude"))
   if attitude is not None:
     return attitude
@@ -106,14 +106,48 @@ def _attitude_for_file(path: Path, data: dict[str, Any]) -> str:
     if attitude is not None:
       return attitude
 
+  return None
+
+
+def _source_json_dir_for_eval_dir(eval_dir: Path) -> Path | None:
+  if eval_dir.name == "eval":
+    candidate = eval_dir.parent / "json"
+  elif eval_dir.name.startswith("eval_"):
+    candidate = eval_dir.parent / f"json_{eval_dir.name.removeprefix('eval_')}"
+  else:
+    candidate = eval_dir.parent / "json"
+
+  return candidate if candidate.is_dir() else None
+
+
+def _source_payload_for_file(path: Path, source_json_dir: Path | None) -> dict[str, Any]:
+  if source_json_dir is None:
+    return {}
+
+  candidate = source_json_dir / path.name
+  if not candidate.is_file():
+    return {}
+
+  return _load_json(candidate)
+
+
+def _attitude_for_file(path: Path, data: dict[str, Any], source_json_dir: Path | None = None) -> str:
+  attitude = _attitude_for_payload(data)
+  if attitude is not None:
+    return attitude
+
+  source_attitude = _attitude_for_payload(_source_payload_for_file(path, source_json_dir))
+  if source_attitude is not None:
+    return source_attitude
+
   return _attitude_from_path(path)
 
 
-def _payloads_by_attitude(path: Path) -> dict[str, list[dict[str, Any]]]:
+def _payloads_by_attitude(path: Path, source_json_dir: Path | None = None) -> dict[str, list[dict[str, Any]]]:
   by_attitude: dict[str, list[dict[str, Any]]] = {}
   for file in _json_files(path):
     data = _load_json(file)
-    attitude = _attitude_for_file(file, data)
+    attitude = _attitude_for_file(file, data, source_json_dir)
     by_attitude.setdefault(attitude, []).append(data)
   return by_attitude
 
@@ -354,7 +388,8 @@ def compute_ctrs(eval_dir: Path) -> dict[str, Any]:
 
 def compute_ctrs_by_attitude(eval_dir: Path) -> dict[str, Any]:
   by_attitude = {}
-  for attitude, payloads in sorted(_payloads_by_attitude(eval_dir / "ctrs").items()):
+  source_json_dir = _source_json_dir_for_eval_dir(eval_dir)
+  for attitude, payloads in sorted(_payloads_by_attitude(eval_dir / "ctrs", source_json_dir).items()):
     averages, file_count = _average_keys_from_payloads(payloads, CTRS_KEYS)
     by_attitude[attitude] = {
       **averages,
@@ -401,17 +436,18 @@ def compute_wai(eval_dir: Path) -> dict[str, Any]:
 
 def compute_wai_by_attitude(eval_dir: Path) -> dict[str, Any]:
   by_attitude = {}
-  for attitude, payloads in sorted(_payloads_by_attitude(eval_dir / "wai").items()):
+  source_json_dir = _source_json_dir_for_eval_dir(eval_dir)
+  for attitude, payloads in sorted(_payloads_by_attitude(eval_dir / "wai", source_json_dir).items()):
     items, file_count = _average_keys_from_payloads(payloads, WAI_KEYS)
     by_attitude[attitude] = _wai_result(items, file_count)
   return _with_attitude_deltas(compute_wai(eval_dir), by_attitude)
 
 
-def _collect_panas_scores(path: Path) -> dict[str, dict[str, list[float]]]:
+def _collect_panas_scores(path: Path, source_json_dir: Path | None = None) -> dict[str, dict[str, list[float]]]:
   by_attitude: dict[str, dict[str, list[float]]] = {}
   for file in _json_files(path):
     data = _load_json(file)
-    attitude = _attitude_for_file(file, data)
+    attitude = _attitude_for_file(file, data, source_json_dir)
     attitude_scores = by_attitude.setdefault(attitude, {feeling: [] for feeling in FEELINGS})
     for feeling in FEELINGS:
       value = _score_value(data.get(feeling))
@@ -420,11 +456,11 @@ def _collect_panas_scores(path: Path) -> dict[str, dict[str, list[float]]]:
   return by_attitude
 
 
-def _count_panas_files_by_attitude(path: Path) -> dict[str, int]:
+def _count_panas_files_by_attitude(path: Path, source_json_dir: Path | None = None) -> dict[str, int]:
   counts: dict[str, int] = {}
   for file in _json_files(path):
     data = _load_json(file)
-    attitude = _attitude_for_file(file, data)
+    attitude = _attitude_for_file(file, data, source_json_dir)
     counts[attitude] = counts.get(attitude, 0) + 1
   return counts
 
@@ -466,13 +502,14 @@ def _emotion_group_change(
 
 
 def compute_panas(eval_dir: Path) -> dict[str, Any]:
-  before = _average_panas_scores(_collect_panas_scores(eval_dir / "panas_before"))
-  after = _average_panas_scores(_collect_panas_scores(eval_dir / "panas_after"))
+  source_json_dir = _source_json_dir_for_eval_dir(eval_dir)
+  before = _average_panas_scores(_collect_panas_scores(eval_dir / "panas_before", source_json_dir))
+  after = _average_panas_scores(_collect_panas_scores(eval_dir / "panas_after", source_json_dir))
   attitudes = sorted(set(before) | set(after))
 
   positive_change: dict[str, float | None] = {}
   negative_change: dict[str, float | None] = {}
-  count_by_attitude = _count_panas_files_by_attitude(eval_dir / "panas_after")
+  count_by_attitude = _count_panas_files_by_attitude(eval_dir / "panas_after", source_json_dir)
   for attitude in attitudes:
     positive_change[attitude] = _emotion_group_change(
       before.get(attitude, {}),
@@ -496,12 +533,13 @@ def compute_panas(eval_dir: Path) -> dict[str, Any]:
 
 
 def compute_panas_by_attitude(eval_dir: Path) -> dict[str, Any]:
-  raw_before = _collect_panas_scores(eval_dir / "panas_before")
-  raw_after = _collect_panas_scores(eval_dir / "panas_after")
+  source_json_dir = _source_json_dir_for_eval_dir(eval_dir)
+  raw_before = _collect_panas_scores(eval_dir / "panas_before", source_json_dir)
+  raw_after = _collect_panas_scores(eval_dir / "panas_after", source_json_dir)
   before = _average_panas_scores(raw_before)
   after = _average_panas_scores(raw_after)
   attitudes = sorted(set(before) | set(after))
-  count_by_attitude = _count_panas_files_by_attitude(eval_dir / "panas_after")
+  count_by_attitude = _count_panas_files_by_attitude(eval_dir / "panas_after", source_json_dir)
 
   by_attitude: dict[str, dict[str, Any]] = {}
   for attitude in attitudes:

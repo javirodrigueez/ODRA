@@ -5,5 +5,5 @@ The therapist currently seems focused on the topic {perceived_topic}. Your real 
 
 Use the <engagement> block as the main explanation of how aligned or misaligned the therapist's topic feels with what actually matters to you. Let that alignment strongly influence the predicted resistance update.
 
-Your prediction should be a float bounded by -0.10 and +0.15. Additionally, provide your reasoning for this update.
+Your prediction should be a float bounded by {patient_resistance_update_min_delta} and {patient_resistance_update_max_delta}. Additionally, provide your reasoning for this update.
 Respond in plain text covering the same fields: {{"r_change": 0.0, "reasoning":"..."}}

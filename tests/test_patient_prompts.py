@@ -140,10 +140,14 @@ class PatientPromptTest(unittest.TestCase):
       presenting_problem=TEST_PROFILE["presenting_problem"],
       reason_for_seeking_counseling=TEST_PROFILE["reason_seeking_counseling"],
       last_utterance="Let's look at what went through your mind right then.",
+      patient_resistance_update_min_delta="-0.20",
+      patient_resistance_update_max_delta="+0.30",
     )
     self.assertIn(TEST_PROFILE["presenting_problem"], rendered)
     self.assertIn(TEST_PROFILE["reason_seeking_counseling"], rendered)
     self.assertIn("Let's look at what went through your mind right then.", rendered)
+    self.assertIn("-0.20", rendered)
+    self.assertIn("+0.30", rendered)
 
   def test_patient_utterance_core_prompt_receives_instruction_reasoning_and_action(self) -> None:
     rendered = render_prompt_text(
@@ -191,6 +195,8 @@ class PatientPromptTest(unittest.TestCase):
       perceived_topic="Workplace Relationships",
       motivation_topic="Workplace Relationships",
       engagement_level="4",
+      patient_resistance_update_min_delta="-0.05",
+      patient_resistance_update_max_delta="+0.10",
     )
     self.assertIn("Workplace Relationships", rendered)
     self.assertIn("Use the <engagement> block", rendered)

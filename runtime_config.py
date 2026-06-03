@@ -119,6 +119,9 @@ def normalize_runtime_config(cfg: Any) -> Any:
   env.setdefault("resistance_prediction_clip_initial_max_delta", 0.3)
   env.setdefault("resistance_prediction_clip_later_min_delta", -0.15)
   env.setdefault("resistance_prediction_clip_later_max_delta", 0.15)
+  env.setdefault("patient_resistance_update_min_delta", -0.10)
+  env.setdefault("patient_resistance_update_max_delta", 0.15)
+  env.setdefault("moderate_emotional_recovery_rate", 0.15)
   resistance_handling = str(env.get("resistance_handling", "mi_techniques") or "mi_techniques").strip().lower()
   if resistance_handling not in {"none", "mi_techniques", "cami"}:
     resistance_handling = "mi_techniques"

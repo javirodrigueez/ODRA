@@ -445,11 +445,14 @@ class TherapyGraphBuilder(
     *,
     prompt_stage: str = "shared",
   ) -> str:
+    min_delta, max_delta = self._patient_resistance_update_bounds()
     base_values = {
       "resistance": f"{state['resistance']:.2f}",
       "presenting_problem": ensure_str(state["patient_profile"].get("presenting_problem")),
       "reason_for_seeking_counseling": ensure_str(state["patient_profile"].get("reason_seeking_counseling")),
       "last_utterance": self._last_therapist_utterance(state),
+      "patient_resistance_update_min_delta": self._format_signed_delta(min_delta),
+      "patient_resistance_update_max_delta": self._format_signed_delta(max_delta),
     }
     if prompt_stage != "mi_techniques_with_te":
       return self._load_stage_prompt(
@@ -601,7 +604,8 @@ class TherapyGraphBuilder(
           engagement_block=resistance_engagement_block,
         )
         payload = self._require_dict(update, "resistance_update")
-        delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+        min_delta, max_delta = self._patient_resistance_update_bounds()
+        delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", min_delta, max_delta)
         print(f"    <DEBUG>Predicted resistance change (delta_llm): {delta_llm:.4f}</DEBUG>") #devlog
         resistance_update = self._apply_homeostatic_resistance_update(
           previous_r=s["resistance"],

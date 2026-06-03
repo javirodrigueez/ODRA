@@ -188,8 +188,14 @@ def resistance_baseline_for_attitude(value: Any) -> float:
   return RESISTANCE_BASELINE_BY_ATTITUDE.get(normalized, 0.55)
 
 
-def resistance_recovery_rate_for_emotional_recovery(value: Any) -> float:
+def resistance_recovery_rate_for_emotional_recovery(
+  value: Any,
+  *,
+  moderate_recovery_rate: float | None = None,
+) -> float:
   normalized = normalize_emotional_recovery(value)
+  if normalized == "moderate" and moderate_recovery_rate is not None:
+    return round(_coerce_bounded_float(moderate_recovery_rate, 0.15, 0.0, 1.0), 4)
   return RESISTANCE_RECOVERY_RATE_BY_EMOTIONAL_RECOVERY[normalized]
 
 
@@ -428,10 +434,18 @@ def sample_patient_action(
   return cast(PatientAction, sampled)
 
 
-def build_patient_resistance_state(profile: Any, resistance: Any) -> PatientResistanceState:
+def build_patient_resistance_state(
+  profile: Any,
+  resistance: Any,
+  *,
+  moderate_recovery_rate: float | None = None,
+) -> PatientResistanceState:
   normalized_profile = normalize_patient_profile(profile)
   baseline = resistance_baseline_for_attitude(normalized_profile.get("attitude"))
-  recovery_rate = resistance_recovery_rate_for_emotional_recovery(normalized_profile.get("emotional_recovery"))
+  recovery_rate = resistance_recovery_rate_for_emotional_recovery(
+    normalized_profile.get("emotional_recovery"),
+    moderate_recovery_rate=moderate_recovery_rate,
+  )
   current_resistance = _coerce_bounded_float(resistance, baseline, 0.0, 1.0)
   return {
     "patient_profile": normalized_profile,
@@ -441,12 +455,21 @@ def build_patient_resistance_state(profile: Any, resistance: Any) -> PatientResi
   }
 
 
-def normalize_resistance_state_fields(state: dict[str, Any], profile: Any) -> dict[str, Any]:
+def normalize_resistance_state_fields(
+  state: dict[str, Any],
+  profile: Any,
+  *,
+  moderate_recovery_rate: float | None = None,
+) -> dict[str, Any]:
   normalized_state = dict(state)
   raw_profile = normalized_state.get("patient_profile")
   if not isinstance(raw_profile, dict):
     raw_profile = profile
-  resistance_state = build_patient_resistance_state(raw_profile, normalized_state.get("resistance"))
+  resistance_state = build_patient_resistance_state(
+    raw_profile,
+    normalized_state.get("resistance"),
+    moderate_recovery_rate=moderate_recovery_rate,
+  )
   normalized_state["patient_profile"] = resistance_state["patient_profile"]
   normalized_state["resistance_baseline"] = resistance_state["resistance_baseline"]
   normalized_state["resistance_recovery_rate"] = resistance_state["resistance_recovery_rate"]

@@ -151,6 +151,22 @@ class AgentTherapyGraphBuilder:
       return bool(value)
     return default
 
+  def _env_float(self, name: str, default: float) -> float:
+    try:
+      return float(self._env_value(name, default))
+    except (TypeError, ValueError):
+      return default
+
+  def _patient_resistance_update_bounds(self) -> tuple[float, float]:
+    min_delta = self._env_float("patient_resistance_update_min_delta", -0.10)
+    max_delta = self._env_float("patient_resistance_update_max_delta", 0.15)
+    if min_delta > max_delta:
+      min_delta, max_delta = max_delta, min_delta
+    return min_delta, max_delta
+
+  def _format_signed_delta(self, value: float) -> str:
+    return f"{value:+.2f}"
+
   def _resistance_enabled(self) -> bool:
     return self._env_bool("resistance", True)
 
@@ -306,7 +322,11 @@ class AgentTherapyGraphBuilder:
     s["prompt_ablation"] = self._patient_prompt_ablation()
 
     if self._resistance_enabled():
-      s = normalize_resistance_state_fields(s, deepcopy(self.profile))
+      s = normalize_resistance_state_fields(
+        s,
+        deepcopy(self.profile),
+        moderate_recovery_rate=self._env_float("moderate_emotional_recovery_rate", 0.15),
+      )
     else:
       s["resistance_baseline"] = None
       s["resistance_recovery_rate"] = None
@@ -450,12 +470,15 @@ class AgentTherapyGraphBuilder:
     return "No explicit resistance-update reasoning was generated. Infer the impact from the last therapist utterance."
 
   def _build_patient_resistance_update_instruction(self, state: dict[str, Any]) -> str:
+    min_delta, max_delta = self._patient_resistance_update_bounds()
     return render_prompt(
       "shared/patient_resistance_update.txt",
       resistance=f"{float(state['resistance']):.2f}",
       presenting_problem=ensure_str(state["patient_profile"].get("presenting_problem")),
       reason_for_seeking_counseling=ensure_str(state["patient_profile"].get("reason_seeking_counseling")),
       last_utterance=self._last_therapist_utterance(state),
+      patient_resistance_update_min_delta=self._format_signed_delta(min_delta),
+      patient_resistance_update_max_delta=self._format_signed_delta(max_delta),
     )
 
   def _build_patient_action_distribution_instruction(
@@ -821,7 +844,8 @@ class AgentTherapyGraphBuilder:
           expected_type=dict,
         )
         payload = self._require_dict(update, "resistance_update")
-        delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", -0.10, 0.15)
+        min_delta, max_delta = self._patient_resistance_update_bounds()
+        delta_llm = self._require_bounded_float(payload, "r_change", "resistance_update", min_delta, max_delta)
         resistance_update = apply_homeostatic_resistance_update(
           previous_r=s["resistance"],
           delta_llm=delta_llm,

@@ -37,6 +37,32 @@ from rtraces import (
 
 
 DEFAULT_MIN_PATIENT_TRACES = 2
+SUMMARY_RECOMPUTE_FIELDS = {
+  "total_files_seen",
+  "total_files_evaluated",
+  "total_turns_evaluated",
+  "mean_judge_scores",
+  "mean_harmonic_score",
+  "total_requests",
+  "total_estimated_cost",
+  "skipped_turns",
+  "evaluated_metrics",
+  "sampling",
+}
+METRIC_RECOMPUTE_ALIASES = {
+  "faithfulness": "faithfulness",
+  "logic": "logic_consistency",
+  "logic_consistency": "logic_consistency",
+  "alignment": "answer_explanation_alignment",
+  "answer_explanation_alignment": "answer_explanation_alignment",
+}
+SUMMARY_RECOMPUTE_ALIASES = {
+  "all": tuple(sorted(SUMMARY_RECOMPUTE_FIELDS)),
+  "counts": ("total_files_seen", "total_files_evaluated", "total_turns_evaluated", "total_requests"),
+  "scores": ("mean_judge_scores", "mean_harmonic_score"),
+  "cost": ("total_estimated_cost",),
+  "metrics": tuple(METRIC_SPECS),
+}
 
 PATIENT_PROMPTS = {
   "faithfulness": """[System]
@@ -259,10 +285,7 @@ def patient_reasoning_traces(data: dict[str, Any]) -> dict[int, dict[str, Any]]:
   return indexed
 
 
-def format_context(messages: list[dict[str, Any]]) -> str:
-  if not messages:
-    return "(No previous context available.)"
-
+def format_dialogue_context(messages: list[dict[str, Any]]) -> str:
   lines = []
   for message in messages:
     role = str(message.get("role") or "").strip().title() or "Speaker"
@@ -272,6 +295,51 @@ def format_context(messages: list[dict[str, Any]]) -> str:
     content = str(message.get("content") or "").strip()
     lines.append(f"{role} #{utterance_index} [stage={stage}, substage={substage}]: {content}")
   return "\n".join(lines)
+
+
+def format_patient_profile_context(data: dict[str, Any]) -> str:
+  profile = data.get("patient_profile")
+  if not isinstance(profile, dict):
+    return ""
+
+  personal_info = profile.get("personal_info")
+  presenting_problem = str(profile.get("presenting_problem") or "").strip()
+  reason = str(
+    profile.get("reason_seeking_counseling")
+    or profile.get("reason_for_seeking_counseling")
+    or ""
+  ).strip()
+  if not isinstance(personal_info, dict):
+    personal_info = {}
+  personal_info = {
+    str(key): value
+    for key, value in personal_info.items()
+    if value is not None and str(value).strip()
+  }
+  if not personal_info and not presenting_problem and not reason:
+    return ""
+
+  lines = ["Patient Profile:"]
+  if personal_info:
+    lines.append("Personal Info:")
+    for key, value in personal_info.items():
+      label = str(key).replace("_", " ").title()
+      append_field(lines, f"  {label}", value)
+  if presenting_problem:
+    append_field(lines, "Presenting Problem", presenting_problem)
+  if reason:
+    append_field(lines, "Reason For Seeking Counseling", reason)
+  return "\n".join(lines)
+
+
+def format_context(
+  profile_context: str,
+  messages: list[dict[str, Any]],
+) -> str:
+  dialogue_context = format_dialogue_context(messages) if messages else "(No previous dialogue available.)"
+  if not profile_context:
+    return dialogue_context
+  return f"{profile_context}\n\nPrevious Dialogue:\n{dialogue_context}"
 
 
 def previous_context_messages(
@@ -307,14 +375,7 @@ def format_reasoning_traces_txt(
   patient_utterance_index: int,
   traces: list[dict[str, Any]],
 ) -> str:
-  lines = [
-    "Target:",
-    f"  Source therapist utterance index: {source_therapist_utterance_index}",
-    f"  Patient utterance index: {patient_utterance_index}",
-    f"  Stage: {stage}",
-    f"  Substage: {substage or 'unknown'}",
-    "",
-  ]
+  lines: list[str] = []
 
   for trace_index, trace in enumerate(traces, start=1):
     lines.append(f"=== Trace {trace_index} ===")
@@ -442,6 +503,7 @@ def extract_patient_turns_for_selections(
   turns: list[PatientReasoning] = []
   skipped: list[dict[str, Any]] = []
   messages_by_index = {int(message["utterance_index"]): message for message in messages}
+  profile_context = format_patient_profile_context(data)
 
   for selection in selections:
     therapist_message = messages_by_index.get(selection.therapist_utterance_index)
@@ -520,7 +582,7 @@ def extract_patient_turns_for_selections(
         substage=substage,
         patient_utterance_index=patient_index,
         patient_utterance=str(patient_message.get("content") or ""),
-        context=format_context(context_messages),
+        context=format_context(profile_context, context_messages),
         context_utterance_count=len(context_messages),
         traces=compact_traces,
         reasoning_traces_txt=format_reasoning_traces_txt(
@@ -544,6 +606,57 @@ def render_metric_prompt(metric: str, turn: PatientReasoning) -> str:
     .replace("{reasoning_traces}", turn.reasoning_traces_txt)
     .replace("{patient_utterance}", turn.patient_utterance)
   )
+
+
+def render_metric_prompt_from_turn(metric: str, turn: dict[str, Any]) -> str:
+  template = PATIENT_PROMPTS[metric]
+  return (
+    template
+    .replace("{context}", str(turn.get("context") or ""))
+    .replace("{reasoning_traces}", strip_reasoning_trace_target(str(turn.get("reasoning_traces_txt") or "")))
+    .replace("{patient_utterance}", str(turn.get("patient_utterance") or ""))
+  )
+
+
+def strip_reasoning_trace_target(reasoning_traces_txt: str) -> str:
+  lines = reasoning_traces_txt.splitlines()
+  if not lines or lines[0].strip() != "Target:":
+    return reasoning_traces_txt
+  for index, line in enumerate(lines):
+    if line.startswith("=== Trace "):
+      return "\n".join(lines[index:]).rstrip() + "\n"
+  return reasoning_traces_txt
+
+
+def context_with_profile_from_session(session: dict[str, Any], turn: dict[str, Any]) -> str:
+  context = str(turn.get("context") or "")
+  if context.lstrip().startswith("Patient Profile:") and "Personal Info:" in context:
+    return context
+
+  input_file = session.get("input_file")
+  if not input_file:
+    return context
+  input_path = Path(str(input_file))
+  if not input_path.is_file():
+    return context
+  try:
+    payload = read_json(input_path)
+  except Exception:
+    return context
+  if not isinstance(payload, dict):
+    return context
+
+  profile_context = format_patient_profile_context(payload)
+  if not profile_context:
+    return context
+  if not context:
+    return format_context(profile_context, [])
+  if context.lstrip().startswith("Patient Profile:"):
+    marker = "Previous Dialogue:\n"
+    if marker in context:
+      return f"{profile_context}\n\n{marker}{context.split(marker, 1)[1]}"
+    return profile_context
+  return f"{profile_context}\n\nPrevious Dialogue:\n{context}"
 
 
 def make_custom_id(index: int, filename: str, therapist_index: int, patient_index: int, metric: str) -> str:
@@ -584,6 +697,7 @@ def build_requests(
   skipped_files: list[dict[str, Any]] = []
   request_index = 0
   selected_turn_count = 0
+  selected_reasoning_trace_count = 0
   source_selection_count = 0
 
   files_by_name = {path.name: path for path in files}
@@ -620,6 +734,7 @@ def build_requests(
       min_traces,
     )
     selected_turn_count += len(turns)
+    selected_reasoning_trace_count += sum(len(turn.traces) for turn in turns)
     if not turns:
       skipped_files.append({"file": str(path), "reason": "no selected patient reasoning turns"})
 
@@ -677,6 +792,7 @@ def build_requests(
     "selection_source": "therapist_turns",
     "source_therapist_turns": source_selection_count,
     "selected_patient_turns": selected_turn_count,
+    "selected_reasoning_trace_steps": selected_reasoning_trace_count,
     "ctxt_turns": ctxt_turns,
     "context_utterance_limit": ctxt_turns * 2,
     "min_traces_per_sample": min_traces,
@@ -779,6 +895,58 @@ def request_map_from_specs(specs: list[PatientBatchRequest]) -> dict[str, dict[s
   return {spec.custom_id: spec.map_entry() for spec in specs}
 
 
+def build_metric_recompute_requests(
+  sessions: list[dict[str, Any]],
+  metrics: list[str],
+  model: str,
+  max_iter: int,
+) -> tuple[list[PatientBatchRequest], list[dict[str, Any]]]:
+  requests: list[PatientBatchRequest] = []
+  prepared_sessions: list[dict[str, Any]] = []
+  request_index = 0
+
+  for session in sessions:
+    prepared_session = dict(session)
+    prepared_turns = []
+    filename = str(session.get("input_filename") or Path(str(session.get("input_file"))).name)
+    output_file = Path("sessions") / filename
+    for raw_turn in session.get("evaluated_turns", []):
+      if not isinstance(raw_turn, dict):
+        continue
+      turn = dict(raw_turn)
+      turn["context"] = context_with_profile_from_session(session, turn)
+      custom_ids = dict(turn.get("batch_custom_ids") or {})
+      therapist_index = coerce_int(turn.get("source_therapist_utterance_index")) or 0
+      patient_index = coerce_int(turn.get("patient_utterance_index")) or 0
+      for metric_key in metrics:
+        spec = METRIC_SPECS[metric_key]
+        prompt = render_metric_prompt_from_turn(metric_key, turn)
+        custom_id = make_custom_id(request_index, filename, therapist_index, patient_index, metric_key)
+        request_index += 1
+        custom_ids[metric_key] = custom_id
+        requests.append(
+          PatientBatchRequest(
+            custom_id=custom_id,
+            metric=metric_key,
+            input_file=filename,
+            output_file=output_file.as_posix(),
+            turn_key=str(turn.get("turn_key") or ""),
+            stage=str(turn.get("stage") or "unknown"),
+            source_therapist_utterance_index=therapist_index,
+            patient_utterance_index=patient_index,
+            min_score=spec.min_score,
+            max_score=spec.max_score,
+            body=make_chat_body(prompt, model, max_iter),
+          )
+        )
+      turn["batch_custom_ids"] = custom_ids
+      prepared_turns.append(turn)
+    prepared_session["evaluated_turns"] = prepared_turns
+    prepared_sessions.append(prepared_session)
+
+  return requests, prepared_sessions
+
+
 def summary_from_sessions(
   input_dir: Path,
   output_dir: Path,
@@ -831,6 +999,472 @@ def summary_from_sessions(
     "evaluated_metrics": list(METRIC_SPECS),
     "sampling": sampling,
   }
+
+
+def load_summary_sessions(summary: dict[str, Any], summary_path: Path) -> tuple[list[dict[str, Any]], Path]:
+  raw_output_dir = summary.get("output_dir")
+  output_dir = Path(str(raw_output_dir)).resolve() if raw_output_dir else summary_path.parent.resolve()
+  sessions_dir = output_dir / "sessions"
+  if not sessions_dir.is_dir():
+    fallback = summary_path.parent / "sessions"
+    if fallback.is_dir():
+      sessions_dir = fallback
+    else:
+      raise RTracesEvaluationError(f"Could not find sessions directory for summary: {sessions_dir}")
+
+  sessions: list[dict[str, Any]] = []
+  for path in sorted(sessions_dir.glob("*.json")):
+    payload = read_json(path)
+    if isinstance(payload, dict):
+      sessions.append(payload)
+  return sessions, sessions_dir
+
+
+def split_recompute_vars(raw_vars: Iterable[str]) -> list[str]:
+  values: list[str] = []
+  for raw in raw_vars:
+    for value in str(raw).split(","):
+      value = value.strip()
+      if value:
+        values.append(value)
+  return values
+
+
+def normalize_recompute_vars(raw_vars: Iterable[str]) -> tuple[list[str], list[str]]:
+  summary_fields: list[str] = []
+  metric_fields: list[str] = []
+  unknown: list[str] = []
+  for value in split_recompute_vars(raw_vars):
+    if value in SUMMARY_RECOMPUTE_ALIASES:
+      for item in SUMMARY_RECOMPUTE_ALIASES[value]:
+        if item in METRIC_SPECS:
+          metric_fields.append(item)
+        else:
+          summary_fields.append(item)
+    elif value in METRIC_RECOMPUTE_ALIASES:
+      metric_fields.append(METRIC_RECOMPUTE_ALIASES[value])
+    elif value in SUMMARY_RECOMPUTE_FIELDS:
+      summary_fields.append(value)
+    else:
+      unknown.append(value)
+  if unknown:
+    allowed = sorted([*SUMMARY_RECOMPUTE_FIELDS, *SUMMARY_RECOMPUTE_ALIASES, *METRIC_RECOMPUTE_ALIASES])
+    raise RTracesEvaluationError(
+      "Unknown --recompute-vars value(s): "
+      + ", ".join(unknown)
+      + ". Allowed values: "
+      + ", ".join(allowed)
+    )
+  return sorted(set(summary_fields)), sorted(set(metric_fields))
+
+
+def request_count_from_turns(turns: list[dict[str, Any]]) -> int:
+  total = 0
+  for turn in turns:
+    custom_ids = turn.get("batch_custom_ids")
+    if isinstance(custom_ids, dict):
+      total += len(custom_ids)
+    else:
+      total += len(METRIC_SPECS)
+  return total
+
+
+def mean_choice_score(choices: Any) -> float | None:
+  if not isinstance(choices, list):
+    return None
+  values = []
+  for choice in choices:
+    if not isinstance(choice, dict) or choice.get("parsed_score") is None:
+      continue
+    try:
+      values.append(float(choice["parsed_score"]))
+    except (TypeError, ValueError):
+      continue
+  return mean(values)
+
+
+def metric_score_from_judge_scores(turn: dict[str, Any], metric: str) -> float | None:
+  judge_scores = turn.get("judge_scores")
+  if isinstance(judge_scores, dict):
+    metric_result = judge_scores.get(metric)
+    if isinstance(metric_result, dict):
+      choice_score = mean_choice_score(metric_result.get("choices"))
+      if choice_score is not None:
+        metric_result["score"] = choice_score
+        return choice_score
+      if metric_result.get("score") is not None:
+        try:
+          return float(metric_result["score"])
+        except (TypeError, ValueError):
+          pass
+  if turn.get(metric) is not None:
+    try:
+      return float(turn[metric])
+    except (TypeError, ValueError):
+      return None
+  return None
+
+
+def recompute_turn_metric_fields(turn: dict[str, Any], metrics: list[str]) -> dict[str, Any]:
+  updated = dict(turn)
+  judge_scores = updated.get("judge_scores")
+  if isinstance(judge_scores, dict):
+    updated["judge_scores"] = judge_scores
+
+  for metric in metrics:
+    score = metric_score_from_judge_scores(updated, metric)
+    if score is not None:
+      updated[metric] = score
+
+  updated["harmonic_mean"] = harmonic_mean([
+    float(updated.get(metric) or 0.0)
+    for metric in METRIC_SPECS
+  ])
+  updated["evaluated_metrics"] = list(METRIC_SPECS)
+  return updated
+
+
+def attach_metric_recompute_results_to_turn(
+  turn: dict[str, Any],
+  metrics: list[str],
+  parsed_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+  updated = dict(turn)
+  custom_ids = dict(updated.get("batch_custom_ids") or {})
+  judge_scores = dict(updated.get("judge_scores") or {})
+
+  for metric in metrics:
+    custom_id = str(custom_ids.get(metric) or "")
+    result = parsed_results.get(custom_id)
+    if result is None:
+      result = empty_judge_result(error=f"missing recomputed {metric} result")
+    judge_scores[metric] = result
+    updated[metric] = float(result.get("score") or 0.0)
+
+  updated["batch_custom_ids"] = custom_ids
+  updated["judge_scores"] = judge_scores
+  updated["harmonic_mean"] = harmonic_mean([
+    float(updated.get(metric) or 0.0)
+    for metric in METRIC_SPECS
+  ])
+  updated["cost"] = sum(
+    float((judge_scores.get(metric) or {}).get("cost") or 0.0)
+    for metric in METRIC_SPECS
+  )
+  updated["evaluated_metrics"] = list(METRIC_SPECS)
+  return updated
+
+
+def attach_metric_recompute_results(
+  sessions: list[dict[str, Any]],
+  metrics: list[str],
+  parsed_results: dict[str, dict[str, Any]],
+  artifact_dir: Path,
+) -> list[dict[str, Any]]:
+  updated_sessions = []
+  for session in sessions:
+    updated_session = dict(session)
+    turns = [
+      attach_metric_recompute_results_to_turn(turn, metrics, parsed_results)
+      for turn in session.get("evaluated_turns", [])
+      if isinstance(turn, dict)
+    ]
+    updated_session["evaluated_turns"] = turns
+    updated_session["metrics"] = session_metrics(turns)
+    updated_session["evaluated_metrics"] = list(METRIC_SPECS)
+    updated_session["batch_artifacts"] = str(artifact_dir)
+    updated_session["last_metric_recompute"] = {
+      "metrics": metrics,
+      "batch_artifacts": str(artifact_dir),
+      "updated_at": utc_now(),
+    }
+    updated_sessions.append(updated_session)
+  return updated_sessions
+
+
+def recompute_session_metric_fields(session: dict[str, Any], metrics: list[str]) -> dict[str, Any]:
+  updated = dict(session)
+  turns = [
+    recompute_turn_metric_fields(turn, metrics)
+    for turn in session.get("evaluated_turns", [])
+    if isinstance(turn, dict)
+  ]
+  updated["evaluated_turns"] = turns
+  updated["metrics"] = session_metrics(turns)
+  updated["evaluated_metrics"] = list(METRIC_SPECS)
+  return updated
+
+
+def write_recomputed_sessions(sessions_dir: Path, sessions: list[dict[str, Any]]) -> None:
+  for session in sessions:
+    filename = str(session.get("input_filename") or Path(str(session.get("input_file"))).name)
+    atomic_write_json(sessions_dir / filename, session)
+
+
+def recomputed_sampling(summary: dict[str, Any], sessions: list[dict[str, Any]]) -> dict[str, Any]:
+  sampling = dict(summary.get("sampling") or {})
+  source_therapist_turns = sum(
+    int(session.get("source_therapist_turn_count") or 0)
+    for session in sessions
+  )
+  all_turns = [
+    turn
+    for session in sessions
+    for turn in session.get("evaluated_turns", [])
+    if isinstance(turn, dict)
+  ]
+  sampling["source_therapist_turns"] = source_therapist_turns
+  sampling["selected_patient_turns"] = len(all_turns)
+  sampling["selected_reasoning_trace_steps"] = sum(
+    int(turn.get("trace_count") or len(turn.get("traces") or []))
+    for turn in all_turns
+  )
+  return sampling
+
+
+def recompute_summary_json(summary_json: str | Path, recompute_vars: Iterable[str]) -> dict[str, Any]:
+  summary_path = Path(summary_json).resolve()
+  payload = read_json(summary_path)
+  if not isinstance(payload, dict):
+    raise RTracesEvaluationError(f"Summary JSON must contain an object: {summary_path}")
+
+  fields, metric_fields = normalize_recompute_vars(recompute_vars)
+  if not fields and not metric_fields:
+    raise RTracesEvaluationError("--recompute-vars must include at least one field")
+
+  sessions, sessions_dir = load_summary_sessions(payload, summary_path)
+  if metric_fields:
+    sessions = [recompute_session_metric_fields(session, metric_fields) for session in sessions]
+    write_recomputed_sessions(sessions_dir, sessions)
+    fields = sorted(set([*fields, "mean_judge_scores", "mean_harmonic_score"]))
+
+  all_turns = [
+    turn
+    for session in sessions
+    for turn in session.get("evaluated_turns", [])
+    if isinstance(turn, dict)
+  ]
+
+  skipped_turns = [
+    {"file": session.get("input_file"), **skipped}
+    for session in sessions
+    for skipped in session.get("skipped_turns", [])
+    if isinstance(skipped, dict)
+  ]
+
+  recomputed = dict(payload)
+  if "total_files_seen" in fields:
+    recomputed["total_files_seen"] = len(sessions)
+  if "total_files_evaluated" in fields:
+    recomputed["total_files_evaluated"] = sum(1 for session in sessions if session.get("evaluated_turns"))
+  if "total_turns_evaluated" in fields:
+    recomputed["total_turns_evaluated"] = len(all_turns)
+  if "mean_judge_scores" in fields:
+    recomputed["mean_judge_scores"] = {
+      metric: mean_numeric_field(all_turns, metric)
+      for metric in METRIC_SPECS
+    }
+  if "mean_harmonic_score" in fields:
+    recomputed["mean_harmonic_score"] = mean_numeric_field(all_turns, "harmonic_mean")
+  if "total_requests" in fields:
+    recomputed["total_requests"] = request_count_from_turns(all_turns)
+  if "total_estimated_cost" in fields:
+    recomputed["total_estimated_cost"] = sum(float(turn.get("cost") or 0.0) for turn in all_turns)
+  if "skipped_turns" in fields:
+    recomputed["skipped_turns"] = skipped_turns
+  if "evaluated_metrics" in fields:
+    recomputed["evaluated_metrics"] = list(METRIC_SPECS)
+  if "sampling" in fields:
+    recomputed["sampling"] = recomputed_sampling(payload, sessions)
+
+  recomputed["summary_recomputed_at"] = utc_now()
+  recomputed["summary_recomputed_fields"] = fields
+  recomputed["summary_recomputed_metrics"] = metric_fields
+  recomputed["summary_recomputed_from_sessions"] = str(sessions_dir)
+  atomic_write_json(summary_path, recomputed)
+  return recomputed
+
+
+def apply_summary_recompute_fields(
+  summary: dict[str, Any],
+  sessions: list[dict[str, Any]],
+  fields: Iterable[str],
+) -> dict[str, Any]:
+  active_fields = set(fields)
+  all_turns = [
+    turn
+    for session in sessions
+    for turn in session.get("evaluated_turns", [])
+    if isinstance(turn, dict)
+  ]
+  skipped_turns = [
+    {"file": session.get("input_file"), **skipped}
+    for session in sessions
+    for skipped in session.get("skipped_turns", [])
+    if isinstance(skipped, dict)
+  ]
+
+  updated = dict(summary)
+  if "total_files_seen" in active_fields:
+    updated["total_files_seen"] = len(sessions)
+  if "total_files_evaluated" in active_fields:
+    updated["total_files_evaluated"] = sum(1 for session in sessions if session.get("evaluated_turns"))
+  if "total_turns_evaluated" in active_fields:
+    updated["total_turns_evaluated"] = len(all_turns)
+  if "mean_judge_scores" in active_fields:
+    updated["mean_judge_scores"] = {
+      metric: mean_numeric_field(all_turns, metric)
+      for metric in METRIC_SPECS
+    }
+  if "mean_harmonic_score" in active_fields:
+    updated["mean_harmonic_score"] = mean_numeric_field(all_turns, "harmonic_mean")
+  if "total_requests" in active_fields:
+    updated["total_requests"] = request_count_from_turns(all_turns)
+  if "total_estimated_cost" in active_fields:
+    updated["total_estimated_cost"] = sum(float(turn.get("cost") or 0.0) for turn in all_turns)
+  if "skipped_turns" in active_fields:
+    updated["skipped_turns"] = skipped_turns
+  if "evaluated_metrics" in active_fields:
+    updated["evaluated_metrics"] = list(METRIC_SPECS)
+  if "sampling" in active_fields:
+    updated["sampling"] = recomputed_sampling(summary, sessions)
+  return updated
+
+
+def run_patient_rtraces_metric_recompute(
+  summary_json: str | Path,
+  recompute_vars: Iterable[str],
+  *,
+  model: str = MODEL_NAME,
+  max_iter: int = DEFAULT_MAX_ITER,
+  poll_interval: float = DEFAULT_POLL_INTERVAL,
+  local_timeout_hours: float = DEFAULT_LOCAL_TIMEOUT_HOURS,
+  input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
+  output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
+  prepare_only: bool = False,
+  batch_output_jsonl: str | Path | None = None,
+) -> dict[str, Any]:
+  if max_iter < 1:
+    raise RTracesEvaluationError(f"max_iter must be positive, got {max_iter}")
+  if prepare_only and batch_output_jsonl is not None:
+    raise RTracesEvaluationError("--prepare-only cannot be combined with --batch-output-jsonl")
+
+  summary_path = Path(summary_json).resolve()
+  summary = read_json(summary_path)
+  if not isinstance(summary, dict):
+    raise RTracesEvaluationError(f"Summary JSON must contain an object: {summary_path}")
+
+  summary_fields, metric_fields = normalize_recompute_vars(recompute_vars)
+  if not metric_fields:
+    return recompute_summary_json(summary_path, recompute_vars)
+
+  sessions, sessions_dir = load_summary_sessions(summary, summary_path)
+  output_dir = Path(str(summary.get("output_dir") or summary_path.parent)).resolve()
+  output_dir.mkdir(parents=True, exist_ok=True)
+
+  requests, prepared_sessions = build_metric_recompute_requests(
+    sessions,
+    metric_fields,
+    model,
+    max_iter,
+  )
+  artifact_dir, manifest = create_run_artifacts(output_dir, requests, prepared_sessions)
+  manifest["model"] = model
+  manifest["max_iter"] = max_iter
+  manifest["evaluated_speaker"] = "patient"
+  manifest["evaluated_metrics"] = list(METRIC_SPECS)
+  manifest["metric_recompute"] = True
+  manifest["recompute_metrics"] = metric_fields
+  manifest["summary_json"] = str(summary_path)
+  manifest["sessions_dir"] = str(sessions_dir)
+  manifest["output_dir"] = str(output_dir)
+  if batch_output_jsonl is not None:
+    manifest["batch_output_jsonl"] = str(Path(batch_output_jsonl).resolve())
+  atomic_write_json(artifact_dir / "manifest.json", manifest)
+
+  if prepare_only:
+    return manifest
+
+  parse_report: dict[str, Any] | None = None
+  if requests:
+    try:
+      if batch_output_jsonl is None:
+        run_openai_batch_shards(artifact_dir, manifest, poll_interval, local_timeout_hours)
+        manifest = read_json(artifact_dir / "manifest.json")
+        parsed_results, parse_report = parse_all_shard_outputs(
+          manifest,
+          max_iter,
+          input_cost_per_1m,
+          output_cost_per_1m,
+        )
+      else:
+        batch_output_path = Path(batch_output_jsonl).resolve()
+        if not batch_output_path.is_file():
+          raise RTracesEvaluationError(f"batch output JSONL does not exist: {batch_output_path}")
+        parsed_results, parse_report = parse_batch_outputs(
+          batch_output_path,
+          request_map_from_specs(requests),
+          max_iter,
+          input_cost_per_1m,
+          output_cost_per_1m,
+        )
+        parse_report["source_batch_jsonl"] = str(batch_output_path)
+        parse_report["source_request_map"] = str(artifact_dir / "request_map.json")
+
+      parse_report_path = artifact_dir / "parse_report.json"
+      atomic_write_json(parse_report_path, parse_report)
+      manifest["parse_report"] = str(parse_report_path)
+      manifest["status"] = "parsed" if batch_output_jsonl is None else "parsed_from_batch_output"
+      atomic_write_json(artifact_dir / "manifest.json", manifest)
+    except Exception as exc:
+      manifest["status"] = "failed"
+      manifest["error"] = str(exc)
+      atomic_write_json(
+        artifact_dir / "failure_report.json",
+        {"error": str(exc), "type": type(exc).__name__, "updated_at": utc_now()},
+      )
+      atomic_write_json(artifact_dir / "manifest.json", manifest)
+      if isinstance(exc, RTracesEvaluationError):
+        raise
+      raise RTracesEvaluationError(str(exc)) from exc
+  else:
+    parsed_results = {}
+    manifest["status"] = "no_requests"
+    atomic_write_json(artifact_dir / "manifest.json", manifest)
+
+  updated_sessions = attach_metric_recompute_results(
+    prepared_sessions,
+    metric_fields,
+    parsed_results,
+    artifact_dir,
+  )
+  write_recomputed_sessions(sessions_dir, updated_sessions)
+
+  forced_summary_fields = {
+    *summary_fields,
+    "mean_judge_scores",
+    "mean_harmonic_score",
+    "total_estimated_cost",
+    "evaluated_metrics",
+  }
+  recomputed_summary = apply_summary_recompute_fields(summary, updated_sessions, forced_summary_fields)
+  recomputed_summary["summary_recomputed_at"] = utc_now()
+  recomputed_summary["summary_recomputed_fields"] = sorted(forced_summary_fields)
+  recomputed_summary["summary_recomputed_metrics"] = metric_fields
+  recomputed_summary["summary_recomputed_from_sessions"] = str(sessions_dir)
+  recomputed_summary["last_metric_recompute"] = {
+    "metrics": metric_fields,
+    "batch_artifacts": str(artifact_dir),
+    "parse_report": str(artifact_dir / "parse_report.json") if parse_report is not None else None,
+    "request_count": len(requests),
+    "updated_at": utc_now(),
+  }
+  atomic_write_json(summary_path, recomputed_summary)
+
+  manifest["status"] = "completed"
+  manifest["summary"] = str(summary_path)
+  atomic_write_json(artifact_dir / "manifest.json", manifest)
+  return manifest
 
 
 def run_patient_rtraces_batch(
@@ -975,9 +1609,9 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser = argparse.ArgumentParser(
     description="Evaluate patient reasoning traces after previously evaluated therapist turns."
   )
-  parser.add_argument("-i", "--input", "--input_dir", dest="input_dir", type=Path, required=True, help="Directory with original simulation JSON files.")
-  parser.add_argument("-o", "--output", "--output_dir", dest="output_dir", type=Path, required=True, help="Directory for patient rtraces outputs.")
-  parser.add_argument("--therapist-turns", type=Path, required=True, help="Therapist rtraces sessions directory, output directory containing sessions/, or a single session JSON file.")
+  parser.add_argument("-i", "--input", "--input_dir", dest="input_dir", type=Path, help="Directory with original simulation JSON files.")
+  parser.add_argument("-o", "--output", "--output_dir", dest="output_dir", type=Path, help="Directory for patient rtraces outputs.")
+  parser.add_argument("--therapist-turns", type=Path, help="Therapist rtraces sessions directory, output directory containing sessions/, or a single session JSON file.")
   parser.add_argument("-m_iter", "--max_iter", type=int, default=DEFAULT_MAX_ITER, help="Judge samples per metric.")
   parser.add_argument("--model", type=str, default=MODEL_NAME, help=f"Judge model. Default: {MODEL_NAME}")
   parser.add_argument("--recursive", action="store_true", help="Scan JSON files recursively under input dir.")
@@ -1008,11 +1642,90 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     type=Path,
     help="Parse an existing OpenAI batch output JSONL and write session/summary outputs without sending requests.",
   )
+  parser.add_argument(
+    "--summary-json",
+    type=Path,
+    help="Existing patient_rtraces summary.json to update from its sessions/ outputs.",
+  )
+  parser.add_argument(
+    "--recompute-vars",
+    nargs="+",
+    help=(
+      "Summary variables to recompute from saved sessions. "
+      "Use faithfulness, logic, alignment, metrics, all, counts, scores, cost, or explicit fields: "
+      + ", ".join(sorted(SUMMARY_RECOMPUTE_FIELDS))
+      + ". Comma-separated values are also accepted."
+    ),
+  )
   return parser.parse_args(argv)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
   args = parse_args(argv)
+  if args.summary_json or args.recompute_vars:
+    if not args.summary_json or not args.recompute_vars:
+      print("Patient reasoning trace evaluation failed: use --summary-json with --recompute-vars", file=os.sys.stderr)
+      return 1
+    try:
+      summary_fields, metric_fields = normalize_recompute_vars(args.recompute_vars)
+      if metric_fields:
+        manifest = run_patient_rtraces_metric_recompute(
+          args.summary_json,
+          args.recompute_vars,
+          model=args.model,
+          max_iter=args.max_iter,
+          poll_interval=args.poll_interval,
+          local_timeout_hours=args.local_timeout_hours,
+          input_cost_per_1m=args.input_cost_per_1m,
+          output_cost_per_1m=args.output_cost_per_1m,
+          prepare_only=args.prepare_only,
+          batch_output_jsonl=args.batch_output_jsonl,
+        )
+        artifact_dir = Path(manifest["output_dir"]) / "_batch_artifacts" / manifest["run_id"]
+        if args.prepare_only:
+          print("Patient reasoning trace metric recompute batch artifacts prepared.")
+          print(f"Run artifacts: {artifact_dir}")
+          print(f"Request count: {manifest['request_count']}")
+          print(f"Shard count: {manifest['shard_count']}")
+          print(f"Recompute metrics: {', '.join(metric_fields)}")
+          return 0
+        summary = read_json(args.summary_json)
+        print("Patient reasoning trace metrics recomputed from LLM judge outputs.")
+        print(f"Run artifacts: {artifact_dir}")
+        print(f"Summary: {Path(args.summary_json).resolve()}")
+        print(f"Recomputed metrics: {', '.join(summary.get('summary_recomputed_metrics') or metric_fields)}")
+        print(f"Sessions: {summary.get('summary_recomputed_from_sessions')}")
+        return 0
+
+      summary = recompute_summary_json(args.summary_json, summary_fields)
+    except RTracesEvaluationError as exc:
+      print(f"Patient reasoning trace recomputation failed: {exc}", file=os.sys.stderr)
+      return 1
+    print("Patient reasoning trace summary recomputed.")
+    print(f"Summary: {Path(args.summary_json).resolve()}")
+    print(f"Recomputed fields: {', '.join(summary.get('summary_recomputed_fields') or [])}")
+    if summary.get("summary_recomputed_metrics"):
+      print(f"Recomputed metrics: {', '.join(summary.get('summary_recomputed_metrics') or [])}")
+    print(f"Sessions: {summary.get('summary_recomputed_from_sessions')}")
+    return 0
+
+  missing_args = [
+    name
+    for name, value in (
+      ("--input", args.input_dir),
+      ("--output", args.output_dir),
+      ("--therapist-turns", args.therapist_turns),
+    )
+    if value is None
+  ]
+  if missing_args:
+    print(
+      "Patient reasoning trace evaluation failed: missing required arguments "
+      + ", ".join(missing_args),
+      file=os.sys.stderr,
+    )
+    return 1
+
   try:
     manifest = run_patient_rtraces_batch(
       args.input_dir,
@@ -1046,6 +1759,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       f"{sampling.get('selected_patient_turns')} patient turns from "
       f"{sampling.get('source_therapist_turns')} selected therapist turns"
     )
+    print(f"Reasoning trace steps: {sampling.get('selected_reasoning_trace_steps')}")
     return 0
 
   if args.batch_output_jsonl:

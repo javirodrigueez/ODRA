@@ -30,3 +30,4 @@ outs
 /finetuning/**/configs
 /evaluation/**/configs
 configs/
+*.pdf

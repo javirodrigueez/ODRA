@@ -136,6 +136,46 @@ class RatingMetricsTest(unittest.TestCase):
       self.assertEqual(scores["ctrs"]["delta_from_average"]["negative"]["general_1_understanding"], -1)
       self.assertAlmostEqual(scores["cost"]["total"], 0.3)
 
+  def test_per_attitude_ctrs_uses_sibling_json_attitudes(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      eval_dir = base / "eval"
+      self._write_json(
+        eval_dir / "ctrs" / "session_1.json",
+        {**{key: 4 for key in (
+          "general_1_understanding",
+          "general_2_interpersonal_effectiveness",
+          "general_3_collaboration",
+          "CBT_1_guided_discovery",
+          "CBT_2_focus",
+          "CBT_3_strategy",
+        )}, "cost": 0.1},
+      )
+      self._write_json(
+        eval_dir / "ctrs" / "session_2.json",
+        {**{key: 2 for key in (
+          "general_1_understanding",
+          "general_2_interpersonal_effectiveness",
+          "general_3_collaboration",
+          "CBT_1_guided_discovery",
+          "CBT_2_focus",
+          "CBT_3_strategy",
+        )}, "cost": 0.2},
+      )
+      self._write_json(base / "json" / "session_1.json", {"patient_profile": {"attitude": "positive"}})
+      self._write_json(base / "json" / "session_2.json", {"patient_profile": {"attitude": "negative"}})
+
+      scores = compute_scores(
+        eval_dir,
+        per_attitude=True,
+        include_wai=False,
+        include_panas=False,
+      )
+
+      self.assertEqual(set(scores["ctrs"]["by_attitude"]), {"negative", "positive"})
+      self.assertEqual(scores["ctrs"]["by_attitude"]["positive"]["general_1_understanding"], 4)
+      self.assertEqual(scores["ctrs"]["by_attitude"]["negative"]["general_1_understanding"], 2)
+
   def test_per_attitude_wai_deltas_include_items_and_composite_scores(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
       base = Path(tmp)
