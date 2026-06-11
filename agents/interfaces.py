@@ -228,13 +228,28 @@ class LocalLLM(LLM):
 
   def generate(self, messages: list[ChatMessage], **kwargs: Any) -> str:
     strip_thinking = coerce_bool(kwargs.get("strip_thinking"), True)
+    
+    ### Model specific pre-process
+    effective_messages = messages
+    if "Ministral-3-8B-Reasoning-2512" in self.model_id and len(messages) >= 3:
+      effective_messages = [
+        *messages[:1],
+        {
+          "role": "user",
+          "content": f"Therapist:{messages[1]['content']}\nPatient:{messages[2]['content']}",
+        },
+        *messages[3:],
+      ]
+    ###
+      
     create_kwargs: dict[str, Any] = {
       "model": self.model_id,
-      "messages": messages,
+      "messages": effective_messages,
       "max_completion_tokens": self.max_model_len,
-      "extra_body": {
-        "chat_template_kwargs": { "enable_thinking": False }
-      }
+      # Qwen disable thinking
+      # "extra_body": {
+      #   "chat_template_kwargs": { "enable_thinking": False }
+      # }
     }
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:
@@ -243,8 +258,15 @@ class LocalLLM(LLM):
       create_kwargs["enable_thinking"] = kwargs["enable_thinking"]
     if "response_format" in kwargs:
       create_kwargs["response_format"] = kwargs["response_format"]
+    
     response = self.chat_model.chat.completions.create(**create_kwargs)
     content = ensure_str(response.choices[0].message.content)
+    
+    ### Model specific post-process
+    if "DeepSeek-R1-Distill-Llama-8B" in self.model_id or "Ministral-3-8B-Reasoning-2512" in self.model_id:
+      content = content.replace("Ġ", " ").replace("Ċ", "\n").replace('âĢĶ', '—').replace('âĢĻ', "'").replace('âĢĵ', ':')
+    ###
+    
     #breakpoint()
     if strip_thinking and '</think>' in content:
       content = content.split('</think>')[-1].strip()

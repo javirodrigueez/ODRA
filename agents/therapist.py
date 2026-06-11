@@ -28,6 +28,8 @@ def parse_agent_therapist_response(raw_text: str) -> tuple[str, str]:
   close_match = THINK_CLOSE_RE.search(text)
   if close_match is None:
     return "", text
+  
+  # TODO: add "<think>...---Yes, it is..." parsin pattern
 
   reasoning = text[:close_match.start()].strip()
   utterance = text[close_match.end():].strip()

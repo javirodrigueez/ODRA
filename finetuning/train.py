@@ -141,6 +141,13 @@ SHAREGPT_ROLE_MAP = {
     "tool": "tool",
 }
 
+DEEPSEEK_USER_PART = "<｜User｜>"
+DEEPSEEK_ASSISTANT_PART = "<｜Assistant｜>"
+MISTRAL_INSTRUCTION_PART = "[INST]"
+MISTRAL_RESPONSE_PART = "[/INST]"
+MISTRAL_THINK_START = "[THINK]"
+MISTRAL_THINK_END = "[/THINK]"
+
 
 def local_models_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "models"
@@ -192,21 +199,74 @@ def resolve_max_seq_length(model_path: Path, requested_max_seq_length: int | Non
     return requested_max_seq_length
 
 
+def preserve_deepseek_thinking_template(tokenizer: Any) -> Any:
+    chat_template = getattr(tokenizer, "chat_template", None)
+    if not isinstance(chat_template, str):
+        return tokenizer
+    if DEEPSEEK_ASSISTANT_PART not in chat_template or "content.split('</think>')[-1]" not in chat_template:
+        return tokenizer
+
+    original_template = chat_template
+    chat_template = chat_template.replace("{% set content = message['content'] %}", "")
+    chat_template = chat_template.replace(
+        "{% if '</think>' in content %}{% set content = content.split('</think>')[-1] %}{% endif %}",
+        "",
+    )
+    chat_template = chat_template.replace(
+        "{{'<｜Assistant｜>' + content + '<｜end▁of▁sentence｜>'}}",
+        "{{'<｜Assistant｜>' + message['content'] + '<｜end▁of▁sentence｜>'}}",
+    )
+    if chat_template == original_template or "content.split('</think>')[-1]" in chat_template:
+        raise ValueError("Failed to patch DeepSeek chat template to preserve <think> traces.")
+
+    tokenizer.chat_template = chat_template
+    print("Patched DeepSeek chat template to preserve <think> traces.")
+    return tokenizer
+
+
 def apply_training_chat_template(tokenizer: Any, chat_template: str) -> Any:
+    tokenizer = preserve_deepseek_thinking_template(tokenizer)
     normalized = str(chat_template or "").strip().lower()
     if normalized in {"", "none"}:
         return tokenizer
 
     if normalized in {"tokenizer", "model", "native", "qwen3.6-thinking", "qwen3.6"}:
         if getattr(tokenizer, "chat_template", None):
-            return get_chat_template(
+            tokenizer = get_chat_template(
                 tokenizer,
                 chat_template = (tokenizer.chat_template, "<|im_end|>"),
                 map_eos_token = False,
             )
-        return get_chat_template(tokenizer, chat_template = "qwen3-thinking")
+            return preserve_deepseek_thinking_template(tokenizer)
+        tokenizer = get_chat_template(tokenizer, chat_template = "qwen3-thinking")
+        return preserve_deepseek_thinking_template(tokenizer)
 
-    return get_chat_template(tokenizer, chat_template = chat_template)
+    tokenizer = get_chat_template(tokenizer, chat_template = chat_template)
+    return preserve_deepseek_thinking_template(tokenizer)
+
+
+def uses_ministral_thinking_template(tokenizer: Any) -> bool:
+    chat_template = str(getattr(tokenizer, "chat_template", "") or "")
+    return (
+        MISTRAL_INSTRUCTION_PART in chat_template
+        and MISTRAL_RESPONSE_PART in chat_template
+        and MISTRAL_THINK_START in chat_template
+        and MISTRAL_THINK_END in chat_template
+    )
+
+
+def convert_assistant_thinking_tags_for_ministral(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    converted_messages = []
+    for message in messages:
+        converted_message = dict(message)
+        if converted_message["role"] == "assistant":
+            converted_message["content"] = (
+                converted_message["content"]
+                .replace("<think>", MISTRAL_THINK_START)
+                .replace("</think>", MISTRAL_THINK_END)
+            )
+        converted_messages.append(converted_message)
+    return converted_messages
 
 
 def resolve_attn_implementation(attn_implementation: str | None) -> str | None:
@@ -346,9 +406,10 @@ def load_training_sessions(input_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def formatting_prompts_func(examples: dict[str, list[Any]], tokenizer: Any) -> dict[str, list[str]]:
+    convert_ministral_thinking = uses_ministral_thinking_template(tokenizer)
     texts = [
         tokenizer.apply_chat_template(
-            messages,
+            convert_assistant_thinking_tags_for_ministral(messages) if convert_ministral_thinking else messages,
             tokenize = False,
             add_generation_prompt = False,
             #preserve_thinking = True,
@@ -367,6 +428,16 @@ def create_dataset(input_dir: str | Path, tokenizer: Any) -> Dataset:
     )
     #breakpoint()
     return dataset
+
+
+def validate_response_markers(dataset: Dataset, response_part: str) -> None:
+    matches = sum(1 for text in dataset["text"] if response_part in text)
+    if matches == 0:
+        raise ValueError(
+            "No formatted training samples contain the response marker "
+            f"{response_part!r}. Check the selected chat template."
+        )
+    print(f"Response marker {response_part!r} found in {matches}/{len(dataset)} formatted samples.")
 
 
 def train_model(
@@ -419,11 +490,15 @@ def train_model(
 
 def response_template_parts(tokenizer: Any) -> tuple[str, str]:
     chat_template = str(getattr(tokenizer, "chat_template", "") or "")
+    if DEEPSEEK_USER_PART in chat_template and DEEPSEEK_ASSISTANT_PART in chat_template:
+        return (DEEPSEEK_USER_PART, DEEPSEEK_ASSISTANT_PART)
     if "<|start_header_id|>" in chat_template:
         return (
             "<|start_header_id|>user<|end_header_id|>\n\n",
             "<|start_header_id|>assistant<|end_header_id|>\n\n",
         )
+    if MISTRAL_INSTRUCTION_PART in chat_template and MISTRAL_RESPONSE_PART in chat_template:
+        return (MISTRAL_INSTRUCTION_PART, MISTRAL_RESPONSE_PART)
     return ("<|im_start|>user\n", "<|im_start|>assistant\n")
 
 
@@ -496,8 +571,9 @@ def main() -> None:
     print("Model and tokenizer loaded successfully.")
     dataset = create_dataset(args.input_data, tokenizer)
     print(f"Dataset loaded with {len(dataset)} training session(s).")
-    start_time = time.time()
     instruction_part, response_part = response_template_parts(tokenizer)
+    validate_response_markers(dataset, response_part)
+    start_time = time.time()
     train_model(
         model,
         tokenizer,

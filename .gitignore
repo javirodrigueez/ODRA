@@ -31,3 +31,5 @@ outs
 /evaluation/**/configs
 configs/
 *.pdf
+AGENTS.md
+mirror
