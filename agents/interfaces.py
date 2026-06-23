@@ -33,6 +33,80 @@ class ChatMessage(TypedDict):
   content: str
 
 
+def _build_byte_bpe_unicode_to_byte() -> dict[str, int]:
+  byte_to_unicode: dict[int, str] = {}
+  for b in (
+    list(range(ord("!"), ord("~") + 1))
+    + list(range(ord("¡"), ord("¬") + 1))
+    + list(range(ord("®"), ord("ÿ") + 1))
+  ):
+    byte_to_unicode[b] = chr(b)
+
+  n = 0
+  for b in range(256):
+    if b not in byte_to_unicode:
+      byte_to_unicode[b] = chr(256 + n)
+      n += 1
+
+  return {char: byte for byte, char in byte_to_unicode.items()}
+
+
+BYTE_BPE_UNICODE_TO_BYTE = _build_byte_bpe_unicode_to_byte()
+BYTE_BPE_WHITESPACE_ALIASES = {
+  char for char, byte in BYTE_BPE_UNICODE_TO_BYTE.items()
+  if byte in {9, 10, 13, 32}
+}
+BYTE_BPE_UTF8_CONTINUATION_CHARS = {
+  char for char, byte in BYTE_BPE_UNICODE_TO_BYTE.items()
+  if 0x80 <= byte <= 0xBF
+}
+
+
+def _utf8_continuation_count(lead_byte: int) -> int:
+  if 0xC2 <= lead_byte <= 0xDF:
+    return 1
+  if 0xE0 <= lead_byte <= 0xEF:
+    return 2
+  if 0xF0 <= lead_byte <= 0xF4:
+    return 3
+  return 0
+
+
+def _decode_byte_bpe_chars(chars: str) -> str | None:
+  try:
+    return bytes(BYTE_BPE_UNICODE_TO_BYTE[char] for char in chars).decode("utf-8")
+  except (KeyError, UnicodeDecodeError):
+    return None
+
+
+def repair_byte_bpe_leaks(text: str) -> str:
+  repaired: list[str] = []
+  i = 0
+  while i < len(text):
+    char = text[i]
+    if char in BYTE_BPE_WHITESPACE_ALIASES:
+      repaired.append(_decode_byte_bpe_chars(char) or char)
+      i += 1
+      continue
+
+    lead_byte = BYTE_BPE_UNICODE_TO_BYTE.get(char)
+    continuation_count = _utf8_continuation_count(lead_byte or 0)
+    end = i + 1 + continuation_count
+    if continuation_count and end <= len(text):
+      continuation = text[i + 1:end]
+      has_remapped_byte = any(ord(item) >= 256 for item in continuation)
+      if has_remapped_byte and all(item in BYTE_BPE_UTF8_CONTINUATION_CHARS for item in continuation):
+        decoded = _decode_byte_bpe_chars(text[i:end])
+        if decoded is not None:
+          repaired.append(decoded)
+          i = end
+          continue
+
+    repaired.append(char)
+    i += 1
+  return "".join(repaired)
+
+
 def load_prompt(filename: str | Path) -> str:
   path = filename if isinstance(filename, Path) else PROMPTS_DIR / filename
   return path.read_text(encoding="utf-8").strip()
@@ -264,7 +338,7 @@ class LocalLLM(LLM):
     
     ### Model specific post-process
     if "DeepSeek-R1-Distill-Llama-8B" in self.model_id or "Ministral-3-8B-Reasoning-2512" in self.model_id:
-      content = content.replace("Ġ", " ").replace("Ċ", "\n").replace('âĢĶ', '—').replace('âĢĻ', "'").replace('âĢĵ', ':')
+      content = repair_byte_bpe_leaks(content)
     ###
     
     #breakpoint()
@@ -284,7 +358,7 @@ class DeepseekLLM(LLM):
       "messages": messages,
       "extra_body": {
         "provider": {
-          "order": ["deepseek", "atlas-cloud/fp8", "novita/fp8"],
+          "order": ["deepseek", "streamlake", "novita/fp8"],
           "allow_fallbacks": False
         }
       }

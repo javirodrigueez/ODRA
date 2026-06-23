@@ -10,3 +10,4 @@ langchain_aws
 langchain_huggingface
 torch
 transformers
+sentence-transformers

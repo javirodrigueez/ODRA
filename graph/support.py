@@ -127,6 +127,22 @@ class GraphSupportMixin:
       getattr(patient_cfg, "prompt_variant", DEFAULT_PROMPT_VARIANT),
     )
 
+  def _config_bool(self, block: Any, name: str, default: bool) -> bool:
+    value = block.get(name, default) if isinstance(block, dict) else getattr(block, name, default)
+    if value is None:
+      return default
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, str):
+      normalized = value.strip().lower()
+      if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+      if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    if isinstance(value, (int, float)):
+      return bool(value)
+    return default
+
   def _init_agents(self) -> None:
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
@@ -135,6 +151,8 @@ class GraphSupportMixin:
       therapist_llm,
       self.profile,
       generation_defaults=extract_generation_config(self.cfg.therapist),
+      user_instruction=self._config_bool(self.cfg.therapist, "user_instruction", False),
+      length_restriction=self._config_bool(self.cfg.therapist, "length_restriction", False),
     )
     self.patient = PatientAgent(
       patient_llm,

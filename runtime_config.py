@@ -73,6 +73,8 @@ def normalize_runtime_config(cfg: Any) -> Any:
   therapist = _normalize_model_block("therapist", raw_cfg.get("therapist"))
   therapist.setdefault("system_prompt_path", "")
   therapist.setdefault("ft_system_prompt_path", "")
+  therapist["user_instruction"] = _coerce_bool(therapist.get("user_instruction"), False)
+  therapist["length_restriction"] = _coerce_bool(therapist.get("length_restriction"), False)
   therapist_struct = _normalize_model_block(
     "therapist_struct",
     raw_cfg.get("therapist_struct"),

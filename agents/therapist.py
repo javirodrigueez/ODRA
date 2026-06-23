@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, load_prompt, parse_json_response, render_prompt
+from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, coerce_bool, load_prompt, parse_json_response, render_prompt
 
 
 AGENT_THERAPIST_SYSTEM_PROMPT = Path(__file__).resolve().parent.parent / "agent_prompts" / "therapist_system.txt"
@@ -13,8 +13,12 @@ AGENT_THERAPIST_CONTINUATION = "Continue with the ongoing therapy session."
 AGENT_INITIAL_GREETING_PROMPT = "opening/initial_greeting.txt"
 AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 8192
 LOCAL_AGENT_THERAPIST_DEFAULT_MAX_TOKENS = 65536
+AGENT_THERAPIST_MAX_FORMAT_RETRIES = 5
+AGENT_THERAPIST_STRICT_USER_INSTRUCTION = "Generate next therapist utterance STRICTLY following format <think>...</think> for reasoning, and then the therapist utterance without any prefix like 'Therapist:'."
+AGENT_THERAPIST_LENGTH_RESTRICTION = "Maintain the utterance under 70 words."
 THINK_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
 THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
+THINK_DASH_RE = re.compile(r"<think>(.*?)---(.*)", re.DOTALL | re.IGNORECASE)
 
 
 def parse_agent_therapist_response(raw_text: str) -> tuple[str, str]:
@@ -25,15 +29,21 @@ def parse_agent_therapist_response(raw_text: str) -> tuple[str, str]:
     utterance = f"{text[:match.start()]}{text[match.end():]}".strip()
     return reasoning, utterance
 
+  dash_match = THINK_DASH_RE.search(text)
+  if dash_match is not None:
+    return dash_match.group(1).strip(), dash_match.group(2).strip()
+
   close_match = THINK_CLOSE_RE.search(text)
   if close_match is None:
     return "", text
-  
-  # TODO: add "<think>...---Yes, it is..." parsin pattern
 
   reasoning = text[:close_match.start()].strip()
   utterance = text[close_match.end():].strip()
   return reasoning, utterance
+
+
+def _has_reasoning_and_utterance(reasoning: str, utterance: str) -> bool:
+  return bool(reasoning.strip() and utterance.strip())
 
 
 class TherapistAgent(Agent):
@@ -44,6 +54,8 @@ class TherapistAgent(Agent):
     generation_defaults: dict[str, Any] | None = None,
     agent_system_prompt_path: str | Path | None = None,
     agent_ft_system_prompt_path: str | Path | None = None,
+    user_instruction: bool = False,
+    length_restriction: bool = False,
   ):
     super().__init__(
       llm,
@@ -66,6 +78,8 @@ class TherapistAgent(Agent):
     )
     self.agent_system_prompt: str | None = None
     self.agent_ft_system_prompt: str | None = None
+    self.user_instruction = coerce_bool(user_instruction, False)
+    self.length_restriction = coerce_bool(length_restriction, False)
 
   def _render_agent_system_prompt(self, prompt_path: Path) -> str:
     template = load_prompt(prompt_path)
@@ -197,6 +211,33 @@ class TherapistAgent(Agent):
       *history,
     ]
 
+  def _strict_user_instruction_prompt(self, patient: str) -> str:
+    instruction = AGENT_THERAPIST_STRICT_USER_INSTRUCTION
+    if self.length_restriction:
+      instruction = f"{instruction} {AGENT_THERAPIST_LENGTH_RESTRICTION}"
+    return f"Patient:{patient}\n{instruction}"
+
+  def _with_strict_user_instruction(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+    instructed_messages = [dict(message) for message in messages]
+    for index in range(len(instructed_messages) - 1, -1, -1):
+      if instructed_messages[index]["role"] == "user":
+        patient = instructed_messages[index]["content"].strip()
+        if patient.lower().startswith("patient:"):
+          patient = patient.split(":", 1)[1].lstrip()
+        instructed_messages[index] = {
+          "role": "user",
+          "content": self._strict_user_instruction_prompt(patient),
+        }
+        break
+    else:
+      instructed_messages.append(
+        {
+          "role": "user",
+          "content": self._strict_user_instruction_prompt(""),
+        }
+      )
+    return instructed_messages
+
   def _generate_agent_response(
     self,
     messages: list[ChatMessage],
@@ -224,8 +265,17 @@ class TherapistAgent(Agent):
       },
     )
     generation_kwargs["strip_thinking"] = False
-    raw = self.llm.generate(messages, **generation_kwargs).strip()
-    reasoning, utterance = parse_agent_therapist_response(raw)
+    request_messages = self._with_strict_user_instruction(messages) if self.user_instruction else messages
+    raw = ""
+    reasoning = ""
+    utterance = ""
+    for attempt in range(AGENT_THERAPIST_MAX_FORMAT_RETRIES + 1):
+      raw = self.llm.generate(request_messages, **generation_kwargs).strip()
+      reasoning, utterance = parse_agent_therapist_response(raw)
+      if _has_reasoning_and_utterance(reasoning, utterance):
+        break
+      if attempt < AGENT_THERAPIST_MAX_FORMAT_RETRIES:
+        request_messages = self._with_strict_user_instruction(messages)
     return utterance, reasoning, raw
 
   def generate_agent_messages(

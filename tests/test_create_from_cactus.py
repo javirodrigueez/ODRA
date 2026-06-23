@@ -99,6 +99,116 @@ class CreateFromCactusTest(unittest.TestCase):
       self.assertEqual(len(data), 3)
       self.assertEqual([entry["attitude"] for entry in data], create_from_cactus.ATTITUDES)
       self.assertEqual(data[0]["patterns"], ["catastrophizing"])
+      self.assertNotIn("cbt_plan", data[0])
+
+  def test_include_cbt_plan_uses_top_level_field(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      source = base / "raw_cactus_subset.json"
+      output = base / "processed.json"
+      source.write_text(
+        json.dumps(
+          [
+            {
+              "intake_form": _intake_form("Alex Carter"),
+              "patterns": ["catastrophizing"],
+              "cbt_plan": "Use decatastrophizing to examine the feared outcome.",
+            }
+          ]
+        ),
+        encoding="utf-8",
+      )
+
+      create_from_cactus.process_dataset(str(output), str(source), include_cbt_plan=True)
+
+      data = json.loads(output.read_text(encoding="utf-8"))
+      self.assertEqual(len(data), 3)
+      self.assertEqual(data[0]["cbt_plan"], "Use decatastrophizing to examine the feared outcome.")
+
+  def test_ground_truth_cbt_is_not_used_as_cbt_plan_fallback(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      source = base / "raw_cactus_subset.json"
+      output = base / "processed.json"
+      source.write_text(
+        json.dumps(
+          [
+            {
+              "AI_client": {
+                "intake_form": _intake_form("Rebecca Finch"),
+                "attitude": "negative",
+              },
+              "ground_truth_CBT": ["Alternative Perspective"],
+            }
+          ]
+        ),
+        encoding="utf-8",
+      )
+
+      create_from_cactus.process_dataset(str(output), str(source), include_cbt_plan=True)
+
+      data = json.loads(output.read_text(encoding="utf-8"))
+      self.assertEqual(len(data), 1)
+      self.assertEqual(data[0]["cbt_plan"], "")
+
+  def test_json_source_directory_loads_cactus_session_records(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      source_dir = base / "cactus-chatgpt"
+      source_dir.mkdir()
+      output = base / "processed.json"
+      (source_dir / "session_1.json").write_text(
+        json.dumps(
+          {
+            "example": {
+              "AI_client": {
+                "intake_form": _intake_form("Rebecca Finch"),
+                "attitude": "positive",
+              },
+              "ground_truth_CBT": ["Alternative Perspective"],
+            },
+            "cbt_plan": "Practice generating alternative perspectives.",
+          }
+        ),
+        encoding="utf-8",
+      )
+
+      create_from_cactus.process_dataset(str(output), str(source_dir), include_cbt_plan=True)
+
+      data = json.loads(output.read_text(encoding="utf-8"))
+      self.assertEqual(len(data), 1)
+      self.assertEqual(data[0]["attitude"], "positive")
+      self.assertEqual(data[0]["cbt_plan"], "Practice generating alternative perspectives.")
+
+  def test_include_cbt_plan_full_source_preserves_rows_and_source_attitudes(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      base = Path(tmp)
+      output = base / "processed.json"
+      rows = [
+        {
+          "intake_form": _intake_form("Shared Name"),
+          "patterns": ["catastrophizing"],
+          "attitude": "negative",
+          "cbt_plan": "First plan.",
+        },
+        {
+          "intake_form": _intake_form("Shared Name"),
+          "patterns": ["catastrophizing"],
+          "attitude": "positive",
+          "cbt_plan": "Second plan.",
+        },
+      ]
+      original_loader = create_from_cactus.load_huggingface_rows
+      create_from_cactus.load_huggingface_rows = lambda: rows
+      try:
+        create_from_cactus.process_dataset(str(output), include_cbt_plan=True)
+      finally:
+        create_from_cactus.load_huggingface_rows = original_loader
+
+      data = json.loads(output.read_text(encoding="utf-8"))
+      self.assertEqual(len(data), 2)
+      self.assertEqual([entry["attitude"] for entry in data], ["negative", "positive"])
+      self.assertEqual([entry["cbt_plan"] for entry in data], ["First plan.", "Second plan."])
 
 
 if __name__ == "__main__":

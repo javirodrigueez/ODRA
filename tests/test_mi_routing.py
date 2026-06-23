@@ -280,6 +280,26 @@ class MIRoutingTest(unittest.TestCase):
     self.assertEqual(cfg["therapist"]["ft_system_prompt_path"], "ft_prompts/custom.txt")
     self.assertEqual(cfg["patient"]["system_prompt_path"], "agent_prompts/custom_patient.txt")
 
+  def test_runtime_config_defaults_therapist_user_instruction_to_false(self) -> None:
+    cfg = normalize_runtime_config({"therapist": {}})
+
+    self.assertFalse(cfg["therapist"]["user_instruction"])
+
+  def test_runtime_config_coerces_therapist_user_instruction(self) -> None:
+    cfg = normalize_runtime_config({"therapist": {"user_instruction": "yes"}})
+
+    self.assertTrue(cfg["therapist"]["user_instruction"])
+
+  def test_runtime_config_defaults_therapist_length_restriction_to_false(self) -> None:
+    cfg = normalize_runtime_config({"therapist": {}})
+
+    self.assertFalse(cfg["therapist"]["length_restriction"])
+
+  def test_runtime_config_coerces_therapist_length_restriction(self) -> None:
+    cfg = normalize_runtime_config({"therapist": {"length_restriction": "yes"}})
+
+    self.assertTrue(cfg["therapist"]["length_restriction"])
+
   def test_runtime_config_preserves_disabled_resistance(self) -> None:
     cfg = normalize_runtime_config({"env": {"resistance": False}})
     self.assertFalse(cfg["env"]["resistance"])

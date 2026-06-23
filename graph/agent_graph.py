@@ -251,6 +251,8 @@ class AgentTherapyGraphBuilder:
       generation_defaults=extract_generation_config(self.cfg.therapist),
       agent_system_prompt_path=self._config_value(self.cfg.therapist, "system_prompt_path") or None,
       agent_ft_system_prompt_path=self._config_value(self.cfg.therapist, "ft_system_prompt_path") or None,
+      user_instruction=self._config_bool(self.cfg.therapist, "user_instruction", False),
+      length_restriction=self._config_bool(self.cfg.therapist, "length_restriction", False),
     )
     self.patient = PatientAgent(
       patient_llm,

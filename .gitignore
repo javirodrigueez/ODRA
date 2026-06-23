@@ -33,3 +33,4 @@ configs/
 *.pdf
 AGENTS.md
 mirror
+data/processed_cactus_plan.json

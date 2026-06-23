@@ -4,6 +4,8 @@ therapist:
   base_url:
   system_prompt_path: # optional path for agent_simulation therapist system prompt
   ft_system_prompt_path: # optional path for local/ChatML agent_simulation therapist system prompt
+  user_instruction: false # optional: rewrite last user message with strict reasoning/utterance instruction
+  length_restriction: false # optional: add the under-70-words constraint to strict therapist instructions
   max_model_len: # alias for max completion tokens
   temperature:
   top_p:

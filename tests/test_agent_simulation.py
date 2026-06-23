@@ -103,7 +103,7 @@ from agents.therapist import (
   TherapistAgent,
   parse_agent_therapist_response,
 )
-from agents.interfaces import LLMFactory, LocalLLM, OpenaiLLM
+from agents.interfaces import LLMFactory, LocalLLM, OpenaiLLM, repair_byte_bpe_leaks
 from graph.agent_graph import AgentTherapyGraphBuilder
 
 
@@ -121,12 +121,18 @@ def _profile() -> dict:
 
 
 class _FakeLLM:
-  def __init__(self, response: str = "") -> None:
+  def __init__(self, response: str | list[str] = "") -> None:
     self.response = response
     self.calls: list[tuple[list[dict], dict]] = []
 
   def generate(self, messages, **kwargs):
     self.calls.append((messages, kwargs))
+    if isinstance(self.response, list):
+      if not self.response:
+        return ""
+      if len(self.response) == 1:
+        return self.response[0]
+      return self.response.pop(0)
     return self.response
 
 
@@ -279,6 +285,12 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertEqual(reasoning, "plan\nline")
     self.assertEqual(utterance, "Hi there.")
 
+  def test_parses_dash_think_delimiter(self) -> None:
+    reasoning, utterance = parse_agent_therapist_response("<think>plan\nline---Hi there. --- keep raw")
+
+    self.assertEqual(reasoning, "plan\nline")
+    self.assertEqual(utterance, "Hi there. --- keep raw")
+
   def test_missing_or_malformed_reasoning_block_is_treated_as_plain_utterance(self) -> None:
     self.assertEqual(parse_agent_therapist_response("Hi there."), ("", "Hi there."))
     self.assertEqual(
@@ -299,6 +311,98 @@ class AgentTherapistPromptTest(unittest.TestCase):
     self.assertEqual(reasoning, "reason")
     self.assertEqual(raw, "<think>reason</think>Hello")
     self.assertFalse(llm.calls[0][1]["strip_thinking"])
+
+  def test_agent_generation_retries_until_reasoning_and_utterance_are_present(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system.txt"
+      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM(["Hello", "<think>reason</think>Hello"])
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile())
+        utterance, reasoning, raw = agent.generate_agent_messages(
+          [{"role": "user", "content": "Patient:I am stuck."}]
+        )
+
+    self.assertEqual(utterance, "Hello")
+    self.assertEqual(reasoning, "reason")
+    self.assertEqual(raw, "<think>reason</think>Hello")
+    self.assertEqual(len(llm.calls), 2)
+    self.assertEqual(
+      llm.calls[1][0][-1]["content"],
+      "Patient:I am stuck.\n"
+      "Generate next therapist utterance STRICTLY following format "
+      "<think>{reasoning}</think>{utterance}.",
+    )
+
+  def test_agent_generation_user_instruction_rewrites_initial_request(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system.txt"
+      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM("<think>reason</think>Hello")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile(), user_instruction=True)
+        agent.generate_agent_messages(
+          [{"role": "user", "content": "Patient:I am stuck."}]
+        )
+
+    self.assertEqual(
+      llm.calls[0][0][-1]["content"],
+      "Patient:I am stuck.\n"
+      "Generate next therapist utterance STRICTLY following format "
+      "<think>{reasoning}</think>{utterance}.",
+    )
+
+  def test_agent_generation_length_restriction_adds_word_limit(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system.txt"
+      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM("<think>reason</think>Hello")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile(), user_instruction=True, length_restriction=True)
+        agent.generate_agent_messages(
+          [{"role": "user", "content": "Patient:I am stuck."}]
+        )
+
+    self.assertEqual(
+      llm.calls[0][0][-1]["content"],
+      "Patient:I am stuck.\n"
+      "Generate next therapist utterance STRICTLY following format "
+      "<think>{reasoning}</think>{utterance}. Maintain the utterance under 70 words.",
+    )
+
+  def test_agent_generation_length_restriction_applies_to_retries(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system.txt"
+      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM(["Hello", "<think>reason</think>Hello"])
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile(), length_restriction=True)
+        agent.generate_agent_messages(
+          [{"role": "user", "content": "Patient:I am stuck."}]
+        )
+
+    self.assertEqual(
+      llm.calls[1][0][-1]["content"],
+      "Patient:I am stuck.\n"
+      "Generate next therapist utterance STRICTLY following format "
+      "<think>{reasoning}</think>{utterance}. Maintain the utterance under 70 words.",
+    )
+
+  def test_agent_generation_falls_back_after_format_retries(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      prompt_path = Path(tmp) / "therapist_system.txt"
+      prompt_path.write_text("AGENT SYSTEM\n{patient_intake_form}", encoding="utf-8")
+      llm = _FakeLLM("Hello")
+      with mock.patch("agents.therapist.AGENT_THERAPIST_SYSTEM_PROMPT", prompt_path):
+        agent = TherapistAgent(llm, _profile())
+        utterance, reasoning, raw = agent.generate_agent_messages(
+          [{"role": "user", "content": "I am stuck."}]
+        )
+
+    self.assertEqual(utterance, "Hello")
+    self.assertEqual(reasoning, "")
+    self.assertEqual(raw, "Hello")
+    self.assertEqual(len(llm.calls), 6)
 
   def test_local_agent_default_max_tokens_can_be_overridden_by_config(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -343,6 +447,19 @@ class AgentTherapistPromptTest(unittest.TestCase):
 
     self.assertIsInstance(llm, LocalLLM)
     self.assertEqual(llm.max_model_len, 65536)
+
+  def test_repair_byte_bpe_leaks_repairs_aliases(self) -> None:
+    raw = "Hello\u0120there\u010aUse\u00e2\u0122\u0136dash and don\u00e2\u0122\u013bt"
+
+    self.assertEqual(
+      repair_byte_bpe_leaks(raw),
+      "Hello there\nUse\u2014dash and don\u2019t",
+    )
+
+  def test_repair_byte_bpe_leaks_preserves_valid_unicode(self) -> None:
+    valid = "caf\u00e9 don't \u2014 gi\u00e0 na\u00efve"
+
+    self.assertEqual(repair_byte_bpe_leaks(valid), valid)
 
   def test_openai_llm_uses_gpt_api_key_and_omits_extra_body(self) -> None:
     completions = _RecordingCompletions()
@@ -552,6 +669,8 @@ class AgentGraphTest(unittest.TestCase):
           "type": "deepseek",
           "system_prompt_path": str(therapist_prompt),
           "ft_system_prompt_path": str(therapist_ft_prompt),
+          "user_instruction": "yes",
+          "length_restriction": "yes",
         },
         patient={
           "type": "deepseek",
@@ -567,6 +686,8 @@ class AgentGraphTest(unittest.TestCase):
       therapist_ft_messages = builder.therapist.build_agent_initial_utterance_messages(use_ft_system_prompt=True)
       self.assertIn("CFG THERAPIST", therapist_messages[0]["content"])
       self.assertIn("CFG FT", therapist_ft_messages[0]["content"])
+      self.assertTrue(builder.therapist.user_instruction)
+      self.assertTrue(builder.therapist.length_restriction)
       self.assertIn("CFG PATIENT", builder.patient.system_prompt)
 
   def test_cactus_patient_cli_mode_overrides_configured_patient_utterance_prompts(self) -> None:
