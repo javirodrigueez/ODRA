@@ -12,6 +12,60 @@ def count_words(text: object) -> int:
     return len(WORD_RE.findall(str(text or "")))
 
 
+def _normalized_messages(data: dict) -> list[dict]:
+    """
+    Return utterances as role/content dicts for both ReasonCBT and Magnet sessions.
+    Magnet stores the conversation under dialogue with role/message fields.
+    """
+    if isinstance(data.get("messages"), list):
+        messages = data.get("messages", [])
+        return [
+            {
+                "role": str(message.get("role", "")).strip().lower(),
+                "content": message.get("content", ""),
+            }
+            for message in messages
+            if isinstance(message, dict)
+        ]
+
+    if isinstance(data.get("dialogue"), list):
+        utterance_roles = {"agent", "user", "counselor", "client", "therapist", "patient"}
+        messages = []
+        for message in data.get("dialogue", []):
+            if not isinstance(message, dict):
+                continue
+
+            role = str(message.get("role", "")).strip().lower()
+            if role not in utterance_roles:
+                continue
+
+            messages.append(
+                {
+                    "role": role,
+                    "content": message.get("message", message.get("content", "")),
+                }
+            )
+        return messages
+
+    return []
+
+
+def _session_attitude(data: dict) -> str:
+    patient_profile = data.get("patient_profile", {})
+    if isinstance(patient_profile, dict) and patient_profile.get("attitude"):
+        return patient_profile.get("attitude")
+
+    ai_client = data.get("AI_client", {})
+    if isinstance(ai_client, dict) and ai_client.get("attitude"):
+        return ai_client.get("attitude")
+
+    return "unspecified"
+
+
+def _session_end_reason(data: dict) -> str:
+    return data.get("session_ended_reason", "unspecified")
+
+
 def analyze_sessions(input_dir: str) -> dict:
     """
     Parses JSON session files to compute turn metrics and analyze session termination reasons,
@@ -35,18 +89,15 @@ def analyze_sessions(input_dir: str) -> dict:
                 data = json.load(f)
 
             # Extract schema fields with strict fallbacks
-            messages = data.get("messages", [])
-            if not isinstance(messages, list):
-                messages = []
-
+            messages = _normalized_messages(data)
             turns = len(messages)
-            attitude = data.get("patient_profile", {}).get("attitude", "unspecified")
-            end_reason = data.get("session_ended_reason", "unspecified")
+            attitude = _session_attitude(data)
+            end_reason = _session_end_reason(data)
             therapist_messages = [
                 message
                 for message in messages
                 if isinstance(message, dict)
-                and str(message.get("role", "")).strip().lower() == "therapist"
+                and message.get("role") in {"therapist", "counselor", "agent"}
             ]
             therapist_words = sum(
                 count_words(message.get("content", "")) for message in therapist_messages
@@ -143,7 +194,7 @@ if __name__ == "__main__":
         description="Analyze NLP session datasets for conversational metrics and termination distributions."
     )
     parser.add_argument(
-        "-d", "--dir", 
+        "-d", "--dir", "--eval-dir",
         type=str, 
         required=True, 
         help="Path to the directory containing the .json session files."

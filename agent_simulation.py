@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from copy import deepcopy
 import json
 import multiprocessing
 import os
@@ -18,6 +19,7 @@ from simulation import (
   _drain_progress_events,
   _group_profiles_by_attitude,
   _initialize_manifest,
+  _load_resume_state,
   _load_profiles,
   _load_tqdm,
   _manifest_path,
@@ -29,7 +31,6 @@ from simulation import (
   _record_simulation_result,
   _resolve_profiles_path,
   _run_evaluation_for_attitude,
-  _select_profiles_to_execute,
   _simulation_output_paths,
   _validate_multiprocessing_options,
   _write_manifest,
@@ -127,6 +128,29 @@ def _print_agent_simulation_header(
   writer(f'{"="*60}')
 
 
+def _select_agent_profiles_to_execute(
+  profiles: list[dict[str, Any]],
+  manifest: dict[str, Any],
+  *,
+  n_profiles: int | None,
+  retry_failed: bool,
+) -> list[dict[str, Any]]:
+  selected: list[dict[str, Any]] = []
+  for profile in profiles:
+    idx = _profile_idx(profile)
+    status = manifest["profiles"].get(idx, {})
+    if isinstance(status, dict):
+      if retry_failed:
+        if status.get("success"):
+          continue
+      elif status.get("executed"):
+        continue
+    selected.append(profile)
+    if n_profiles is not None and len(selected) >= n_profiles:
+      break
+  return selected
+
+
 def run_simulation(
   cfg_path: str,
   profile: dict[str, Any],
@@ -141,6 +165,7 @@ def run_simulation(
   print_saved_paths: bool = True,
   include_reasoning: bool = False,
   cactus_patient: bool | None = None,
+  output_json_path: str | Path | None = None,
 ) -> dict[str, Any]:
   resolved_cactus_patient = bool(cactus_patient) if cactus_patient is not None else _cactus_patient_from_cfg_path(cfg_path)
   result: dict[str, Any] = {
@@ -178,11 +203,12 @@ def run_simulation(
     try:
       from graph.agent_graph import AgentTherapyGraphBuilder
 
-      if resume_state is not None:
-        raise ValueError("agent_simulation.py does not support partial-session resume state.")
       builder = AgentTherapyGraphBuilder(cfg_path, profile, cactus_patient=resolved_cactus_patient)
       chain = builder.create_chain()
-      initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
+      if resume_state is None:
+        initial_state = builder.initial_state(max_turns=max_turns, min_turns=min_turns)
+      else:
+        initial_state = builder.resume_state(deepcopy(resume_state), max_turns=max_turns, min_turns=min_turns)
       result = initial_state
       report_progress(initial_state.get("utterance_index", 0))
 
@@ -220,7 +246,14 @@ def run_simulation(
 
     report_progress(result.get("utterance_index", 0))
 
-    if output_dir:
+    if output_json_path is not None:
+      json_file = Path(output_json_path)
+      json_file.parent.mkdir(parents=True, exist_ok=True)
+      with json_file.open("w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=True)
+      if print_saved_paths:
+        print(f"  Saved state JSON: {json_file}")
+    elif output_dir:
       os.makedirs(output_dir, exist_ok=True)
       transcript_file, json_file = _simulation_output_paths(output_dir, profile)
       _write_agent_transcript(transcript_file, result, include_reasoning)
@@ -265,6 +298,57 @@ def _run_simulation_batch_worker(
   }
 
 
+def _load_max_turn_resume_states(input_dir: str | Path) -> list[tuple[Path, dict[str, Any]]]:
+  root = Path(input_dir)
+  if not root.is_dir():
+    raise ValueError(f"--resume-input-dir must be an existing directory: {root}")
+
+  selected: list[tuple[Path, dict[str, Any]]] = []
+  for json_path in sorted(root.glob("*.json")):
+    with json_path.open("r", encoding="utf-8") as f:
+      payload = json.load(f)
+    if not isinstance(payload, dict):
+      raise ValueError(f"Unsupported resume payload in {json_path}: expected a JSON object.")
+    if payload.get("session_ended_reason") != "max_turns":
+      continue
+    state = _load_resume_state(str(json_path))
+    selected.append((json_path, state))
+  return selected
+
+
+def _run_resume_input_worker(
+  args: tuple[int, str, str, dict[str, Any], int, int, bool, bool, Any],
+) -> dict[str, Any]:
+  run_index, cfg_path, json_path, resume_state, max_turns, min_turns, include_reasoning, cactus_patient, progress_queue = args
+  profile = deepcopy(resume_state["patient_profile"])
+
+  def progress_callback(utterance_index: int) -> None:
+    progress_queue.put((run_index, int(utterance_index)))
+
+  result = run_simulation(
+    cfg_path,
+    profile,
+    max_turns,
+    min_turns,
+    "",
+    verbose=False,
+    resume_state=resume_state,
+    progress_callback=progress_callback,
+    suppress_output=True,
+    print_saved_paths=False,
+    include_reasoning=include_reasoning,
+    cactus_patient=cactus_patient,
+    output_json_path=json_path,
+  )
+  progress_callback(int(result.get("utterance_index", 0) or 0))
+  return {
+    "run_index": run_index,
+    "json_path": json_path,
+    "profile": profile,
+    "result": result,
+  }
+
+
 def _handle_completed_multiprocessing_result(
   payload: dict[str, Any],
   *,
@@ -279,6 +363,148 @@ def _handle_completed_multiprocessing_result(
   _print_agent_simulation_header(run_index, total_to_run, profile, writer=writer)
   _write_agent_simulation_summary(result, writer=writer)
   _record_simulation_result(manifest, profile, output_dir, result)
+
+
+def _handle_completed_resume_input_result(
+  payload: dict[str, Any],
+  *,
+  total_to_run: int,
+  writer: Callable[[str], None],
+) -> None:
+  run_index = int(payload["run_index"])
+  profile = cast(dict[str, Any], payload["profile"])
+  result = cast(dict[str, Any], payload["result"])
+  json_path = str(payload["json_path"])
+  _print_agent_simulation_header(run_index, total_to_run, profile, writer=writer)
+  _write_agent_simulation_summary(result, writer=writer)
+  writer(f"  Overwrote state JSON: {json_path}")
+  writer("")
+
+
+def _run_resume_input_sequential(
+  *,
+  cfg_path: str,
+  resume_items: list[tuple[Path, dict[str, Any]]],
+  max_turns: int,
+  min_turns: int,
+  verbose: bool,
+  include_reasoning: bool,
+  cactus_patient: bool,
+) -> None:
+  total_to_run = len(resume_items)
+  for run_index, (json_path, resume_state) in enumerate(resume_items, start=1):
+    profile = cast(dict[str, Any], resume_state["patient_profile"])
+    _print_agent_simulation_header(run_index, total_to_run, profile)
+    result = run_simulation(
+      cfg_path,
+      profile,
+      max_turns,
+      min_turns,
+      "",
+      verbose,
+      resume_state=resume_state,
+      include_reasoning=include_reasoning,
+      cactus_patient=cactus_patient,
+      output_json_path=json_path,
+    )
+    _write_agent_simulation_summary(result)
+
+
+def _run_resume_input_multiprocessing(
+  *,
+  cfg_path: str,
+  resume_items: list[tuple[Path, dict[str, Any]]],
+  max_turns: int,
+  min_turns: int,
+  n_processes: int,
+  include_reasoning: bool,
+  cactus_patient: bool,
+) -> None:
+  if not resume_items:
+    return
+
+  tqdm = _load_tqdm()
+  total_to_run = len(resume_items)
+
+  with multiprocessing.Manager() as manager:
+    progress_queue = manager.Queue()
+    with multiprocessing.Pool(processes=n_processes) as pool:
+      for batch_start, batch_items in _profile_run_batches(resume_items, n_processes):
+        bars: dict[int, Any] = {}
+        progress_counts = {
+          batch_start + batch_offset: 0
+          for batch_offset in range(len(batch_items))
+        }
+        completion_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+        def on_success(payload: dict[str, Any]) -> None:
+          completion_queue.put(("result", payload))
+
+        def on_error(exc: BaseException) -> None:
+          completion_queue.put(("error", exc))
+
+        try:
+          for batch_offset, (json_path, resume_state) in enumerate(batch_items):
+            run_index = batch_start + batch_offset
+            profile = cast(dict[str, Any], resume_state["patient_profile"])
+            desc = f"{run_index}/{total_to_run} idx:{_profile_idx(profile)} {_profile_attitude(profile)}"
+            bars[run_index] = tqdm(total=max_turns, desc=desc, position=run_index - 1, leave=True, unit="utt")
+            pool.apply_async(
+              _run_resume_input_worker,
+              args=(
+                (
+                  run_index,
+                  cfg_path,
+                  str(json_path),
+                  resume_state,
+                  max_turns,
+                  min_turns,
+                  include_reasoning,
+                  cactus_patient,
+                  progress_queue,
+                ),
+              ),
+              callback=on_success,
+              error_callback=on_error,
+            )
+
+          completed = 0
+          while completed < len(batch_items):
+            _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
+            try:
+              kind, payload = completion_queue.get(timeout=0.1)
+            except queue.Empty:
+              continue
+
+            _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
+            if kind == "error":
+              raise RuntimeError(f"Multiprocessing resume worker failed: {payload}") from payload
+
+            result_payload = cast(dict[str, Any], payload)
+            run_index = int(result_payload["run_index"])
+            result = cast(dict[str, Any], result_payload["result"])
+            _advance_progress_bar(
+              progress_counts,
+              bars,
+              run_index,
+              int(result.get("utterance_index", 0) or 0),
+              max_turns,
+            )
+            status = "error" if result.get("conversation_error") else "done"
+            bars[run_index].set_postfix_str(status)
+            bars[run_index].refresh()
+
+            _handle_completed_resume_input_result(
+              result_payload,
+              total_to_run=total_to_run,
+              writer=tqdm.write,
+            )
+            completed += 1
+
+          _drain_progress_events(progress_queue, progress_counts, bars, max_turns)
+        finally:
+          for bar in bars.values():
+            bar.close()
 
 
 def _run_batch_sequential(
@@ -404,12 +630,14 @@ def main(
   profiles_path: str | None = None,
   n_profiles: int | None = None,
   resume_from_json: str | None = None,
+  resume_input_dir: str | None = None,
   run_eval: bool = False,
   eval_max_iter: int = 1,
   use_multiprocessing: bool = False,
   n_processes: int | None = None,
   include_reasoning: bool = False,
   cactus_patient: bool | None = None,
+  retry_failed: bool = False,
 ) -> None:
   from runtime_config import load_runtime_config
 
@@ -437,6 +665,39 @@ def main(
 
   _validate_multiprocessing_options(use_multiprocessing, n_processes)
 
+  if resume_input_dir:
+    if resume_from_json:
+      raise ValueError("--resume-input-dir cannot be combined with --resume-from-json.")
+    if run_eval:
+      raise ValueError("--eval is not supported with --resume-input-dir because resumed files are overwritten in place.")
+
+    resume_items = _load_max_turn_resume_states(resume_input_dir)
+    print(f"Loaded {len(resume_items)} max-turn capped JSONs from {resume_input_dir}")
+    print(f"New total max_turns: {max_turns}\n")
+
+    if use_multiprocessing:
+      print(f"Multiprocessing enabled with {n_processes} processes.\n")
+      _run_resume_input_multiprocessing(
+        cfg_path=cfg_path,
+        resume_items=resume_items,
+        max_turns=max_turns,
+        min_turns=min_turns,
+        n_processes=cast(int, n_processes),
+        include_reasoning=include_reasoning,
+        cactus_patient=resolved_cactus_patient,
+      )
+    else:
+      _run_resume_input_sequential(
+        cfg_path=cfg_path,
+        resume_items=resume_items,
+        max_turns=max_turns,
+        min_turns=min_turns,
+        verbose=verbose,
+        include_reasoning=include_reasoning,
+        cactus_patient=resolved_cactus_patient,
+      )
+    return
+
   if not output_dir:
     raise ValueError("cfg.env.output_dir is required for profile batch simulation manifests.")
 
@@ -460,10 +721,11 @@ def main(
 
   _write_manifest(_manifest_path(output_dir), manifest)
 
-  profiles_to_run = _select_profiles_to_execute(
+  profiles_to_run = _select_agent_profiles_to_execute(
     profiles,
     manifest,
     n_profiles=n_profiles,
+    retry_failed=retry_failed,
   )
   print(f"Profiles selected for execution: {len(profiles_to_run)}\n")
 
@@ -509,22 +771,26 @@ if __name__ == "__main__":
   parser.add_argument("--profiles-path", type=str, default=None, help="Path to patient profiles JSON/JSONL. Overrides patient.profiles in the config.")
   parser.add_argument("--n-profiles", type=int, default=None, help="Run only N new profiles from the loaded profile set.")
   parser.add_argument("--resume-from-json", type=str, default=None, help="Resume a batch from an execution manifest JSON.")
+  parser.add_argument("--resume-input-dir", type=str, default=None, help="Resume direct *.json files in this directory whose session_ended_reason is max_turns, overwriting each JSON in place.")
   parser.add_argument("--eval", action="store_true", help="Evaluate all included attitudes after simulations finish.")
   parser.add_argument("--eval-max-iter", type=int, default=1, help="Evaluator samples per metric prompt.")
   parser.add_argument("--multiprocessing", action="store_true", dest="use_multiprocessing", help="Run selected batch profiles in parallel.")
   parser.add_argument("--n-processes", type=int, default=None, help="Number of worker processes to use with --multiprocessing.")
   parser.add_argument("--reasoning", action="store_true", dest="include_reasoning", help="Include therapist reasoning traces in TXT transcripts.")
   parser.add_argument("--cactus-patient", action="store_true", default=None, help="Use cactus patient utterance prompts for agent simulations.")
+  parser.add_argument("--retry-failed", action="store_true", help="Re-execute profiles with success=false in the resume manifest.")
   args = parser.parse_args()
   main(
     args.cfg,
     profiles_path=args.profiles_path,
     n_profiles=args.n_profiles,
     resume_from_json=args.resume_from_json,
+    resume_input_dir=args.resume_input_dir,
     run_eval=args.eval,
     eval_max_iter=args.eval_max_iter,
     use_multiprocessing=args.use_multiprocessing,
     n_processes=args.n_processes,
     include_reasoning=args.include_reasoning,
     cactus_patient=args.cactus_patient,
+    retry_failed=args.retry_failed,
   )

@@ -68,6 +68,15 @@ def parse_args():
         action="store_true",
         help="Remove the output directory first if it already exists.",
     )
+    parser.add_argument(
+        "--backend",
+        default="unsloth",
+        choices=["unsloth", "peft"],
+        help=(
+            "Merge backend. Use 'peft' for standard Transformers/PEFT adapters "
+            "such as LLaVA; use 'unsloth' for Unsloth text-model adapters."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -174,19 +183,7 @@ def normalize_rope_config_for_save(model_config, base_model_ref):
         setattr(model_config, "rope_theta", rope_theta)
 
 
-def main():
-    args = parse_args()
-
-    adapter_dir = Path(args.adapter).expanduser()
-    output_dir = (
-        Path(args.output).expanduser()
-        if args.output
-        else adapter_dir.parent / "merged_model"
-    )
-    base_model_ref = resolve_model_ref(args.base)
-    base_path_candidate = Path(args.base).expanduser()
-    base_model_path = base_path_candidate if base_path_candidate.exists() else None
-
+def merge_with_unsloth(args, adapter_dir, output_dir, base_model_ref, base_model_path):
     with tempfile.TemporaryDirectory(prefix="unsloth_merge_") as temp_dir:
         temp_adapter_dir = prepare_adapter_with_base(
             adapter_dir=adapter_dir,
@@ -228,6 +225,83 @@ def main():
         os.sync()
 
     print("Merge complete.")
+
+
+def load_peft_base_model(base_model_ref, dtype):
+    from transformers import AutoModelForCausalLM, LlavaForConditionalGeneration
+
+    load_kwargs = {
+        "torch_dtype": dtype,
+        "device_map": "auto",
+        "low_cpu_mem_usage": True,
+    }
+    try:
+        return LlavaForConditionalGeneration.from_pretrained(base_model_ref, **load_kwargs)
+    except Exception:
+        return AutoModelForCausalLM.from_pretrained(base_model_ref, **load_kwargs)
+
+
+def save_processor_or_tokenizer(adapter_dir, base_model_ref, output_dir):
+    from transformers import AutoProcessor, AutoTokenizer
+
+    for loader in (AutoProcessor, AutoTokenizer):
+        for source in (adapter_dir, base_model_ref):
+            try:
+                item = loader.from_pretrained(source)
+            except Exception:
+                continue
+            item.save_pretrained(output_dir)
+            return
+
+
+def merge_with_peft(args, adapter_dir, output_dir, base_model_ref, base_model_path):
+    output_dir = ensure_output_dir(
+        output_dir,
+        args.overwrite,
+        protected_paths=[adapter_dir, base_model_path],
+    )
+
+    import torch
+    from peft import PeftModel
+
+    dtype = (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        else torch.float16
+    )
+
+    print(f"Loading base model with Transformers: {base_model_ref}")
+    base_model = load_peft_base_model(base_model_ref, dtype)
+    print(f"Loading PEFT LoRA adapter: {adapter_dir.resolve()}")
+    model = PeftModel.from_pretrained(base_model, str(adapter_dir), is_trainable=False)
+    print("Merging LoRA weights into the base model.")
+    merged_model = model.merge_and_unload()
+
+    print(f"Saving merged model to: {output_dir.resolve()}")
+    merged_model.save_pretrained(str(output_dir), safe_serialization=True)
+    save_processor_or_tokenizer(adapter_dir, base_model_ref, output_dir)
+    os.sync()
+    print("Merge complete.")
+
+
+def main():
+    args = parse_args()
+
+    adapter_dir = Path(args.adapter).expanduser()
+    output_dir = (
+        Path(args.output).expanduser()
+        if args.output
+        else adapter_dir.parent / "merged_model"
+    )
+    base_model_ref = resolve_model_ref(args.base)
+    base_path_candidate = Path(args.base).expanduser()
+    base_model_path = base_path_candidate if base_path_candidate.exists() else None
+
+    if args.backend == "peft":
+        merge_with_peft(args, adapter_dir, output_dir, base_model_ref, base_model_path)
+        return
+
+    merge_with_unsloth(args, adapter_dir, output_dir, base_model_ref, base_model_path)
 
 
 if __name__ == "__main__":

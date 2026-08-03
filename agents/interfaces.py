@@ -321,9 +321,9 @@ class LocalLLM(LLM):
       "messages": effective_messages,
       "max_completion_tokens": self.max_model_len,
       # Qwen disable thinking
-      # "extra_body": {
-      #   "chat_template_kwargs": { "enable_thinking": False }
-      # }
+      "extra_body": {
+        "chat_template_kwargs": { "enable_thinking": False }
+      }
     }
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:

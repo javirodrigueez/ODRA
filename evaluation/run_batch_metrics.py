@@ -352,6 +352,84 @@ def discover_conversations(input_dir: Path) -> list[ConversationRecord]:
   return [validate_conversation_file(path) for path in files]
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+  try:
+    path.relative_to(parent)
+  except ValueError:
+    return False
+  return True
+
+
+def load_run_from_json_paths(path: Path, input_dir: Path) -> list[Path]:
+  try:
+    payload = read_json(path)
+  except json.JSONDecodeError as exc:
+    raise BatchMetricsError(f"Invalid --run-from-json file: {path}: {exc}") from exc
+
+  if not isinstance(payload, dict):
+    raise BatchMetricsError(f"--run-from-json must contain a JSON object: {path}")
+  failed_simulations = payload.get("failed_simulations")
+  if not isinstance(failed_simulations, list):
+    raise BatchMetricsError(f"--run-from-json is missing failed_simulations list: {path}")
+
+  selected: list[Path] = []
+  seen: set[Path] = set()
+  for index, item in enumerate(failed_simulations):
+    if not isinstance(item, dict):
+      raise BatchMetricsError(f"Invalid failed_simulations item at index {index}: {path}")
+    status = item.get("status")
+    if not isinstance(status, dict):
+      raise BatchMetricsError(f"Missing status object at failed_simulations index {index}: {path}")
+    output_json = status.get("output_json")
+    if not isinstance(output_json, str) or not output_json.strip():
+      raise BatchMetricsError(f"Missing status.output_json at failed_simulations index {index}: {path}")
+
+    conversation_path = Path(output_json).expanduser().resolve()
+    if not _is_relative_to(conversation_path, input_dir):
+      raise BatchMetricsError(
+        f"Listed simulation is outside input_dir: {conversation_path} not under {input_dir}"
+      )
+    if not conversation_path.is_file():
+      raise BatchMetricsError(f"Listed simulation JSON does not exist: {conversation_path}")
+    if conversation_path in seen:
+      continue
+    selected.append(conversation_path)
+    seen.add(conversation_path)
+
+  if not selected:
+    raise BatchMetricsError(f"--run-from-json did not list any simulation JSON paths: {path}")
+  return selected
+
+
+def discover_conversations_from_run_json(input_dir: Path, run_from_json: Path) -> list[ConversationRecord]:
+  if not input_dir.is_dir():
+    raise BatchMetricsError(f"Input directory does not exist: {input_dir}")
+  paths = load_run_from_json_paths(run_from_json, input_dir)
+  return [validate_conversation_file(path) for path in paths]
+
+
+def remove_metric_outputs_for_records(
+  output_dir: Path,
+  records: list[ConversationRecord],
+  excluded_metrics: set[str] | None = None,
+) -> list[str]:
+  excluded = excluded_metrics or set()
+  groups = []
+  for group in ("ctrs", "wai", "panas_before", "panas_after"):
+    if group in excluded or (group in {"panas_before", "panas_after"} and "panas" in excluded):
+      continue
+    groups.append(group)
+
+  removed: list[str] = []
+  for record in records:
+    for group in groups:
+      path = output_dir / group / record.filename
+      if path.is_file():
+        path.unlink()
+        removed.append((Path(group) / record.filename).as_posix())
+  return removed
+
+
 def ensure_output_dirs(output_dir: Path) -> None:
   for group in ("ctrs", "wai", "panas_before", "panas_after"):
     (output_dir / group).mkdir(parents=True, exist_ok=True)
@@ -382,12 +460,13 @@ def build_panas_before_requests(
   output_dir: Path,
   model: str,
   max_iter: int,
+  force_recompute: bool = False,
 ) -> list[BatchRequest]:
   prompt_template = load_prompt(EVALUATION_ROOT / "PANAS" / "prompts" / "panas_before.txt")
   requests = []
   for index, record in enumerate(records):
     output_file = Path("panas_before") / record.filename
-    if output_is_complete("panas_before", output_dir / output_file):
+    if not force_recompute and output_is_complete("panas_before", output_dir / output_file):
       continue
     prompt = render_template(prompt_template, {"intake_form": record.intake_form})
     requests.append(
@@ -446,6 +525,7 @@ def build_main_requests(
   max_iter: int,
   excluded_metrics: set[str] | None = None,
   panas_v2: bool = False,
+  force_recompute: bool = False,
 ) -> list[BatchRequest]:
   requests: list[BatchRequest] = []
   excluded = excluded_metrics or set()
@@ -465,7 +545,7 @@ def build_main_requests(
 
   for index, record in enumerate(records):
     ctrs_output_file = Path("ctrs") / record.filename
-    if "ctrs" not in excluded and not output_is_complete("ctrs", output_dir / ctrs_output_file):
+    if "ctrs" not in excluded and (force_recompute or not output_is_complete("ctrs", output_dir / ctrs_output_file)):
       for key in CTRS_KEYS:
         prompt = render_template(ctrs_templates[key], {"conversation": record.history})
         requests.append(
@@ -481,7 +561,7 @@ def build_main_requests(
         )
 
     wai_output_file = Path("wai") / record.filename
-    if "wai" not in excluded and not output_is_complete("wai", output_dir / wai_output_file):
+    if "wai" not in excluded and (force_recompute or not output_is_complete("wai", output_dir / wai_output_file)):
       for key in WAI_KEYS:
         prompt = render_template(wai_templates[key], {"conversation": record.history})
         requests.append(
@@ -497,7 +577,7 @@ def build_main_requests(
         )
 
     panas_after_output_file = Path("panas_after") / record.filename
-    if "panas" not in excluded and not output_is_complete("panas_after", output_dir / panas_after_output_file):
+    if "panas" not in excluded and (force_recompute or not output_is_complete("panas_after", output_dir / panas_after_output_file)):
       before_payload = before_payloads.get(record.filename)
       prompt = render_panas_after_prompt(
         panas_after_template,
@@ -958,6 +1038,7 @@ def compute_signature(
   panas_v2: bool = False,
   azure: bool = False,
   limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
+  run_from_json: Path | None = None,
 ) -> dict[str, Any]:
   files = [
     {
@@ -979,6 +1060,7 @@ def compute_signature(
     "endpoint": BATCH_ENDPOINT,
     "batch_endpoint": AZURE_BATCH_ENDPOINT if azure else BATCH_ENDPOINT,
     "enqueued_token_limit": limit,
+    "run_from_json": str(run_from_json.resolve()) if run_from_json is not None else "",
     "files": files,
   }
 
@@ -1625,6 +1707,7 @@ def build_batch_plan(
   panas_v2: bool,
   token_limit: int,
   resume_custom_ids: set[str] | None = None,
+  force_recompute: bool = False,
 ) -> tuple[dict[str, Any], list[BatchRequest], list[BatchRequest]]:
   if token_limit < 1:
     raise BatchMetricsError(f"--limit must be a positive integer, got: {token_limit}")
@@ -1632,12 +1715,12 @@ def build_batch_plan(
   panas_before_complete = (
     True
     if "panas" in excluded_metrics
-    else all_outputs_complete(records, output_dir, "panas_before")
+    else False if force_recompute else all_outputs_complete(records, output_dir, "panas_before")
   )
   phase1_specs = (
     []
     if "panas" in excluded_metrics or panas_before_complete
-    else build_panas_before_requests(records, output_dir, model, max_iter)
+    else build_panas_before_requests(records, output_dir, model, max_iter, force_recompute=force_recompute)
   )
   before_payloads = (
     {}
@@ -1652,6 +1735,7 @@ def build_batch_plan(
     max_iter,
     excluded_metrics,
     panas_v2=panas_v2,
+    force_recompute=force_recompute,
   )
   resume_ids = resume_custom_ids or set()
   phase1_resumed, phase1_pending = filter_specs_missing_from_resume(phase1_specs, resume_ids)
@@ -1703,6 +1787,7 @@ def run_batch_metrics(
   limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
   dry_run: bool = False,
   resume_jsonls: list[str | Path] | None = None,
+  run_from_json: str | Path | None = None,
 ) -> dict[str, Any]:
   if max_iter < 1:
     raise BatchMetricsError(f"MAX_ITER must be a positive integer, got: {max_iter}")
@@ -1714,15 +1799,14 @@ def run_batch_metrics(
       raise BatchMetricsError(f"Resume batch output JSONL does not exist: {resume_path}")
   resume_custom_ids = collect_batch_output_custom_ids(resume_paths) if resume_paths else set()
   input_path = Path(input_dir).resolve()
+  run_from_json_path = Path(run_from_json).resolve() if run_from_json is not None else None
+  if run_from_json_path is not None and not run_from_json_path.is_file():
+    raise BatchMetricsError(f"--run-from-json file does not exist: {run_from_json_path}")
   output_path = (
     Path(output_dir).resolve()
     if output_dir is not None
     else (EVALUATION_ROOT / "results").resolve()
   )
-  records = discover_conversations(input_path)
-  records_by_filename = {record.filename: record for record in records}
-  if not dry_run:
-    ensure_output_dirs(output_path)
   excluded_metrics = {
     metric
     for metric, excluded in (
@@ -1732,6 +1816,16 @@ def run_batch_metrics(
     )
     if excluded
   }
+  records = (
+    discover_conversations_from_run_json(input_path, run_from_json_path)
+    if run_from_json_path is not None
+    else discover_conversations(input_path)
+  )
+  records_by_filename = {record.filename: record for record in records}
+  if not dry_run:
+    ensure_output_dirs(output_path)
+    if run_from_json_path is not None:
+      remove_metric_outputs_for_records(output_path, records, excluded_metrics)
 
   if dry_run:
     plan, _, _ = build_batch_plan(
@@ -1743,6 +1837,7 @@ def run_batch_metrics(
       panas_v2,
       limit,
       resume_custom_ids,
+      force_recompute=run_from_json_path is not None,
     )
     plan["signature"] = compute_signature(
       input_path,
@@ -1754,6 +1849,7 @@ def run_batch_metrics(
       panas_v2=panas_v2,
       azure=azure,
       limit=limit,
+      run_from_json=run_from_json_path,
     )
     return plan
 
@@ -1767,11 +1863,15 @@ def run_batch_metrics(
     panas_v2=panas_v2,
     azure=azure,
     limit=limit,
+    run_from_json=run_from_json_path,
   )
   artifact_dir, manifest, resumed = load_or_create_manifest(output_path, signature)
   if not resumed:
     manifest["excluded_metrics"] = sorted(excluded_metrics)
     manifest["panas_after_prompt"] = panas_after_prompt_filename(panas_v2)
+    if run_from_json_path is not None:
+      manifest["run_from_json"] = str(run_from_json_path)
+      manifest["run_from_json_count"] = len(records)
     manifest["skipped"] = build_skipped_summary(records, output_path, excluded_metrics)
     save_manifest(artifact_dir, manifest)
 
@@ -1922,6 +2022,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
       "May be passed multiple times for sharded outputs."
     ),
   )
+  parser.add_argument(
+    "--run-from-json",
+    type=Path,
+    default=None,
+    help="Recompute only simulation JSON paths listed in a failed-simulations JSON file.",
+  )
   parser.add_argument("--exc-wai", action="store_true", help="Exclude WAI evaluation.")
   parser.add_argument("--exc-ctrs", action="store_true", help="Exclude CTRS evaluation.")
   parser.add_argument("--exc-panas", action="store_true", help="Exclude both PANAS-before and PANAS-after evaluation.")
@@ -1978,6 +2084,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       local_timeout_hours=args.local_timeout_hours,
       input_cost_per_1m=args.input_cost_per_1m,
       output_cost_per_1m=args.output_cost_per_1m,
+      run_from_json=args.run_from_json,
     )
   except BatchMetricsError as exc:
     print(f"Batch evaluation failed: {exc}", file=os.sys.stderr)

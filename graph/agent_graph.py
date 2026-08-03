@@ -102,6 +102,19 @@ class AgentSimulationChain:
 
   def stream(self, initial_state: dict[str, Any], stream_mode: str = "values") -> Iterator[dict[str, Any]]:
     state = self.builder._ensure_state_defaults(initial_state)
+    if not state.get("session_ended") and state.get("messages"):
+      last_message = state["messages"][-1]
+      if isinstance(last_message, dict) and last_message.get("role") == THERAPIST_ROLE:
+        before_index = int(state.get("utterance_index", 0))
+        state = self.builder.patient_turn(state)
+        yield state
+        if int(state.get("utterance_index", 0)) <= before_index and not state.get("session_ended"):
+          self.builder._end_session_with_error(
+            state,
+            [],
+            AgentConversationProcessingError("Agent simulation made no progress."),
+          )
+          yield state
     while not state.get("session_ended"):
       before_index = int(state.get("utterance_index", 0))
       for chunk in self._run_next_turn_pair(state):
@@ -277,7 +290,14 @@ class AgentTherapyGraphBuilder:
     )
 
   def resume_state(self, saved_state: dict[str, Any], max_turns: int, min_turns: int = 0) -> dict[str, Any]:
-    raise AgentConversationProcessingError("Partial-session resume is not supported by agent_simulation.py.")
+    resumed = deepcopy(saved_state)
+    resumed["session_ended"] = False
+    resumed["session_ended_reason"] = ""
+    resumed["conversation_error"] = ""
+    resumed["final_patient_pending_end"] = False
+    resumed["max_turns"] = int(max_turns)
+    resumed["min_turns"] = int(min_turns)
+    return self._ensure_state_defaults(resumed)
 
   def create_chain(self) -> AgentSimulationChain:
     return AgentSimulationChain(self)
