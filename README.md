@@ -1,6 +1,4 @@
-# ReasonCBT
-
-ReasonCBT contains the ODRA profiles and code for simulating, evaluating, and fine-tuning CBT therapist agents.
+# ODRA: Synthesizing Cognitive Behavioral Therapy Sessions with Structured Chain-Of-Thought and Dynamic Patient Resistance
 
 ## Structure
 
@@ -27,12 +25,7 @@ python evaluation/rating_metrics.py --eval-dir RUN/evaluation \
 python evaluation/turns_and_closings.py --dir RUN/json
 ```
 
-Preview the evaluation queue with:
-
-```bash
-python evaluation/eval_queue_manager.py \
-  --config evaluation/configs/eval_queue_example.yaml --gpus 0 --dry-run
-```
+You can also use the `cbt-evaluation` skill in Codex or another AI Coding assistant to generate a simulation dataset and evaluate it using CTRS. Specify the local therapist model you want to deploy using vLLM when using this skill. 
 
 ## Fine-tuning
 
