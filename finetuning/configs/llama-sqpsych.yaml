@@ -1,0 +1,15 @@
+defaults:
+  python: python
+  script: finetuning/train.py
+  common_args:
+    chat-template: none
+    qlora: true
+    save-merged: true
+
+jobs:
+  - id: llama-sqpsych-qwen
+    model: models/Llama3-8B-Instruct/
+    input-data: /outs/SQPsychConv_qwen/it_turns
+    group: wor_wot_g2c
+    exp-name: Llama3-8B-Instruct-turns-wor-wot-SQP-QWEN
+    output-dir: ft_models/Llama3-8B-Instruct-turns-wor-wot-SQP-QWEN/

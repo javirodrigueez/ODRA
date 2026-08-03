@@ -1,0 +1,15 @@
+defaults:
+  python: python
+  script: finetuning/train.py
+  common_args:
+    chat-template: none
+    qlora: true
+    save-merged: true
+
+jobs:
+  - id: llama-odra
+    model: models/Llama3-8B-Instruct/
+    input-data: /path/to/odra/chatml
+    group: odra
+    exp-name: Llama3-8B-Instruct-ODRA
+    output-dir: ft_models/Llama3-8B-Instruct-ODRA/

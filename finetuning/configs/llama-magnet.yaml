@@ -1,0 +1,15 @@
+defaults:
+  python: python
+  script: finetuning/train.py
+  common_args:
+    chat-template: none
+    qlora: true
+    save-merged: true
+
+jobs:
+  - id: llama-magnet
+    model: models/Llama3-8B-Instruct/
+    input-data: /path/to/magnet/chatml
+    group: magnet
+    exp-name: Llama3-8B-Instruct-MAGNET
+    output-dir: ft_models/Llama3-8B-Instruct-MAGNET/

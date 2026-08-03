@@ -1,0 +1,4 @@
+interface:
+  display_name: "CBT Evaluation"
+  short_description: "Run parallel CBT simulations and CTRS scoring"
+  default_prompt: "Use $cbt-evaluation to run three parallel CTRS evaluation pipelines for a local therapist checkpoint."

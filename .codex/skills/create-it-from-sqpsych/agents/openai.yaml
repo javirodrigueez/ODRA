@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create IT from SQPsych"
+  short_description: "Build JSON and instruction-tuning SQPsych data"
+  default_prompt: "Use $create-it-from-sqpsych to convert an SQPsychConv dataset and build a sampled instruction-tuning dataset."

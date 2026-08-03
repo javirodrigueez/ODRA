@@ -1,0 +1,28 @@
+therapist:
+  type: local
+  base_url: http://localhost:8000/v1
+  model_id: ft_models/Llama3-8B-Instruct-turns-wor-think-ODRA/merged_model/
+  max_model_len: 2000
+  ft_system_prompt_path: ft_prompts/thinking_short.txt
+  temperature: 0.7
+
+patient:
+  type: deepseek
+  base_url: https://openrouter.ai/api/v1
+  model_id: deepseek/deepseek-v3.2
+  prompt_variant: base
+  temperature: 0.7
+
+topic_exploration:
+  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_wikipedia_dir:
+
+env:
+  max_turns: 50
+  min_turns: 40
+  output_dir: /outs/local/Llama3-8B-Instruct-turns-wor-think-ODRA/
+  verbose: true
+  resume_file:
+  resistance: false
+  resistance_handling: none
+  long_session_turn_threshold: 70

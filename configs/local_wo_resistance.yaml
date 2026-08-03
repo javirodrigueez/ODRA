@@ -19,7 +19,7 @@ patient:
 
 topic_exploration:
   patient_classifier_path: BAAI/bge-reranker-v2-m3
-  patient_wikipedia_dir: data/wikipedias
+  patient_wikipedia_dir:
 
 env:
   max_turns: 100

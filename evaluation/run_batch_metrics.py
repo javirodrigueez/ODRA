@@ -35,6 +35,7 @@ MAX_BATCH_FILE_BYTES = 200 * 1024 * 1024
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALUATION_ROOT = Path(__file__).resolve().parent
+CTRS_PROMPTS_ROOT = EVALUATION_ROOT / "prompts" / "ctrs"
 
 CTRS_KEYS = [
   "general_1_understanding",
@@ -449,7 +450,7 @@ def build_main_requests(
   requests: list[BatchRequest] = []
   excluded = excluded_metrics or set()
   ctrs_templates = {
-    key: load_prompt(EVALUATION_ROOT / "CTRS" / "prompts" / f"{key}.txt")
+    key: load_prompt(CTRS_PROMPTS_ROOT / f"{key}.txt")
     for key in CTRS_KEYS
   } if "ctrs" not in excluded else {}
   wai_templates = {

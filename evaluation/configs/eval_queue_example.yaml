@@ -1,0 +1,29 @@
+defaults:
+  python: python
+  eval:
+    enabled: true
+    metrics: [ctrs]
+    model: gpt-4o
+    max_iter: 3
+    batch: true
+  vllm_args:
+    quantization: fp8
+    kv-cache-dtype: fp8
+    gpu-memory-utilization: 0.95
+
+jobs:
+  - id: odra-wor
+    cfg: evaluation/configs/llama-odra-wor.yaml
+    profiles_path: data/odra.json
+    n_profiles: 150
+    multiprocessing: true
+    n_processes: 50
+    gpu_count: 1
+
+  - id: odra-wr
+    cfg: evaluation/configs/llama-odra-wr.yaml
+    profiles_path: data/odra.json
+    n_profiles: 150
+    multiprocessing: true
+    n_processes: 50
+    gpu_count: 1
