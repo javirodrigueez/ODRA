@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ODRA — Synthesizing CBT Sessions with Structured Chain-of-Thought and Dynamic Patient Resistance</title>
+<meta name="description" content="ODRA synthesizes Cognitive Behavioral Therapy sessions with a CBT-grounded chain-of-thought therapist and a resistance orchestrator that eliminates patient sycophancy. Explore full sessions, reasoning traces and resistance dynamics.">
+<meta name="author" content="Javier Rodriguez-Juan, Hiba Arnaout, Jose Garcia-Rodriguez, David Tomás, Iryna Gurevych">
+<link rel="canonical" href="https://javirodrigueez.github.io/ODRA/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="ODRA — Synthesizing CBT Sessions with Structured CoT and Dynamic Patient Resistance">
+<meta property="og:description" content="A CBT-grounded chain-of-thought framework with a resistance orchestrator that stops synthetic patients from being agreeable. Licensed psychologists preferred ODRA on 12 of 13 clinical metrics.">
+<meta property="og:url" content="https://javirodrigueez.github.io/ODRA/">
+<meta property="og:image" content="https://javirodrigueez.github.io/ODRA/assets/img/social-card.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ODRA — Synthesizing CBT Sessions with Structured CoT and Dynamic Patient Resistance">
+<meta name="twitter:description" content="A CBT-grounded chain-of-thought framework with a resistance orchestrator that stops synthetic patients from being agreeable.">
+<meta name="twitter:image" content="https://javirodrigueez.github.io/ODRA/assets/img/social-card.jpg">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%236d2ff5'/><path d='M20 68 C36 68 34 32 50 32 C66 32 64 68 80 68' stroke='white' stroke-width='9' fill='none' stroke-linecap='round'/></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">
+<link rel="stylesheet" href="assets/css/style.css">
+
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"ScholarlyArticle",
+"name":"ODRA: Synthesizing Cognitive Behavioral Therapy Sessions with Structured Chain-Of-Thought and Dynamic Patient Resistance",
+"author":[{"@type":"Person","name":"Javier Rodriguez-Juan"},{"@type":"Person","name":"Hiba Arnaout"},{"@type":"Person","name":"Jose Garcia-Rodriguez"},{"@type":"Person","name":"David Tomás"},{"@type":"Person","name":"Iryna Gurevych"}],
+"datePublished":"2026-08-05","identifier":"arXiv:2608.04524","url":"https://arxiv.org/abs/2608.04524",
+"sameAs":"https://doi.org/10.48550/arXiv.2608.04524"}
+</script>
+</head>
+<body class="font-sans antialiased">
+
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-ink-950 focus:shadow-lg">Skip to content</a>
+
+<!-- ══════════════════════════════════════════════════════════ nav -->
+<header class="sticky top-0 z-40 border-b backdrop-blur-md" style="border-color:var(--line);background:color-mix(in srgb, var(--bg) 88%, transparent)">
+  <div class="wrap flex h-14 items-center justify-between gap-4">
+    <a href="#top" class="flex items-center gap-2 font-serif text-lg font-bold tracking-tight">
+      ODRA
+    </a>
+    <nav class="hidden items-center gap-1 text-[13px] lg:flex" style="color:var(--fg-soft)" aria-label="Sections">
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#method">Method</a>
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#explorer">Explorer</a>
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#sycophancy">Sycophancy</a>
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#results">Results</a>
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#dataset">Dataset</a>
+      <a class="rounded px-2.5 py-1.5 hover:bg-[var(--bg-soft)]" href="#cite">Cite</a>
+    </nav>
+    <div class="flex items-center gap-2">
+      <a class="btn !px-2.5 !py-1.5 text-[13px]" href="https://arxiv.org/abs/2608.04524">arXiv</a>
+      <a class="btn btn-primary !px-2.5 !py-1.5 text-[13px]" href="https://github.com/javirodrigueez/ODRA">Code</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<span id="top"></span>
+
+<!-- ══════════════════════════════════════════════════════════ hero -->
+<section class="wrap pt-14 pb-10 sm:pt-20">
+  <p class="eyebrow mb-4">Preprint · arXiv:2608.04524</p>
+  <h1 class="max-w-5xl font-serif text-[2rem] font-bold leading-[1.12] tracking-[-.025em] sm:text-[2.9rem]">
+    Synthesizing Cognitive Behavioral Therapy Sessions with Structured Chain-of-Thought and Dynamic Patient Resistance
+  </h1>
+
+  <ul class="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[15px]">
+    <li><a class="anchor-link" href="https://scholar.google.es/citations?user=z9qLOmwAAAAJ&hl=es">Javier Rodriguez-Juan</a><sup class="ml-0.5 text-[11px]" style="color:var(--fg-faint)">1</sup></li>
+    <li><a class="anchor-link" href="https://scholar.google.com/citations?user=sy1z_I4AAAAJ">Hiba Arnaout</a><sup class="ml-0.5 text-[11px]" style="color:var(--fg-faint)">2</sup></li>
+    <li><a class="anchor-link" href="https://scholar.google.com/citations?user=GNTkqaYAAAAJ">Jose Garcia-Rodriguez</a><sup class="ml-0.5 text-[11px]" style="color:var(--fg-faint)">1</sup></li>
+    <li><a class="anchor-link" href="https://scholar.google.com/citations?user=SdEXK_QAAAAJ">David Tomás</a><sup class="ml-0.5 text-[11px]" style="color:var(--fg-faint)">1</sup></li>
+    <li><a class="anchor-link" href="https://scholar.google.com/citations?user=t3A39e8AAAAJ">Iryna Gurevych</a><sup class="ml-0.5 text-[11px]" style="color:var(--fg-faint)">2</sup></li>
+  </ul>
+  <p class="mt-3 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+    <sup>1</sup> 3DPLab, Dept. of Computer Science and Technology, University of Alicante &nbsp;·&nbsp;
+    <sup>2</sup> UKP Lab, Dept. of Computer Science &amp; Hessian Center for AI, Technische Universität Darmstadt
+  </p>
+
+  <div class="mt-8 flex flex-wrap gap-2.5">
+    <a class="btn btn-primary" href="https://arxiv.org/abs/2608.04524">
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M4 3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7l-4-4H4Zm8 1.5L16.5 9H13a1 1 0 0 1-1-1V4.5ZM6 11h8v1.5H6V11Zm0 3h5v1.5H6V14Z"/></svg>
+      Read the paper
+    </a>
+    <a class="btn" href="https://github.com/javirodrigueez/ODRA">
+      <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      Code
+    </a>
+    <span class="btn" aria-disabled="true" title="Not yet released">Dataset — soon</span>
+    <span class="btn" aria-disabled="true" title="Not yet released">Models — soon</span>
+    <a class="btn" href="#cite">BibTeX</a>
+  </div>
+
+  <div class="notice mt-8 max-w-3xl">
+    <strong>This is a research artifact, not a clinical tool.</strong> Every dialogue on this page is
+    <em>synthetic</em>: generated by language models from fictional intake forms, containing no real
+    patient data. No model trained on this data should interact with real clients outside a supervised trial.
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ teaser -->
+<section class="wrap pb-16">
+  <figure class="figplate">
+    <img src="assets/img/teaser.png" width="800" alt="Overview of the ODRA framework: a chain-of-thought pipeline that follows the sequential stages of CBT while eliciting resistant patient behaviours matched to an assigned profile." loading="eager" decoding="async">
+    <figcaption class="mx-auto max-w-3xl text-center">
+      ODRA synthesizes CBT counseling sessions with a chain-of-thought approach that holds the therapist
+      to the sequential stages of foundational CBT guidelines, while eliciting resistant patient
+      behaviours aligned with an assigned profile.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ abstract -->
+<section class="border-y" style="border-color:var(--line);background:var(--bg-soft)" aria-labelledby="abstract-h">
+  <div class="wrap-tight py-14">
+    <h2 id="abstract-h" class="eyebrow mb-5">Abstract</h2>
+    <p class="font-serif text-[17.5px] leading-[1.72] sm:text-[19px]">
+      Synthetic generation of Cognitive Behavioral Therapy (CBT) sessions is challenged by two competing
+      demands: adhering to strict therapeutic structure while modeling the resistant, unpredictable
+      behavior of real patients. Existing script-based methods fail to capture dynamic therapeutic
+      interactions, while multi-agent approaches struggle to adhere to CBT's sequential structure; both
+      suffer from sycophancy, producing overly compliant patients that misrepresent real clinical
+      settings. In this work we introduce <strong>ODRA</strong>, a novel framework for synthesizing therapy
+      dialogues through a Chain-of-Thought (CoT) strategy grounded in CBT guidelines. ODRA further
+      incorporates a <strong>resistance orchestrator</strong> to solve patient sycophancy, which employs
+      steering techniques to elicit behaviors aligned with their resistance level. Automated and expert
+      evaluations show that ODRA significantly outperforms existing methods across therapeutic skills, CBT
+      alignment, and patient behavioral fidelity, with licensed psychologists preferring ODRA sessions
+      across <strong>12 of 13 clinical metrics</strong>. Furthermore, models fine-tuned on our dataset
+      demonstrate superior therapeutic performance against both cooperative and resistant patients,
+      validating that explicit resistance modeling in synthetic training data directly translates to
+      downstream clinical robustness.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ contributions -->
+<section class="wrap py-16" aria-labelledby="contrib-h">
+  <h2 id="contrib-h" class="h2">What ODRA does differently</h2>
+  <p class="lede mt-3 max-w-prose">
+    Three gaps in existing synthetic-CBT methods, and what we do about each.
+  </p>
+
+  <div class="mt-9 grid gap-4 md:grid-cols-3">
+    <article class="card p-5">
+      <div class="mb-3 grid h-9 w-9 place-items-center rounded-lg text-white" style="background:var(--accent)">
+        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5v2A1.5 1.5 0 0 1 15.5 8h-11A1.5 1.5 0 0 1 3 6.5v-2Zm0 7A1.5 1.5 0 0 1 4.5 10h11a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 15.5 17h-11A1.5 1.5 0 0 1 3 15.5v-4Z"/></svg>
+      </div>
+      <h3 class="h3">Structural accuracy</h3>
+      <p class="mt-1.5 text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+        Prior work borrows isolated CBT techniques. The <strong>CBT Aligner</strong> drives the whole
+        session through the five stages of the foundational CBT protocol, with state carried across them. For instance,
+        the cognitive models found in Conceptualization select the techniques used in CBT Work.
+      </p>
+    </article>
+    <article class="card p-5">
+      <div class="mb-3 grid h-9 w-9 place-items-center rounded-lg text-white" style="background:var(--hot)">
+        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2c.4 3.2-1.6 4.3-2.8 5.9C5.9 9.6 5 11 5 12.6 5 15.6 7.2 18 10 18s5-2.4 5-5.4c0-2.3-1.3-3.9-2.6-5.4C11 5.6 10 4.2 10 2Zm0 14a2.5 2.5 0 0 1-2.5-2.6c0-1.5 1.3-2.3 2-3.6.6 1.2 3 2 3 3.6A2.5 2.5 0 0 1 10 16Z"/></svg>
+      </div>
+      <h3 class="h3">Patients that push back</h3>
+      <p class="mt-1.5 text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+        Baselines told to be "negative" still show overcompliance. The
+        <strong>Resistance Orchestrator</strong> tracks a continuous resistance scalar and steers each
+        utterance to it, lifting resistance alignment from <strong>0.70–1.19 to 1.96</strong> out of 2.
+      </p>
+    </article>
+    <article class="card p-5">
+      <div class="mb-3 grid h-9 w-9 place-items-center rounded-lg text-white" style="background:var(--patient)">
+        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2a6 6 0 0 0-3.6 10.8c.4.3.6.7.6 1.2v.5a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V14c0-.5.2-.9.6-1.2A6 6 0 0 0 10 2ZM8 17h4a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2Z"/></svg>
+      </div>
+      <h3 class="h3">Reasoning you can audit</h3>
+      <p class="mt-1.5 text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+        Every utterance is preceded by explicit CoT steps that are captured, not discarded.
+        <strong>18,496 traces</strong>, rated <strong>4.84/5</strong> for contextual adherence by licensed
+        psychologists. Read them turn by turn in the explorer below.
+      </p>
+    </article>
+  </div>
+
+  <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="statbox"><dt>Sessions</dt><dd>150</dd></div>
+    <div class="statbox"><dt>Turns</dt><dd>9,577</dd></div>
+    <div class="statbox"><dt>Reasoning traces</dt><dd>18,496</dd></div>
+    <div class="statbox"><dt>Expert rank</dt><dd>1.09<span class="text-xs font-normal" style="color:var(--fg-faint)">/3</span></dd></div>
+  </dl>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ method -->
+<section id="method" class="border-t py-16" style="border-color:var(--line)" aria-labelledby="method-h">
+  <div class="wrap">
+    <h2 id="method-h" class="h2">How it works</h2>
+    <p class="lede mt-3 max-w-prose">
+      Two components sit on top of a turn-by-turn dialogue loop. The CBT Aligner governs the therapist's
+      progression through the protocol; the Resistance Orchestrator governs how the patient feels about it,
+      and how well the therapist reads that.
+    </p>
+
+    <figure class="figplate mt-8">
+      <img src="assets/img/architecture.png" width="2000" height="925" alt="ODRA architecture: (A) the CBT Aligner drives a five-stage pipeline; (B) patient and therapist models each run chain-of-thought steps before speaking; (C) the Resistance Orchestrator updates resistance with exponential smoothing and maps it to a steering prompt." loading="lazy" decoding="async">
+      <figcaption>
+        <strong>(A)</strong> The CBT Aligner controls session execution across a five-stage pipeline.
+        <strong>(B)</strong> The patient updates resistance, samples an action, and generates an utterance
+        guided by that action, the updated resistance and a steering prompt; the therapist checks for
+        Therapy-Interfering Behaviors, predicts patient resistance, and reasons stage-specifically before
+        replying. <strong>(C)</strong> The Resistance Orchestrator uses exponential smoothing (ES) or
+        mean-reverting ES (MR-ES) to update resistance, while the Behavioral Profiler maps resistance to an
+        attitudinal steering prompt and action distribution.
+      </figcaption>
+    </figure>
+
+    <!-- five stages -->
+    <div class="mt-14">
+      <h3 class="h3">The CBT Aligner — five stages, in order</h3>
+      <p class="mt-2 max-w-prose text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+        Standard CBT runs over many sessions; we adapt it to single-session synthesis. The therapist cannot
+        advance until the Aligner's stage-completion check passes, and any Therapy-Interfering Behavior
+        suspends the progression until it is addressed.
+      </p>
+      <ol class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <li class="card p-4"><div class="mb-2 font-mono text-[11px] font-bold" style="color:var(--accent)">01</div><div class="font-semibold">Opening</div><p class="mt-1 text-[13px] leading-relaxed" style="color:var(--fg-soft)">Identify mood and the primary presenting problem.</p></li>
+        <li class="card p-4"><div class="mb-2 font-mono text-[11px] font-bold" style="color:var(--accent)">02</div><div class="font-semibold">Cognitive Conceptualization</div><p class="mt-1 text-[13px] leading-relaxed" style="color:var(--fg-soft)">Build cognitive models; infer the likely distortion behind each.</p></li>
+        <li class="card p-4"><div class="mb-2 font-mono text-[11px] font-bold" style="color:var(--accent)">03</div><div class="font-semibold">CBT Work</div><p class="mt-1 text-[13px] leading-relaxed" style="color:var(--fg-soft)">Apply techniques targeted at the distortions identified.</p></li>
+        <li class="card p-4"><div class="mb-2 font-mono text-[11px] font-bold" style="color:var(--accent)">04</div><div class="font-semibold">Homework</div><p class="mt-1 text-[13px] leading-relaxed" style="color:var(--fg-soft)">Propose and agree consolidation tasks.</p></li>
+        <li class="card p-4"><div class="mb-2 font-mono text-[11px] font-bold" style="color:var(--accent)">05</div><div class="font-semibold">Closing</div><p class="mt-1 text-[13px] leading-relaxed" style="color:var(--fg-soft)">Summarize insights, plan ahead, end the session.</p></li>
+      </ol>
+    </div>
+
+    <!-- resistance -->
+    <div class="mt-14 grid gap-8 lg:grid-cols-2">
+      <div>
+        <h3 class="h3">The Resistance Orchestrator</h3>
+        <p class="mt-2 text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+          Resistance is a continuous variable <span class="math"><i>r</i> ∈ [0, 1]</span>, from fully
+          cooperative to highly resistant. Each turn the patient model infers a shift
+          <span class="math">Δ<sub>LLM</sub></span>, which is bounded to
+          <span class="math">[−0.10, +0.15]</span>. A mean-reverting term then pulls resistance back
+          toward the profile's baseline, modelling emotional homeostasis:
+        </p>
+        <div class="card-soft mt-4 px-4 py-3.5 text-center">
+          <span class="math text-[17px]"><i>r</i><sub>t+1</sub> = <i>r</i><sub>t</sub> + Δ<sub>LLM</sub> − <i>α</i>(<i>r</i><sub>t</sub> − <i>r</i><sub>base</sub>)</span>
+        </div>
+        <p class="mt-3 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+          with <span class="math"><i>α</i> = 0.15</span>. The therapist separately maintains an
+          <em>estimate</em> of that hidden state from what the patient says and adapts its replies to it. 
+          Both quantities are plotted live in the explorer below.
+        </p>
+      </div>
+      <div>
+        <h3 class="h3">The Behavioral Profiler</h3>
+        <p class="mt-2 text-[14px] leading-relaxed" style="color:var(--fg-soft)">
+          Rather than a static "act negative" instruction, the profiler re-selects a steering prompt every
+          turn to match the patient's <em>current</em> resistance band. Each prompt carries general rules,
+          fine-grained calibration to the exact scalar, guardrails against drifting out of band, and
+          in-context demonstrations.
+        </p>
+        <div class="mt-4 space-y-2">
+          <div class="card flex items-center gap-3 p-3">
+            <span class="h-8 w-1.5 shrink-0 rounded-full" style="background:var(--calm)"></span>
+            <div class="min-w-0"><div class="text-[13.5px] font-semibold">Positive</div><div class="font-mono text-[11.5px]" style="color:var(--fg-faint)">r ∈ [0.00, 0.33]</div></div>
+          </div>
+          <div class="card flex items-center gap-3 p-3">
+            <span class="h-8 w-1.5 shrink-0 rounded-full" style="background:var(--mid)"></span>
+            <div class="min-w-0"><div class="text-[13.5px] font-semibold">Neutral</div><div class="font-mono text-[11.5px]" style="color:var(--fg-faint)">r ∈ (0.33, 0.66]</div></div>
+          </div>
+          <div class="card flex items-center gap-3 p-3">
+            <span class="h-8 w-1.5 shrink-0 rounded-full" style="background:var(--hot)"></span>
+            <div class="min-w-0"><div class="text-[13.5px] font-semibold">Negative</div><div class="font-mono text-[11.5px]" style="color:var(--fg-faint)">r ∈ (0.66, 1.00]</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <figure class="figplate mt-12">
+      <img src="assets/img/cot-example.png" width="800" alt="Execution example: the therapist checks for TIBs, updates its resistance estimate, runs stage-specific reasoning and speaks; the patient updates resistance, samples an action, and speaks." loading="lazy" decoding="async">
+      <figcaption>
+        A single exchange in full. <strong>(A)</strong> The therapist checks for TIBs, updates its estimated
+        resistance, runs <span class="math"><i>N</i></span> stage-specific reasoning steps, then speaks.
+        <strong>(B)</strong> The patient updates internal resistance, samples an action from the fused prior
+        and contextual distributions, and uses the action, new resistance and steering prompt to reply.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ explorer -->
+<section id="explorer" class="border-t py-16" style="border-color:var(--line);background:var(--bg-soft)" aria-labelledby="explorer-h">
+  <div class="wrap">
+    <p class="eyebrow mb-3">Interactive</p>
+    <h2 id="explorer-h" class="h2">Session explorer</h2>
+    <p class="lede mt-3 max-w-prose">
+      Nine complete ODRA sessions — three patient profiles, each run at all three attitudes. Watch
+      resistance evolve turn by turn, see where the patient's behaviour interrupts the CBT protocol, and
+      open any turn to read the reasoning that produced it, including the actual arithmetic of the
+      resistance update.
+    </p>
+
+    <div class="mt-8 grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <!-- controls -->
+      <aside class="lg:sticky lg:top-20 lg:self-start">
+        <div class="card p-4">
+          <h3 class="eyebrow mb-2.5">Patient profile</h3>
+          <div id="profile-list" class="space-y-2"></div>
+          <h3 class="eyebrow mb-2.5 mt-5">Attitude</h3>
+          <div id="attitude-seg" class="seg w-full" role="group" aria-label="Patient attitude">
+            <button class="att-positive flex-1" data-att="positive" aria-pressed="false">Positive</button>
+            <button class="att-neutral flex-1" data-att="neutral" aria-pressed="false">Neutral</button>
+            <button class="att-negative flex-1" data-att="negative" aria-pressed="true">Negative</button>
+          </div>
+          <dl id="session-stats" class="mt-5 grid grid-cols-2 gap-2"></dl>
+          <div class="mt-4 flex flex-col gap-2">
+            <button id="toggle-traces" class="btn justify-center !py-1.5 text-[13px]" aria-pressed="false">Expand all reasoning</button>
+            <a id="dl-session" class="btn justify-center !py-1.5 text-[13px]" href="#" download>Download session JSON</a>
+          </div>
+        </div>
+      </aside>
+
+      <!-- session -->
+      <div class="min-w-0">
+        <div id="patient-card" class="card p-5"></div>
+
+        <div class="card mt-5 p-5">
+          <div class="mb-1 flex flex-wrap items-baseline justify-between gap-3">
+            <h3 class="h3">Resistance over the session</h3>
+            <div class="flex flex-wrap items-center gap-3 text-[11.5px]" style="color:var(--fg-soft)">
+              <span class="inline-flex items-center gap-1.5"><svg width="18" height="8" aria-hidden="true"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--patient)" stroke-width="2.5"/></svg>patient <span class="math"><i>r</i></span></span>
+              <span class="inline-flex items-center gap-1.5"><svg width="18" height="8" aria-hidden="true"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--therapist)" stroke-width="2.5" stroke-dasharray="4 3"/></svg>therapist estimate <span class="math"><i>p̂</i></span></span>
+              <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rotate-45" style="background:var(--hot)"></span>TIB detected</span>
+            </div>
+          </div>
+          <div id="chart" class="mt-2"></div>
+          <div id="stage-legend" class="mt-3 flex flex-wrap gap-1.5"></div>
+          <p class="mt-3 text-[12px]" style="color:var(--fg-faint)">
+            Background bands mark the active CBT stage. Click anywhere on the chart to jump to that turn.
+          </p>
+        </div>
+
+        <div class="card mt-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3.5" style="border-color:var(--line)">
+            <h3 class="h3">Transcript</h3>
+            <span id="transcript-count" class="pill"></span>
+          </div>
+          <div id="transcript" class="px-5 py-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ sycophancy -->
+<section id="sycophancy" class="border-t py-16" style="border-color:var(--line)" aria-labelledby="syc-h">
+  <div class="wrap">
+    <p class="eyebrow mb-3">The core problem</p>
+    <h2 id="syc-h" class="h2">Same patient, same instruction, three methods</h2>
+    <p class="lede mt-3 max-w-prose">
+      In this section we compare the same patient profile and attitude across three methods: CACTUS, MAGNeT, and ODRA. 
+      All three are instructed to produce a <strong>negative</strong> patient, but the results are significantly different.
+      While CACTUS and MAGNeT produce compliant, sycophantic patients, ODRA produces a resistant patient that actively challenges 
+      the therapist.
+    </p>
+    <div id="syc-grid" class="mt-8"></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ results -->
+<section id="results" class="border-t py-16" style="border-color:var(--line);background:var(--bg-soft)" aria-labelledby="results-h">
+  <div class="wrap">
+    <h2 id="results-h" class="h2">Results</h2>
+    <p class="lede mt-3 max-w-prose">
+      Automated LLM-as-a-judge evaluation (GPT-4o) plus a blind ranking study with three licensed
+      psychologists over 50 sample sets — 300 session evaluations and 540 reasoning traces.
+    </p>
+
+    <div class="notice mt-7 max-w-3xl">
+      <strong>Reading the CTRS table.</strong> Full ODRA scores are <em>lower</em> than some baselines on
+      counseling metrics, and that is the expected result since its patients are actively obstructing the
+      session. The fair comparison against baselines, which all face compliant patients, is
+      <strong>ODRA-NR</strong> (resistance orchestrator off). Full ODRA's value shows up under the resistant
+      conditions in the fine-tuning table, and in behavioral alignment.
+    </div>
+
+    <div class="mt-8" role="tablist" aria-label="Result tables" id="res-tabs">
+      <div class="seg flex-wrap">
+        <button role="tab" aria-selected="true"  aria-controls="tab-ctrs"   id="t-ctrs"   data-tab="ctrs">CBT counseling</button>
+        <button role="tab" aria-selected="false" aria-controls="tab-align"  id="t-align"  data-tab="align">Behavioral alignment</button>
+        <button role="tab" aria-selected="false" aria-controls="tab-expert" id="t-expert" data-tab="expert">Expert evaluation</button>
+        <button role="tab" aria-selected="false" aria-controls="tab-ft"     id="t-ft"     data-tab="ft">Downstream fine-tuning</button>
+      </div>
+    </div>
+
+    <!-- CTRS -->
+    <div id="tab-ctrs" role="tabpanel" aria-labelledby="t-ctrs" class="card mt-5 p-5">
+      <h3 class="h3">Cognitive Therapy Rating Scale (0–6)</h3>
+      <p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+        Six CTRS dimensions which measures general counseling and CBT-specific skills. <strong>ODRA-NR leads four of six.</strong>
+      </p>
+      <div class="tbl-scroll mt-4">
+        <table class="data">
+          <caption class="sr-only">CTRS performance of ODRA variants against baselines</caption>
+          <thead><tr>
+            <th scope="col">Method</th><th scope="col">Guided Disc.</th><th scope="col">Focus</th><th scope="col">Strategy</th>
+            <th scope="col">Underst.</th><th scope="col">Interp. Eff.</th><th scope="col">Collab.</th><th scope="col">Turns</th><th scope="col">Length</th>
+          </tr></thead>
+          <tbody>
+            <tr><td>CACTUS</td><td>3.99</td><td>3.96</td><td>4.20</td><td>4.60</td><td>5.99</td><td>4.50</td><td>23.99</td><td>69.87</td></tr>
+            <tr><td>MAGNeT</td><td>4.04</td><td>3.63</td><td>2.84</td><td>3.97</td><td>4.29</td><td>3.39</td><td>42.00</td><td>76.71</td></tr>
+            <tr><td>SQPsych</td><td>4.42</td><td>4.28</td><td>4.50</td><td>5.29</td><td class="best">6.00</td><td class="best">5.76</td><td>30.61</td><td>39.61</td></tr>
+            <tr><td>MIRROR</td><td>4.86</td><td>4.78</td><td>5.07</td><td>5.47</td><td class="best">6.00</td><td>5.71</td><td>20.25</td><td>26.00</td></tr>
+            <tr><td>ODRA</td><td>4.23</td><td>4.20</td><td>4.09</td><td>4.64</td><td>4.88</td><td>4.26</td><td>63.85</td><td>62.69</td></tr>
+            <tr><td>ODRA-NT</td><td>4.01</td><td>3.96</td><td>3.72</td><td>4.19</td><td>4.44</td><td>3.92</td><td class="best">68.12</td><td>63.54</td></tr>
+            <tr class="is-ours"><td>ODRA-NR</td><td class="best">5.32</td><td class="best">5.50</td><td class="best">5.36</td><td class="best">5.81</td><td>5.92</td><td>5.44</td><td>57.03</td><td>62.14</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+        ODRA-NT disables TIB classification; ODRA-NR disables patient resistance. Turns = mean turns per
+        session; Length = mean therapist response length in words. The paper additionally reports
+        per-attitude deviations, which are large for full ODRA precisely because it responds to attitude.
+        Therapist resistance prediction: accuracy 0.80, MAE 0.10, RMSE 0.13.
+      </p>
+    </div>
+
+    <!-- alignment -->
+    <div id="tab-align" role="tabpanel" aria-labelledby="t-align" class="card mt-5 p-5" hidden>
+      <h3 class="h3">Behavioral alignment (0–2)</h3>
+      <p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+        Does the patient actually behave like the attitude it was assigned? Everyone ties on context and
+        realism; but ODRA is the only method that <strong>excels</strong> at resistance alignment.
+      
+      </p>
+      <div id="align-chart" class="mt-5"></div>
+      <div class="tbl-scroll mt-5">
+        <table class="data">
+          <caption class="sr-only">Behavioral alignment comparison</caption>
+          <thead><tr><th scope="col">Method</th><th scope="col">Resistance align.</th><th scope="col">Context</th><th scope="col">Realism</th><th scope="col">Harmonic mean</th></tr></thead>
+          <tbody>
+            <tr><td>CACTUS</td><td>0.70</td><td class="best">2.00</td><td>1.90</td><td>0.69</td></tr>
+            <tr><td>MAGNeT</td><td>1.19</td><td>1.97</td><td>1.80</td><td>1.29</td></tr>
+            <tr><td>MIRROR</td><td>1.01</td><td class="best">2.00</td><td class="best">2.00</td><td>1.01</td></tr>
+            <tr class="is-ours"><td>ODRA</td><td class="best">1.96</td><td>1.96</td><td class="best">2.00</td><td class="best">1.95</td></tr>
+            <tr><td>ODRA-NR</td><td>1.18</td><td class="best">2.00</td><td class="best">2.00</td><td>1.20</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+        The harmonic mean punishes failure in any single dimension. SQPsych is absent because it does not
+        model patient attitude.
+      </p>
+    </div>
+
+    <!-- expert -->
+    <div id="tab-expert" role="tabpanel" aria-labelledby="t-expert" class="card mt-5 p-5" hidden>
+      <h3 class="h3">Blind expert ranking (1–3, lower is better)</h3>
+      <p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+        Three licensed psychologists ranked anonymised triples of sessions across 13 metrics in five
+        categories. ODRA averages <strong>1.09</strong> overall at Krippendorff's <span class="math"><i>α</i></span> = 0.80.
+      </p>
+      <div class="tbl-scroll mt-4">
+        <table class="data">
+          <caption class="sr-only">Aggregated expert evaluation results</caption>
+          <thead><tr><th scope="col">Method</th><th scope="col">Therapeutic skills</th><th scope="col">CBT alignment</th><th scope="col">Specificity</th><th scope="col">Fidelity</th><th scope="col">Unsafe (%)</th></tr></thead>
+          <tbody>
+            <tr><td>CACTUS</td><td>2.83</td><td>2.61</td><td>2.81</td><td>2.80</td><td class="best">0.00</td></tr>
+            <tr><td>MAGNeT</td><td>2.10</td><td>2.33</td><td>2.11</td><td>2.08</td><td>2.00</td></tr>
+            <tr class="is-ours"><td>ODRA</td><td class="best">1.07</td><td class="best">1.07</td><td class="best">1.08</td><td class="best">1.12</td><td>1.00</td></tr>
+            <tr><td>Inter-annotator agreement</td><td>0.88</td><td>0.71</td><td>0.75</td><td>0.84</td><td>0.98</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-3">
+        <div class="statbox"><dt>Contextual adherence</dt><dd>4.84<span class="text-xs font-normal" style="color:var(--fg-faint)">/5</span></dd></div>
+        <div class="statbox"><dt>Reasoning adherence</dt><dd>4.86<span class="text-xs font-normal" style="color:var(--fg-faint)">/5</span></dd></div>
+        <div class="statbox"><dt>Clinical assessment</dt><dd>4.75<span class="text-xs font-normal" style="color:var(--fg-faint)">/5</span></dd></div>
+      </div>
+      <p class="mt-3 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+        Reasoning-trace ratings on a 1–5 Likert scale, 96.05% mean agreement. Safety is the percentage of
+        sessions flagged unsafe.
+      </p>
+    </div>
+
+    <!-- fine-tuning -->
+    <div id="tab-ft" role="tabpanel" aria-labelledby="t-ft" class="card mt-5 p-5" hidden>
+      <h3 class="h3">Llama-3-8B-Instruct fine-tuned on each dataset</h3>
+      <p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+        The downstream test: train on each synthetic corpus, then evaluate the resulting therapist against
+        held-out patients. ODRA-NR wins against cooperative patients, while <strong>full ODRA wins against
+        resistant ones</strong>.
+      </p>
+      <div class="tbl-scroll mt-4">
+        <table class="data">
+          <caption class="sr-only">CTRS of Llama-3 fine-tuned on each dataset, by patient condition</caption>
+          <thead><tr><th scope="col">Model</th><th scope="col">GD</th><th scope="col">FC</th><th scope="col">ST</th><th scope="col">UN</th><th scope="col">IE</th><th scope="col">CL</th><th scope="col">Turns</th><th scope="col">Length</th></tr></thead>
+          <tbody>
+            <tr class="grp"><td colspan="9">Cooperative patient (DeepSeek)</td></tr>
+            <tr><td>CACTUS</td><td>3.50</td><td>3.33</td><td>3.28</td><td>3.74</td><td>4.68</td><td>3.78</td><td>62.89</td><td>112.64</td></tr>
+            <tr><td>MAGNeT</td><td>3.69</td><td>3.41</td><td>3.00</td><td>3.97</td><td>4.16</td><td>3.39</td><td>97.67</td><td>77.92</td></tr>
+            <tr><td>SQPsych</td><td>4.04</td><td>3.73</td><td>3.90</td><td>4.31</td><td>5.00</td><td>4.25</td><td>97.89</td><td>41.23</td></tr>
+            <tr><td>MIRROR</td><td>4.54</td><td>4.11</td><td>3.78</td><td>5.05</td><td>5.24</td><td>4.23</td><td>83.65</td><td>23.57</td></tr>
+            <tr class="is-ours"><td>ODRA-NR</td><td class="best">5.11</td><td class="best">5.16</td><td class="best">4.96</td><td class="best">5.71</td><td class="best">5.91</td><td class="best">4.99</td><td>84.83</td><td>62.27</td></tr>
+            <tr class="grp"><td colspan="9">Cooperative patient (GPT)</td></tr>
+            <tr><td>CACTUS</td><td>3.96</td><td>3.88</td><td>3.92</td><td>4.32</td><td>5.96</td><td>4.34</td><td>48.57</td><td>101.88</td></tr>
+            <tr><td>MAGNeT</td><td>4.81</td><td>4.01</td><td>4.40</td><td>5.40</td><td>5.78</td><td>5.45</td><td>50.00</td><td>82.28</td></tr>
+            <tr><td>SQPsych</td><td>4.79</td><td>4.20</td><td>4.32</td><td>4.71</td><td>5.97</td><td class="best">5.87</td><td>48.49</td><td>33.53</td></tr>
+            <tr><td>MIRROR</td><td>4.63</td><td>4.19</td><td>3.93</td><td>5.44</td><td>5.95</td><td>5.33</td><td>42.97</td><td>24.81</td></tr>
+            <tr class="is-ours"><td>ODRA-NR</td><td class="best">5.48</td><td class="best">5.55</td><td class="best">5.24</td><td class="best">5.71</td><td class="best">6.00</td><td>5.37</td><td>47.97</td><td>55.06</td></tr>
+            <tr class="grp"><td colspan="9">Resistant patient (DeepSeek)</td></tr>
+            <tr><td>CACTUS</td><td>3.00</td><td>2.88</td><td>2.94</td><td>3.08</td><td>3.98</td><td>3.29</td><td>75.65</td><td>111.01</td></tr>
+            <tr><td>MAGNeT</td><td>3.56</td><td>3.20</td><td>3.18</td><td>3.62</td><td>4.09</td><td>3.56</td><td>85.68</td><td>77.66</td></tr>
+            <tr><td>SQPsych</td><td>3.51</td><td>3.33</td><td>3.30</td><td>3.56</td><td>4.13</td><td>3.79</td><td>80.24</td><td>40.35</td></tr>
+            <tr><td>MIRROR</td><td>3.77</td><td>3.68</td><td>3.54</td><td>4.15</td><td>4.55</td><td>4.13</td><td>56.97</td><td>24.47</td></tr>
+            <tr><td>ODRA-NR</td><td>4.08</td><td>3.95</td><td>3.72</td><td>4.29</td><td>4.55</td><td>4.12</td><td>71.28</td><td>68.83</td></tr>
+            <tr class="is-ours"><td>ODRA</td><td class="best">4.19</td><td class="best">4.07</td><td class="best">3.78</td><td class="best">4.35</td><td class="best">4.71</td><td class="best">4.20</td><td>69.91</td><td>63.85</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+        GD Guided Discovery · FC Focus · ST Strategy · UN Understanding · IE Interpersonal Effectiveness ·
+        CL Collaboration. Qwen-3.5-9B results, including training on reasoning traces, are in the paper's
+        appendix.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ dataset -->
+<section id="dataset" class="border-t py-16" style="border-color:var(--line)" aria-labelledby="data-h">
+  <div class="wrap">
+    <h2 id="data-h" class="h2">The dataset</h2>
+    <p class="lede mt-3 max-w-prose">
+      150 CBT sessions generated with DeepSeek-V3.2 from 150 patient intake forms — 50 profiles × 3
+      attitudes — drawn from the CACTUS evaluation split.
+    </p>
+
+    <div class="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div class="card p-5">
+        <h3 class="h3">Against prior synthetic CBT corpora</h3>
+        <div class="tbl-scroll mt-4">
+          <table class="data">
+            <caption class="sr-only">Comparison of synthetic CBT datasets</caption>
+            <thead><tr><th scope="col">Dataset</th><th scope="col">Modality</th><th scope="col">Resistance</th><th scope="col">CBT structure</th><th scope="col">CoT</th><th scope="col">Turns/session</th><th scope="col">Sessions</th></tr></thead>
+            <tbody>
+              <tr><td>CACTUS</td><td>Text</td><td>—</td><td>—</td><td>—</td><td>16.60</td><td>31,577</td></tr>
+              <tr><td>MAGNeT</td><td>Text</td><td>—</td><td>—</td><td>—</td><td>42.00</td><td>442</td></tr>
+              <tr><td>MIRROR</td><td>Text + vision</td><td>✓</td><td>—</td><td>—</td><td>10.30</td><td>3,073</td></tr>
+              <tr class="is-ours"><td>ODRA</td><td>Text</td><td>✓</td><td>✓</td><td>✓</td><td class="best">63.85</td><td>150</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="mt-3 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+          ODRA is the only corpus combining explicit resistance modelling, full CBT structure and
+          clinically-validated reasoning traces.
+        </p>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="h3">Access</h3>
+        <p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+          The dataset and the fine-tuned Llama-3 / Qwen-3.5 checkpoints are being prepared for release.
+          The generation framework is available now.
+        </p>
+        <div class="mt-4 flex flex-col gap-2">
+          <a class="btn justify-center" href="https://github.com/javirodrigueez/ODRA">Generation code on GitHub</a>
+          <span class="btn justify-center" aria-disabled="true">Dataset — coming soon</span>
+          <span class="btn justify-center" aria-disabled="true">Fine-tuned models — coming soon</span>
+        </div>
+        <p class="mt-4 text-[12.5px] leading-relaxed" style="color:var(--fg-faint)">
+          Seeded from CACTUS, itself built on PATTERNREFRAME — crowdsourced persona statements, not medical
+          records. No real patient data is involved at any point.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ limitations -->
+<!-- <section class="border-t py-16" style="border-color:var(--line);background:var(--bg-soft)" aria-labelledby="lim-h">
+  <div class="wrap">
+    <h2 id="lim-h" class="h2">Limitations</h2>
+    <p class="lede mt-3 max-w-prose">Condensed from the paper's Limitations section.</p>
+    <div class="mt-7 grid gap-4 md:grid-cols-2">
+      <div class="card p-5"><h3 class="h3">Single-session paradigm</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">CBT is longitudinal; we compress it into one session, so homework review and cross-session progression cannot be modelled. Sessions are also still shorter than a real clinical hour.</p></div>
+      <div class="card p-5"><h3 class="h3">Intake forms as patient state</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">An intake form captures what a therapist knows at a first session, but not an evolving internal state. Longitudinal modelling needs richer patient representations.</p></div>
+      <div class="card p-5"><h3 class="h3">Cost of the CoT pipeline</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">Sequential reasoning steps are what buy protocol adherence, and they are what make scaling expensive. Token efficiency is the blocker for large-scale synthesis.</p></div>
+      <div class="card p-5"><h3 class="h3">No clinical pre-training</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">We use general-purpose LLMs. Models pre-trained on authentic counseling would likely catch nuances — implicit ambivalence, well-timed micro-interventions — that are hard to simulate zero-shot.</p></div>
+      <div class="card p-5"><h3 class="h3">Therapist-side resistance handling</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">We model resistance on the patient side. Dedicated therapist modules are needed to close the performance drop seen against highly resistant profiles.</p></div>
+      <div class="card p-5"><h3 class="h3">LLM-as-a-judge</h3><p class="mt-1.5 text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">GPT-based judging carries biases, including length bias visible in the fine-tuning results, and depends on a proprietary model. The expert study exists to counterbalance it.</p></div>
+    </div>
+  </div>
+</section> -->
+
+<!-- ══════════════════════════════════════════════════════════ cite -->
+<section id="cite" class="border-t py-16" style="border-color:var(--line)" aria-labelledby="cite-h">
+  <div class="wrap-tight">
+    <h2 id="cite-h" class="h2">Citation</h2>
+    <div class="card mt-6 overflow-hidden">
+      <div class="flex items-center justify-between border-b px-4 py-2.5" style="border-color:var(--line);background:var(--bg-soft)">
+        <span class="font-mono text-[11.5px]" style="color:var(--fg-faint)">BibTeX</span>
+        <button id="copy-bib" class="trace-toggle">Copy</button>
+      </div>
+<pre class="overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-relaxed"><code id="bibtex">@misc{rodriguezjuan2026odra,
+  title         = {ODRA: Synthesizing Cognitive Behavioral Therapy Sessions with
+                   Structured Chain-Of-Thought and Dynamic Patient Resistance},
+  author        = {Javier Rodriguez-Juan and Hiba Arnaout and
+                   Jose Garcia-Rodriguez and David Tom{\'a}s and Iryna Gurevych},
+  year          = {2026},
+  eprint        = {2608.04524},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  doi           = {10.48550/arXiv.2608.04524},
+  url           = {https://arxiv.org/abs/2608.04524}
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<footer class="border-t py-12" style="border-color:var(--line);background:var(--bg-soft)">
+  <div class="wrap grid gap-8 sm:grid-cols-2">
+    <div>
+      <div class="font-serif text-lg font-bold">ODRA</div>
+      <p class="mt-2 max-w-md text-[13.5px] leading-relaxed" style="color:var(--fg-soft)">
+        A collaboration between 3D Perception Lab (University of Alicante) and UKP Lab (Technische Universität
+        Darmstadt). Correspondence:
+        <a class="anchor-link" href="mailto:j.rodriguezjuan@ua.es">j.rodriguezjuan@ua.es</a>.
+      </p>
+    </div>
+    <div class="sm:justify-self-end">
+      <h3 class="eyebrow mb-3">Links</h3>
+      <ul class="space-y-1.5 text-[13.5px]">
+        <li><a class="anchor-link" href="https://arxiv.org/abs/2608.04524">arXiv:2608.04524</a></li>
+        <li><a class="anchor-link" href="https://github.com/javirodrigueez/ODRA">GitHub repository</a></li>
+        <li><a class="anchor-link" href="https://3dperceptionlab.github.io/">3D Perception Lab</a></li>
+        <li><a class="anchor-link" href="https://www.informatik.tu-darmstadt.de/ukp/">UKP Lab</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+</main>
+
+<script src="assets/js/data.js"></script>
+<script src="assets/js/explorer.js"></script>
+<script src="assets/js/page.js"></script>
+</body>
+</html>

@@ -1,0 +1,261 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------- tokens */
+@layer base {
+  :root {
+    --bg:        #ffffff;
+    --bg-soft:   #f6f7f9;
+    --bg-sunk:   #eceef2;
+    --fg:        #1c2029;
+    --fg-soft:   #505d74;
+    --fg-faint:  #8492a8;
+    --line:      #d5dae2;
+    --line-soft: #eceef2;
+    --accent:    #6d2ff5;
+    --accent-sunk:#f4f2ff;
+    --therapist: #c2410c;
+    --patient:   #0f766e;
+    --calm:      #159e73;
+    --mid:       #c78f16;
+    --hot:       #dc4b3c;
+    --shadow:    0 1px 2px rgb(28 32 41 / .05), 0 8px 24px -12px rgb(28 32 41 / .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:        #14171d;
+      --bg-soft:   #1c2029;
+      --bg-sunk:   #232833;
+      --fg:        #e8ebf0;
+      --fg-soft:   #a8b3c4;
+      --fg-faint:  #74819a;
+      --line:      #333944;
+      --line-soft: #262b35;
+      --accent:    #a78bfa;
+      --accent-sunk:#221a3d;
+      --therapist: #fb923c;
+      --patient:   #2dd4bf;
+      --calm:      #34d399;
+      --mid:       #fbbf24;
+      --hot:       #f87171;
+      --shadow:    0 1px 2px rgb(0 0 0 / .3), 0 8px 24px -12px rgb(0 0 0 / .6);
+    }
+  }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--accent); color: #fff; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+}
+
+/* ------------------------------------------------------------ components */
+@layer components {
+  .wrap      { @apply mx-auto w-full max-w-page px-5 sm:px-8; }
+  .wrap-tight{ @apply mx-auto w-full max-w-4xl px-5 sm:px-8; }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[.14em];
+    color: var(--fg-faint);
+  }
+  .h2 { @apply font-serif text-3xl sm:text-4xl font-semibold tracking-[-.02em]; }
+  .h3 { @apply text-lg font-semibold tracking-[-.01em]; }
+  .lede { color: var(--fg-soft); @apply text-[15px] leading-relaxed; }
+
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    @apply rounded-xl;
+  }
+  .card-soft { background: var(--bg-soft); border: 1px solid var(--line-soft); @apply rounded-xl; }
+
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg);
+  }
+  .btn:hover { background: var(--bg-soft); border-color: var(--fg-faint); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.1); background: var(--accent); border-color: var(--accent); }
+  .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold;
+    background: var(--bg-sunk); color: var(--fg-soft);
+  }
+
+  /* Paper figures are white-background raster; keep them on a light plate in
+     both themes so they never invert into a glowing slab. */
+  .figplate {
+    background: #fff;
+    border: 1px solid var(--line);
+    @apply rounded-xl p-3 sm:p-5 overflow-x-auto;
+  }
+  .figplate img { @apply mx-auto block h-auto max-w-full; }
+  /* Take the glare off white-background raster figures on a dark page, without
+     inverting them into something the paper never showed. */
+  @media (prefers-color-scheme: dark) {
+    .figplate { background: #e9ebef; border-color: #2c3240; }
+    .figplate img { filter: brightness(.94) saturate(.97); }
+  }
+  figcaption { color: var(--fg-soft); @apply mt-3 text-[13px] leading-relaxed; }
+
+  /* --- inline math ------------------------------------------------------ */
+  .math { @apply font-serif; font-feature-settings: "tnum"; white-space: nowrap; }
+  .math i { @apply not-italic; font-style: italic; }
+  .math sub { @apply text-[.7em]; vertical-align: -.25em; }
+
+  /* --- tables ----------------------------------------------------------- */
+  .tbl-scroll { @apply -mx-5 overflow-x-auto px-5 sm:mx-0 sm:px-0; }
+  table.data { @apply w-full border-collapse text-sm; }
+  table.data th, table.data td { @apply whitespace-nowrap px-3 py-2 text-right; }
+  table.data th:first-child, table.data td:first-child { @apply text-left; }
+  table.data thead th {
+    @apply border-b text-[11px] font-semibold uppercase tracking-wider;
+    border-color: var(--line); color: var(--fg-faint);
+  }
+  table.data tbody tr { border-bottom: 1px solid var(--line-soft); }
+  table.data tbody tr:last-child { border-bottom: 0; }
+  table.data tr.is-ours { background: var(--accent-sunk); }
+  table.data tr.is-ours td:first-child { @apply font-semibold; }
+  table.data td.best { @apply font-semibold; color: var(--fg); }
+  table.data .grp td {
+    @apply pt-4 pb-1 text-left text-[11px] font-semibold uppercase tracking-wider;
+    color: var(--fg-faint);
+  }
+
+  /* --- transcript ------------------------------------------------------- */
+  .turn { @apply relative flex gap-3 py-2.5; scroll-margin-top: 6rem; }
+  .turn-who {
+    @apply mt-0.5 w-[4.5rem] shrink-0 select-none text-right text-[11px] font-semibold uppercase tracking-wider;
+  }
+  .turn-therapist .turn-who { color: var(--therapist); }
+  .turn-patient   .turn-who { color: var(--patient); }
+  .turn-body { @apply min-w-0 flex-1; }
+  .turn-text { @apply text-[14.5px] leading-[1.65]; }
+  .turn.is-active { background: var(--accent-sunk); @apply -mx-3 rounded-lg px-3; }
+  /* A 4.5rem speaker column costs a third of a phone screen — stack it instead. */
+  @media (max-width: 640px) {
+    .turn { @apply flex-col gap-0.5; }
+    .turn-who { @apply w-full text-left; }
+  }
+
+  /* "See complete transcript" affordance, with the preview fading into it. */
+  .tr-more { @apply relative pt-9 pb-1; }
+  .tr-more::before {
+    content: '';
+    @apply pointer-events-none absolute inset-x-0 -top-12 h-16;
+    background: linear-gradient(to bottom, transparent, var(--bg));
+  }
+
+  /* --- sycophancy columns ----------------------------------------------- */
+  /* Clip children to the card radius, or the tinted header on the ODRA column
+     paints square corners over the rounded border. */
+  .syc-col { @apply overflow-hidden; }
+  .syc-body { @apply overflow-y-auto px-4 py-2; max-height: 30rem; }
+  /* Expanded stays bounded: ODRA runs 86 turns against CACTUS's 18, and letting
+     it grow freely would leave one 18,000px column beside two short ones. */
+  .syc-body.is-open { max-height: 75vh; }
+  .syc-col-ours {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), var(--shadow);
+  }
+  .syc-col-ours .syc-head { background: var(--accent-sunk); border-color: var(--accent) !important; }
+
+  .metabar { @apply mt-1.5 flex flex-wrap items-center gap-1.5; }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10.5px] font-medium;
+    background: var(--bg-sunk); color: var(--fg-soft);
+  }
+  .pill-r   { color: var(--patient); background: color-mix(in srgb, var(--patient) 12%, transparent); }
+  .pill-p   { color: var(--therapist); background: color-mix(in srgb, var(--therapist) 12%, transparent); }
+  .pill-tib { color: var(--hot); background: color-mix(in srgb, var(--hot) 14%, transparent); }
+  .pill-act { color: var(--accent); background: var(--accent-sunk); }
+
+  .trace-toggle {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wider transition;
+    color: var(--fg-faint);
+  }
+  .trace-toggle:hover { color: var(--accent); background: var(--accent-sunk); }
+  .trace-panel {
+    @apply mt-2 space-y-2 rounded-lg p-3;
+    background: var(--bg-soft); border: 1px solid var(--line-soft);
+  }
+  .trace-step { @apply text-[12.5px] leading-relaxed; }
+  .trace-step + .trace-step { @apply mt-2.5 border-t pt-2.5; border-color: var(--line-soft); }
+  .trace-name { @apply mb-1 font-mono text-[10.5px] font-semibold uppercase tracking-wider; color: var(--accent); }
+  .trace-body { color: var(--fg-soft); }
+
+  .eqbox {
+    @apply mt-1.5 overflow-x-auto rounded px-2.5 py-2 font-mono text-[11.5px];
+    background: var(--bg); border: 1px solid var(--line-soft); color: var(--fg-soft);
+  }
+  .eqbox b { color: var(--fg); @apply font-semibold; }
+
+  .distrow { @apply mt-1 flex items-center gap-2 text-[11px]; }
+  .distrow .lbl { @apply w-[5.5rem] shrink-0 truncate; color: var(--fg-faint); }
+  .distrow .bar { @apply h-2 flex-1 overflow-hidden rounded-full; background: var(--bg-sunk); }
+  .distrow .bar > span { @apply block h-full rounded-full; background: var(--accent); }
+  .distrow .val { @apply w-9 shrink-0 text-right font-mono; color: var(--fg-faint); }
+  .distrow.is-picked .lbl, .distrow.is-picked .val { color: var(--fg); @apply font-semibold; }
+
+  /* --- selectors -------------------------------------------------------- */
+  .seg { @apply inline-flex rounded-lg p-0.5; background: var(--bg-sunk); }
+  .seg button {
+    @apply rounded-[6px] px-3 py-1.5 text-[13px] font-medium transition;
+    color: var(--fg-soft);
+  }
+  .seg button:hover { color: var(--fg); }
+  /* Result tabs use aria-selected, the attitude/toggle segments use
+     aria-pressed — style both, or the active result tab reads as inactive.
+     The ring picks up currentColor, so each attitude keeps its own hue. */
+  .seg button[aria-pressed="true"],
+  .seg button[aria-selected="true"] {
+    background: var(--bg);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: var(--shadow), inset 0 0 0 1.5px color-mix(in srgb, currentColor 45%, transparent);
+  }
+
+  /* Must out-specify `.seg button[aria-pressed]` above (0,2,1), or every active
+     attitude renders in the accent colour instead of its own band hue. */
+  .seg button.att-positive[aria-pressed="true"] { color: var(--calm); }
+  .seg button.att-neutral[aria-pressed="true"]  { color: var(--mid); }
+  .seg button.att-negative[aria-pressed="true"] { color: var(--hot); }
+
+  .profbtn {
+    @apply w-full rounded-lg px-3 py-2.5 text-left transition;
+    border: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .profbtn:hover { border-color: var(--fg-faint); }
+  .profbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-sunk); }
+
+  .statbox { @apply rounded-lg px-3 py-2.5; background: var(--bg-soft); }
+  .statbox dt { @apply text-[10.5px] font-semibold uppercase tracking-wider; color: var(--fg-faint); }
+  .statbox dd { @apply mt-0.5 font-mono text-lg font-semibold tabular-nums; }
+
+  .notice {
+    @apply rounded-xl p-4 text-[13.5px] leading-relaxed sm:p-5;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    color: var(--fg-soft);
+  }
+  .notice strong { color: var(--fg); }
+
+  .anchor-link { color: var(--accent); @apply font-medium underline decoration-1 underline-offset-2; }
+  .anchor-link:hover { @apply decoration-2; }
+}
+
+

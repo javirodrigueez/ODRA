@@ -1,0 +1,22 @@
+{
+  "name": "odra-project-page",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Project page for ODRA (arXiv:2608.04524)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tailwindcss -i ./src/input.css -o ./assets/css/style.css --minify",
+    "watch": "tailwindcss -i ./src/input.css -o ./assets/css/style.css --watch",
+    "serve": "node tools/serve.mjs",
+    "dev": "node tools/dev.mjs",
+    "data": "node tools/build-data.mjs",
+    "figures": "node tools/build-figures.mjs",
+    "card": "node tools/social-card.mjs",
+    "assets": "npm run data && npm run figures && npm run card",
+    "all": "npm run assets && npm run build"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}
