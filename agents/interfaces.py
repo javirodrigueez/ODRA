@@ -18,6 +18,7 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 MessageRole = Literal["system", "user", "assistant"]
 GENERATION_CONFIG_KEYS = (
+  "seed",
   "temperature",
   "top_p",
   "top_k",
@@ -220,7 +221,7 @@ def extract_generation_config(config: Any) -> dict[str, Any]:
     value = raw_config.get(key)
     if value is None or (isinstance(value, str) and not value.strip()):
       continue
-    if key in {"top_k", "max_tokens"}:
+    if key in {"seed", "top_k", "max_tokens"}:
       generation_config[key] = int(value)
     else:
       generation_config[key] = float(value)
@@ -234,6 +235,7 @@ class LLM(ABC):
 
 class HuggingFaceLLM(LLM):
   def __init__(self, model_id: str, generation_config: dict[str, Any] | None = None):
+    self.model_id = model_id
     generation_config = generation_config or {}
     pipeline_kwargs: dict[str, Any] = {
       "temperature": generation_config.get("temperature", 0.7),
@@ -453,6 +455,9 @@ class Agent(ABC):
     }
     if include_generation_defaults:
       generation_kwargs.update(self.generation_defaults)
+    elif "seed" in self.generation_defaults:
+      # Structured calls keep their own sampling settings but share the run seed.
+      generation_kwargs["seed"] = self.generation_defaults["seed"]
     generation_kwargs.update(
       {
         key: value

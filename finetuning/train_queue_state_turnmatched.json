@@ -1,0 +1,64 @@
+{
+  "jobs": {
+    "llama-mirror-tm": {
+      "attempts": 1,
+      "command": [
+        "python",
+        "finetuning/train.py",
+        "--chat-template",
+        "none",
+        "--qlora",
+        "--save-merged",
+        "--group",
+        "turnmatched",
+        "--model",
+        "models/Llama3-8B-Instruct/",
+        "--input-data",
+        "/outs/mirror_150/it_turns_turnmatched/",
+        "--exp-name",
+        "Llama3-8B-Instruct-turns-tm-MIRROR",
+        "--output-dir",
+        "ft_models/Llama3-8B-Instruct-turns-tm-MIRROR/"
+      ],
+      "duration_seconds": 3944.23,
+      "ended_at": "2026-09-17T11:39:34+00:00",
+      "exit_code": 0,
+      "gpu": "0",
+      "log_path": "finetuning/train_queue_logs/llama-mirror-tm_20260917_103350_attempt1.log",
+      "pid": 9807,
+      "started_at": "2026-09-17T10:33:50+00:00",
+      "status": "succeeded"
+    },
+    "llama-sqpsych-qwen-tm": {
+      "attempts": 1,
+      "command": [
+        "python",
+        "finetuning/train.py",
+        "--chat-template",
+        "none",
+        "--qlora",
+        "--save-merged",
+        "--group",
+        "turnmatched",
+        "--model",
+        "models/Llama3-8B-Instruct/",
+        "--input-data",
+        "/outs/SQPsychConv_qwen/it_turns_turnmatched/",
+        "--exp-name",
+        "Llama3-8B-Instruct-turns-tm-SQP-QWEN",
+        "--output-dir",
+        "ft_models/Llama3-8B-Instruct-turns-tm-SQP-QWEN/"
+      ],
+      "duration_seconds": 10643.88,
+      "ended_at": "2026-09-17T13:31:14+00:00",
+      "exit_code": 0,
+      "gpu": "1",
+      "log_path": "finetuning/train_queue_logs/llama-sqpsych-qwen-tm_20260917_103350_attempt1.log",
+      "pid": 9808,
+      "started_at": "2026-09-17T10:33:50+00:00",
+      "status": "succeeded"
+    }
+  },
+  "updated_at": "2026-09-17T13:31:14+00:00",
+  "version": 1
+}

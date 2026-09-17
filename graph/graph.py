@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingImports]
@@ -47,6 +48,9 @@ class TherapyGraphBuilder(
   def __init__(self, config_path: str, profile: dict[str, Any], *, disable_tib: bool = False):
     self.cfg = load_runtime_config(config_path)
     self.profile = profile
+    action_seed = self.cfg.env.get("action_seed")
+    # A profile's stream is independent of process scheduling and other profiles.
+    self.action_rng = random.Random(f"{int(action_seed)}:{profile.get('idx', 'unknown')}") if action_seed is not None else None
     self.disable_tib = bool(disable_tib)
     self._init_agents()
     self.cbt_techniques = self._load_techniques()
@@ -541,6 +545,7 @@ class TherapyGraphBuilder(
     )
     selected_action = sample_patient_action(
       merged_distribution,
+      rng=self.action_rng,
       utterance_index=state["utterance_index"],
     )
 

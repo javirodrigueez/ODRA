@@ -224,6 +224,8 @@ class PatientAgent(Agent):
         suffix=suffix,
         engagement_block=engagement_block,
       )
+    if "qwen" in getattr(self.llm, "model_id", "").lower():
+      user_prompt += "\n\nKeep your response under 80 words unless a longer response is needed for a natural conversation."
     #breakpoint() #devlog
     return [
       {"role": "system", "content": self.system_prompt},

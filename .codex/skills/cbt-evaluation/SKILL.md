@@ -52,6 +52,8 @@ python .codex/skills/cbt-evaluation/scripts/run_cbt_evaluation.py \
 
 If the output root already exists and contains files, do not pass `--overwrite` until the user explicitly authorizes replacing that tree. Use `--dry-run` to inspect the planned GPU, port, output, simulation, and evaluation settings without starting servers, simulations, or paid evaluations.
 
+Use `--simulation-script agent_simulation_mirror.py` to simulate MIRROR-style patients.
+
 The script performs these gates in order:
 
 1. Launch one vLLM server per evaluation and require HTTP 200 health plus the exact served model ID.

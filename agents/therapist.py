@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .interfaces import Agent, ChatMessage, LLM, StructuredOutputError, coerce_bool, load_prompt, parse_json_response, render_prompt
 
@@ -183,6 +183,8 @@ class TherapistAgent(Agent):
       suffix=suffix,
       utterance=True,
     )
+    if "qwen" in getattr(self.llm, "model_id", "").lower():
+      user_prompt += "\n\nKeep your response under 80 words unless a longer response is needed for a natural conversation."
     return [
       {"role": "system", "content": self.system_prompt},
       {"role": "user", "content": user_prompt},
@@ -424,6 +426,7 @@ class TherapistAgent(Agent):
     instruction: str,
     max_retries: int = 2,
     expected_type: type[Any] | tuple[type[Any], ...] | None = dict,
+    validator: Callable[[Any], str | None] | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -468,21 +471,24 @@ class TherapistAgent(Agent):
       except StructuredOutputError as exc:
         last_error = str(exc)
       else:
-        if expected_type is None or isinstance(parsed, expected_type):
-          return parsed, {
-            "raw": last_raw,
-            "attempts": attempts,
-            "parse_mode": parse_meta.get("mode", "direct"),
-          }
-        expected_name = getattr(expected_type, "__name__", str(expected_type))
-        last_error = f"expected {expected_name}, got {type(parsed).__name__}"
+        if expected_type is not None and not isinstance(parsed, expected_type):
+          expected_name = getattr(expected_type, "__name__", str(expected_type))
+          last_error = f"expected {expected_name}, got {type(parsed).__name__}"
+        else:
+          last_error = validator(parsed) if validator is not None else None
+          if last_error is None:
+            return parsed, {
+              "raw": last_raw,
+              "attempts": attempts,
+              "parse_mode": parse_meta.get("mode", "direct"),
+            }
       messages.append(
         {
           "role": "user",
           "content": self._build_user_prompt(
             instruction=(
               f"{instruction}\n\n"
-              "Your previous response was not valid JSON with the requested schema. Reply again."
+              f"Your previous response was invalid: {last_error}. Reply again with valid JSON that satisfies every requested field constraint."
             ),
             full_conversation=full_conversation,
             last_utterances=last_utterances,

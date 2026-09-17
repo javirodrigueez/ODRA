@@ -22,6 +22,7 @@ AGENTS.md
 /configs/*
 !/configs/template.yaml
 !/configs/local_wo_resistance.yaml
+!/configs/gpt4o_mini.yaml
 !/configs/zh_baselines/
 
 /evaluation/configs/*
@@ -99,3 +100,5 @@ AGENTS.md
 *.log
 *.pdf
 .ipynb_checkpoints/
+
+.claude/worktrees
