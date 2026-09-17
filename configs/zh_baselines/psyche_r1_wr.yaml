@@ -1,7 +1,7 @@
 therapist:
   type: local
   zh_variant: psyche_r1
-  base_url: http://localhost:8000/v1
+  base_url: http://localhost:8002/v1  # GPU1 pair, co-located with its own translator (see misc/ZH_BASELINES_HANDOFF.md GPU-colocation note)
   model_id: ft_models/Psyche-R1  # must match vLLM --served-model-name
   ft_system_prompt_path: ft_prompts/standard_zh.txt
   history_limit: 0  # 0 = full history (repo convention); set e.g. 20 to cap context like the other local baselines
@@ -10,7 +10,7 @@ therapist:
   max_tokens: 2048
 
 translator:
-  base_url: http://localhost:8001/v1
+  base_url: http://localhost:8003/v1  # GPU1 pair
   model_id: google/translategemma-12b-it
   max_tokens: 1024
   prompt_mode: chat_template  # switch to `manual` if the deployed vLLM drops source/target_lang_code content fields
