@@ -7,7 +7,9 @@ moderator, manifests and resume machinery are reused unchanged. Every therapist 
   2. builds the Chinese ChatML request following each model's repo conventions,
   3. generates with the vLLM server, parses `<think>` reasoning (Psyche-R1 only),
   4. translates the utterance ZH->EN into `content` (seen by patient, moderator and CTRS) and keeps the
-     original as `content_zh`. Reasoning traces stay in Chinese.
+     original as `content_zh` plus the Chinese reasoning as `reasoning_zh`. Reasoning traces stay in
+     Chinese, and past Psyche-R1 turns are replayed as `<think>{reasoning_zh}</think>\n{content_zh}`
+     (the shape the model was trained on).
 """
 
 from __future__ import annotations
@@ -86,6 +88,9 @@ class ZhTherapistGraphBuilder(AgentTherapyGraphBuilder):
       content_zh = ensure_str(raw.get("content_zh"))
       if content_zh:
         message["content_zh"] = content_zh
+      reasoning_zh = ensure_str(raw.get("reasoning_zh"))
+      if reasoning_zh:
+        message["reasoning_zh"] = reasoning_zh
     return normalized
 
   def _translate_pending_patient_messages(self, state: dict[str, Any]) -> None:
@@ -111,8 +116,13 @@ class ZhTherapistGraphBuilder(AgentTherapyGraphBuilder):
       if message.get("role") == PATIENT_ROLE:
         messages.append({"role": "user", "content": self._wrap_user_content(content_zh)})
       elif message.get("role") == THERAPIST_ROLE:
-        # Psyche-R1 assistant turns keep only the answer; the <think> block is not replayed.
-        messages.append({"role": "assistant", "content": content_zh})
+        # Psyche-R1 was fine-tuned (and its own run.py replays history) with the <think> block present
+        # in its past turns; answer-only history is out of distribution and makes the next completion
+        # come back empty ~75% of the time. Rebuild it from the parsed pieces, not from the raw output.
+        # No-op for SoulChat2.0, which never produces reasoning.
+        reasoning_zh = ensure_str(message.get("reasoning_zh"))
+        assistant_content = f"<think>{reasoning_zh}</think>\n{content_zh}" if reasoning_zh else content_zh
+        messages.append({"role": "assistant", "content": assistant_content})
     return messages
 
   def _generate_zh(self, messages: list[ChatMessage]) -> str:
@@ -165,6 +175,8 @@ class ZhTherapistGraphBuilder(AgentTherapyGraphBuilder):
       )
       idx = self._append_message(s, THERAPIST_ROLE, utterance)
       s["messages"][-1]["content_zh"] = utterance_zh
+      if reasoning_zh:
+        s["messages"][-1]["reasoning_zh"] = reasoning_zh
       self._append_trace(s, idx, THERAPIST_ROLE, traces)
       moderator_detected_end = self._moderator_detects_closing(utterance)
       if requested_end:
