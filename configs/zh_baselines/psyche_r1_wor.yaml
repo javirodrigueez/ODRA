@@ -1,0 +1,38 @@
+therapist:
+  type: local
+  zh_variant: psyche_r1
+  base_url: http://localhost:8000/v1
+  model_id: ft_models/Psyche-R1  # must match vLLM --served-model-name
+  ft_system_prompt_path: ft_prompts/standard_zh.txt
+  history_limit: 0  # 0 = full history (repo convention); set e.g. 20 to cap context like the other local baselines
+  temperature: 0.7
+  top_p: 0.9
+  max_tokens: 2048
+
+translator:
+  base_url: http://localhost:8001/v1
+  model_id: google/translategemma-12b-it
+  max_tokens: 1024
+  prompt_mode: chat_template  # switch to `manual` if the deployed vLLM drops source/target_lang_code content fields
+
+patient:
+  type: deepseek
+  base_url: https://openrouter.ai/api/v1
+  model_id: deepseek/deepseek-v3.2
+  temperature: 0.7
+  profiles: data/eval_full_cactus/eval_full_cactus.json
+
+topic_exploration:
+  patient_classifier_path: BAAI/bge-reranker-v2-m3
+  patient_wikipedia_dir: data/wikipedias
+
+env:
+  max_turns: 100
+  min_turns: 60
+  output_dir: /outs/local/Psyche-R1-wor
+  verbose: true
+  resume_file:
+  resistance: false
+  disable_tib: false
+  resistance_handling: none
+  long_session_turn_threshold: 70

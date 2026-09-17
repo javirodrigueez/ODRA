@@ -35,3 +35,39 @@ Edit model and ChatML data paths in `finetuning/configs/`, then preview or run:
 python finetuning/train_queue_manager.py \
   --config finetuning/configs/train_queue_example.yaml --gpus 0 --dry-run
 ```
+
+## Chinese therapist baselines (SoulChat2.0 / Psyche-R1)
+
+`agent_simulation_zh.py` runs the same simulation with a Chinese therapist model behind a
+translation layer: patient utterances are translated EN→ZH before reaching the therapist and
+therapist utterances ZH→EN before reaching the patient, the closing moderator and CTRS. The English
+text is stored in `content`, the Chinese original in `content_zh`; Psyche-R1 reasoning traces are kept
+in Chinese. The therapist follows each repo's conventions (SoulChat2.0: PsyDT REBT system prompt, full
+history, temperature 0.75 / top_p 0.9; Psyche-R1: Chinese `ft_prompts/standard_zh.txt` system prompt,
+`<think>` prefix from its `run.py`, temperature 0.7 / top_p 0.9). Configs live in `configs/zh_baselines/`.
+
+Weights: `ft_models/Psyche-R1` from HuggingFace (`MindIntLab/Psyche-R1`); SoulChat2.0 is only on ModelScope:
+
+```bash
+scripts/download_modelscope.sh YIRONGCHEN/SoulChat2.0-Qwen2-7B ft_models/SoulChat2.0-Qwen2-7B
+```
+
+Serve the therapist on one GPU and the translator on the other (`--served-model-name` must match
+`therapist.model_id`; `google/translategemma-12b-it` is a gated Gemma-license repo, so `HF_TOKEN`
+must have accepted its terms. It is a Gemma 3 multimodal checkpoint with a 2K-token input context;
+at bf16 it needs ~25 GB, so on a 24 GB card add `--quantization fp8` or use `translategemma-4b-it`):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 vllm serve ft_models/SoulChat2.0-Qwen2-7B --served-model-name ft_models/SoulChat2.0-Qwen2-7B --port 8000 --max-model-len 20000
+# or: CUDA_VISIBLE_DEVICES=0 vllm serve ft_models/Psyche-R1 --served-model-name ft_models/Psyche-R1 --port 8000 --max-model-len 32768
+CUDA_VISIBLE_DEVICES=1 vllm serve google/translategemma-12b-it --port 8001 --max-model-len 4096 --language-model-only
+python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --n-profiles 1   # smoke test
+python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --multiprocessing --n-processes 8 --eval
+```
+
+Before the full runs, check one translation request against the deployed vLLM: TranslateGemma
+takes the languages from `source_lang_code` / `target_lang_code` fields inside the content part;
+if the response is not a translation, set `translator.prompt_mode: manual` in the config, which
+renders the same instruction as a plain string. Full-history requests can exceed
+`--max-model-len` late in long sessions; set `therapist.history_limit` (e.g. 20, as the other local
+baselines use) or raise `--max-model-len` if that happens.
