@@ -1,4 +1,5 @@
 therapist:
+  seed: # optional integer generation seed
   type: 
   model_id: 
   base_url:
@@ -14,6 +15,7 @@ therapist:
   max_tokens:
 
 patient:
+  seed: # optional integer generation seed
   type: 
   model_id:
   base_url:
@@ -33,6 +35,7 @@ topic_exploration:
   patient_wikipedia_dir:
 
 env:
+  action_seed: # optional integer; sampling streams are derived per profile idx
   max_turns:
   min_turns:
   output_dir:

@@ -159,6 +159,8 @@ def launch_server(
   gpu_memory_utilization: float,
   port: int,
   log_path: Path,
+  disable_custom_all_reduce: bool = False,
+  safetensors_load_strategy: str | None = None,
 ) -> subprocess.Popen[str]:
   command = [
     "vllm",
@@ -185,11 +187,20 @@ def launch_server(
   tensor_parallel_size = len(gpu.split(","))
   if tensor_parallel_size > 1:
     command.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
+    if disable_custom_all_reduce:
+      command.append("--disable-custom-all-reduce")
   if tokenizer is not None:
     command[3:3] = ["--tokenizer", str(tokenizer)]
+  if safetensors_load_strategy:
+    command.extend(["--safetensors-load-strategy", safetensors_load_strategy])
   environment = os.environ.copy()
   environment["CUDA_VISIBLE_DEVICES"] = gpu
   environment["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+  for key in ("NCCL_P2P_DISABLE", "NCCL_IB_DISABLE"):
+    if tensor_parallel_size > 1:
+      environment[key] = "1"
+    else:
+      environment.pop(key, None)
   log_path.parent.mkdir(parents=True, exist_ok=True)
   log = log_path.open("w", encoding="utf-8")
   process = subprocess.Popen(
@@ -249,10 +260,11 @@ def simulation_command(
   profiles: Path,
   n_profiles: int,
   n_processes: int,
+  simulation_script: str = "agent_simulation.py",
 ) -> list[str]:
   return [
     "python",
-    str(root / "agent_simulation.py"),
+    str(resolve_path(simulation_script, root)),
     "--cfg",
     str(config),
     "--profiles-path",
@@ -338,6 +350,7 @@ def print_plan(
   n_profiles: int,
   n_processes: int,
   eval_max_iter: int,
+  simulation_script: str,
 ) -> None:
   print(f"Tokenizer: {tokenizer or 'checkpoint default'}")
   print(f"Summary output: {output}")
@@ -349,6 +362,7 @@ def print_plan(
       f"output {run['output']}, config {run['config']}"
     )
   print(f"Simulation: {n_profiles} profiles, {n_processes} processes per run")
+  print(f"Simulation script: {simulation_script}")
   print(f"Evaluation: CTRS only, max_iter={eval_max_iter}, expected requests/run={n_profiles * len(CTRS_KEYS)}")
 
 
@@ -419,6 +433,7 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
     args.n_profiles,
     args.n_processes,
     args.eval_max_iter,
+    args.simulation_script,
   )
   if args.dry_run:
     return None
@@ -454,6 +469,7 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
       raise RuntimeError(f"Port {run['port']} is already open.")
 
   servers: list[tuple[subprocess.Popen[str], int]] = []
+  servers_ready = False
   gpu_run_counts = {gpu: gpus.count(gpu) for gpu in set(gpus)}
   try:
     print("Launching vLLM servers...")
@@ -467,6 +483,8 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
         0.95 / gpu_run_counts[run["gpu"]],
         run["port"],
         logs_dir / f"{run['label']}-vllm.log",
+        disable_custom_all_reduce=args.disable_custom_all_reduce,
+        safetensors_load_strategy=args.safetensors_load_strategy,
       )
       servers.append((process, run["port"]))
     with ThreadPoolExecutor(max_workers=evaluations) as pool:
@@ -477,11 +495,12 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
       for future in futures:
         future.result()
     print("All server gates passed. Running simulations...")
+    servers_ready = True
 
     with ThreadPoolExecutor(max_workers=evaluations) as pool:
       futures = []
       for run in runs:
-        command = simulation_command(root, run["config"], profiles, args.n_profiles, args.n_processes)
+        command = simulation_command(root, run["config"], profiles, args.n_profiles, args.n_processes, args.simulation_script)
         if args.resume:
           _, failed = load_simulation_status(run["output"])
           run["retried_profiles"] = len(failed)
@@ -506,7 +525,7 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
         futures = []
         for run, failure_count in retry_runs:
           run["retried_profiles"] = failure_count
-          command = simulation_command(root, run["config"], profiles, failure_count, args.n_processes)
+          command = simulation_command(root, run["config"], profiles, failure_count, args.n_processes, args.simulation_script)
           command.extend(["--resume-from-json", str(manifest_path(run["output"])), "--retry-failed"])
           futures.append(pool.submit(run_logged, command, logs_dir / f"{run['label']}-simulation-retry.log", root))
         retry_results = [future.result() for future in futures]
@@ -519,8 +538,11 @@ def run_pipeline(args: argparse.Namespace) -> Path | None:
     print("All simulation gates passed.")
   finally:
     if servers:
-      print("Stopping vLLM servers...")
-      stop_servers(servers)
+      if args.keep_server and servers_ready:
+        print(f"Keeping vLLM servers running: {[(p.pid, port) for p, port in servers]}")
+      else:
+        print("Stopping vLLM servers...")
+        stop_servers(servers)
 
   print("Running CTRS batch dry-run gates...")
   expected_requests = args.n_profiles * len(CTRS_KEYS)
@@ -681,12 +703,20 @@ if __name__ == "__main__":
   parser.add_argument("--n-processes", type=int, default=50)
   parser.add_argument("--eval-max-iter", type=int, default=3)
   parser.add_argument("--server-timeout", type=int, default=900)
+  parser.add_argument("--disable-custom-all-reduce", action="store_true", help="Use NCCL instead of vLLM custom all-reduce for multi-GPU servers.")
+  parser.add_argument("--keep-server", action="store_true", help="Leave servers running after readiness succeeds, including through CTRS scoring.")
+  parser.add_argument("--safetensors-load-strategy", choices=["lazy", "eager", "prefetch"], help="Weight loading strategy; eager avoids random NFS reads.")
   parser.add_argument("--overwrite", action="store_true", help="Replace a non-empty output root.")
   parser.add_argument("--resume", action="store_true", help="Resume pending and failed profiles from existing manifests.")
   parser.add_argument(
     "--stop-on-conversation-error",
     action="store_true",
     help="Stop before retries or CTRS evaluation if any simulation ends with conversation_error.",
+  )
+  parser.add_argument(
+    "--simulation-script",
+    default="agent_simulation.py",
+    help="Simulation entry point to run, path relative to the repo root (default: agent_simulation.py).",
   )
   parser.add_argument("--dry-run", action="store_true", help="Print the plan without launching or writing outputs.")
   arguments = parser.parse_args()

@@ -10,6 +10,21 @@
 
 ## Evaluation
 
+To generate sessions with OpenAI GPT-4o-mini for both therapist and patient,
+set `GPT_API_KEY` in your environment or `.env`, then run from the repository root:
+
+```bash
+python simulation.py --cfg configs/gpt4o_mini.yaml --n-profiles 3
+```
+
+Edit `configs/gpt4o_mini.yaml` to configure the models, temperature, patient
+profiles, output folder, and turn limits. Omit `--n-profiles` to run the full
+dataset; add `--multiprocessing --n-processes N` for parallel simulations.
+The default input is `data/eval_full_cactus/eval_full_cactus.json` and the output
+is `/outs/eval_full_cactus_gpt4o_mini`. The private CACTUS profile file must exist
+locally; for a public checkout, supply `--profiles-path data/odra.json`.
+Resume using `--resume-from-json PATH_TO_MANIFEST` with the same config.
+
 Run the complete simulation, CTRS evaluation, and summary pipeline:
 
 ```bash

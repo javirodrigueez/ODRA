@@ -1875,6 +1875,7 @@ class GraphSupportMixin:
       "therapist",
       step_name,
     )
+    validator = self._validate_resistance_prediction if step_name == "resistance_prediction" else None
     try:
       parsed, _meta = self.therapist.generate_structured(
         full_conversation=self._full_conversation_for_prompt(state),
@@ -1883,6 +1884,7 @@ class GraphSupportMixin:
         session_context=self._build_stage_user_context(state),
         instruction=instruction,
         expected_type=expected_type,
+        validator=validator,
         temperature=temperature,
       )
       #print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
@@ -1894,6 +1896,19 @@ class GraphSupportMixin:
         state["last_reasoning"] = reasoning
     self._trace_structured_step(traces, step_name, instruction, parsed)
     return parsed
+
+  @staticmethod
+  def _validate_resistance_prediction(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+      return "resistance_prediction must be a JSON object"
+    for key in ("p_target", "signal_clarity"):
+      try:
+        value = float(payload[key])
+      except (KeyError, TypeError, ValueError):
+        return f"resistance_prediction.{key} must be a number in [0.0, 1.0]"
+      if not 0.0 <= value <= 1.0:
+        return f"resistance_prediction.{key} must be in [0.0, 1.0], got {value}"
+    return None
 
   def _run_patient_structured(
     self,

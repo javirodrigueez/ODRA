@@ -235,9 +235,6 @@ class AgentTherapyGraphBuilder:
   def _therapist_uses_local_chatml(self) -> bool:
     return self._model_type(getattr(self.cfg, "therapist", {})) == "local"
 
-  def _patient_uses_local_model(self) -> bool:
-    return self._model_type(getattr(self.cfg, "patient", {})) == "local"
-
   def _patient_utterance_system_prompt_path(self) -> str | Path:
     if self._cactus_patient_enabled():
       if self._resistance_enabled():
@@ -253,8 +250,6 @@ class AgentTherapyGraphBuilder:
     return CACTUS_PATIENT_USER_PROMPT
 
   def _init_agents(self) -> None:
-    if self._patient_uses_local_model():
-      raise ValueError("AgentTherapyGraphBuilder does not support patient.type: local.")
     therapist_llm = LLMFactory.create_from_config(self.cfg.therapist)
     patient_llm = LLMFactory.create_from_config(self.cfg.patient)
     prompt_ablation = self._patient_prompt_ablation()
