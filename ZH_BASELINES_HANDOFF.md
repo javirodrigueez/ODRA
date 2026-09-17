@@ -23,7 +23,7 @@ Relevant files (all on `main`, commit `45c56bb` or later):
 |---|---|
 | `agent_simulation_zh.py` | CLI, same flags as `agent_simulation.py` |
 | `graph/zh_therapist.py` | `ZhTherapistGraphBuilder` (therapist turn, translation caching) |
-| `agents/translator.py` | TranslateGemma client (`prompt_mode: chat_template` or `manual`) |
+| `agents/translator.py` | TranslateGemma client (client-side chat template + `/v1/completions`; see section 4) |
 | `configs/zh_baselines/{soulchat2,psyche_r1}_{wor,wr}.yaml` | the 4 experiments (wor = no resistance, wr = resistance) |
 | `agent_prompts/soulchat2_system_zh.txt`, `ft_prompts/standard_zh.txt`, `prompts/opening/initial_greeting_zh.txt` | Chinese prompts |
 | `scripts/download_modelscope.sh` | curl downloader for ModelScope repos |
@@ -80,21 +80,37 @@ served names. Both servers can take several minutes to load from NFS.
 
 ## 4. Validate the translator request format (mandatory, once)
 
-TranslateGemma reads the languages from `source_lang_code` / `target_lang_code` inside the content
-part. Some vLLM versions strip those extra keys. Test:
+RESOLVED (vLLM 0.21.0, transformers 5.8.1). This section originally said to send the language pair as
+`source_lang_code` / `target_lang_code` keys inside a chat content part, and to fall back to
+`translator.prompt_mode: manual` if that failed. **Both of those shapes are impossible with this
+model on this vLLM**, so the `prompt_mode` option no longer exists:
+
+- vLLM's `_parse_chat_message_content_part` (`vllm/entrypoints/chat_utils.py`) rebuilds every text
+  part as `{"type": "text", "text": ...}`, dropping the language keys before the chat template runs.
+  The template then resolves an empty language code and the request fails with HTTP 400
+  `'dict object' has no attribute ''`. This is unconditional for text parts;
+  `--chat-template-content-format openai|string|auto` does not change it.
+- The `manual` fallback (a plain string user message) also fails: the model's `chat_template.jinja`
+  requires `content` to be a one-item iterable with those keys, and has no plain-instruction path.
+
+`agents/translator.py` now renders the model's own chat template client-side and posts the result to
+`/v1/completions` (which does no content-part rewriting) with `add_special_tokens: false`, because
+the rendered text already begins with `<bos>`. This was verified token-identical to
+`AutoTokenizer.apply_chat_template(..., tokenize=True)`, so the instruction text and sampling are
+unchanged. No special server flags are needed. Validate with:
 
 ```bash
-curl -s localhost:8001/v1/chat/completions -H 'Content-Type: application/json' -d '{
-  "model": "google/translategemma-12b-it", "temperature": 0, "max_tokens": 200,
-  "messages": [{"role": "user", "content": [{"type": "text", "source_lang_code": "en",
-    "target_lang_code": "zh", "text": "I have been feeling anxious about work lately."}]}]}'
+python - <<'EOF'
+from omegaconf import OmegaConf
+from agents.translator import Translator
+cfg = OmegaConf.to_container(OmegaConf.load("configs/zh_baselines/soulchat2_wor.yaml"), resolve=True)
+t = Translator.from_config(cfg["translator"])
+print(t.en_to_zh("I have been feeling anxious about work lately."))
+print(t.zh_to_en("我最近工作压力很大，晚上总是睡不着。"))
+EOF
 ```
 
-Expected: a Chinese translation only (e.g. 我最近对工作感到很焦虑。). If the reply is English, not a
-translation, empty, or the server returns HTTP 400, set `translator.prompt_mode: manual` in all 4
-configs and re-test with the manual rendering (a plain string user message); `agents/translator.py`
-`MANUAL_PROMPT_TEMPLATE` shows the exact text. Also test the reverse direction
-(`source_lang_code: zh`, `target_lang_code: en`) with a Chinese sentence.
+Expected: a Chinese translation only (e.g. 最近我一直因为工作感到焦虑。) and a fluent English one back.
 
 ## 5. Validate the therapist models (once each)
 
@@ -184,7 +200,7 @@ python evaluation/turns_and_closings.py --eval-dir RUN/json
 
 For each of the 4 runs: number of sessions, distribution of `session_ended_reason`, number of
 `conversation_error` sessions (and the error messages), mean utterances per session, CTRS means from
-`ctrs_metrics.json`, and any config change you had to make (`prompt_mode`, `history_limit`,
+`ctrs_metrics.json`, and any config change you had to make (`history_limit`,
 translator model, profile set). Include the exact vLLM commands and versions used
 (`vllm --version`, `python -c "import transformers; print(transformers.__version__)"`).
 

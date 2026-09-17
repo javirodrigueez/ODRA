@@ -59,7 +59,7 @@ if "langchain_huggingface" not in sys.modules:
   langchain_huggingface_module.HuggingFacePipeline = object
   sys.modules["langchain_huggingface"] = langchain_huggingface_module
 
-from agents.translator import MANUAL_PROMPT_TEMPLATE, Translator, chunk_text  # noqa: E402
+from agents.translator import Translator, chunk_text  # noqa: E402
 from graph.zh_therapist import PSYCHE_R1_THINK_PREFIX, ZhTherapistGraphBuilder  # noqa: E402
 
 
@@ -128,17 +128,25 @@ class TranslatorTest(unittest.TestCase):
     self.assertEqual(chunks, ["Aaa aaa.", "Bbb bbb!", "Ccc ccc?"])
     self.assertEqual(chunk_text("第一句。第二句！", 4), ["第一句。", "第二句！"])
 
-  def test_build_messages_chat_template_and_manual_modes(self) -> None:
+  def test_build_prompt_matches_the_model_chat_template_byte_for_byte(self) -> None:
+    # Frozen copy of google/translategemma-12b-it's chat_template.jinja output for a single text turn
+    # with add_generation_prompt=True (verified against AutoTokenizer.apply_chat_template). The
+    # instruction text is the model's own; changing it would change the experiment.
     translator = Translator.__new__(Translator)
-    translator.prompt_mode = "chat_template"
-    messages = translator.build_messages("hello", "en", "zh")
     self.assertEqual(
-      messages,
-      [{"role": "user", "content": [{"type": "text", "source_lang_code": "en", "target_lang_code": "zh", "text": "hello"}]}],
+      translator.build_prompt("  hello  ", "en", "zh"),
+      "<bos><start_of_turn>user\n"
+      "You are a professional English (en) to Chinese (zh) translator. Your goal is to accurately "
+      "convey the meaning and nuances of the original English text while adhering to Chinese "
+      "grammar, vocabulary, and cultural sensitivities.\n"
+      "Produce only the Chinese translation, without any additional explanations or commentary. "
+      "Please translate the following English text into Chinese:\n\n\n"
+      "hello<end_of_turn>\n"
+      "<start_of_turn>model\n",
     )
-    translator.prompt_mode = "manual"
-    manual = translator.build_messages("hello", "zh", "en")
-    self.assertEqual(manual[0]["content"], MANUAL_PROMPT_TEMPLATE.format(source="Chinese", target="English", text="hello"))
+    reverse = translator.build_prompt("你好", "zh", "en")
+    self.assertIn("professional Chinese (zh) to English (en) translator", reverse)
+    self.assertTrue(reverse.endswith("into English:\n\n\n你好<end_of_turn>\n<start_of_turn>model\n"))
 
   def test_translate_joins_chunk_translations(self) -> None:
     translator = Translator.__new__(Translator)

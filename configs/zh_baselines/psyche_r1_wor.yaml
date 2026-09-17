@@ -13,7 +13,8 @@ translator:
   base_url: http://localhost:8003/v1  # GPU1 pair
   model_id: google/translategemma-12b-it
   max_tokens: 1024
-  prompt_mode: chat_template  # switch to `manual` if the deployed vLLM drops source/target_lang_code content fields
+  # No prompt_mode: vLLM's chat endpoint strips TranslateGemma's source/target_lang_code content keys,
+  # so agents/translator.py always renders the model's chat template client-side and calls /v1/completions.
 
 patient:
   type: deepseek

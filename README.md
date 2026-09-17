@@ -80,9 +80,10 @@ python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --n-
 python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --multiprocessing --n-processes 8 --eval
 ```
 
-Before the full runs, check one translation request against the deployed vLLM: TranslateGemma
-takes the languages from `source_lang_code` / `target_lang_code` fields inside the content part;
-if the response is not a translation, set `translator.prompt_mode: manual` in the config, which
-renders the same instruction as a plain string. Full-history requests can exceed
+TranslateGemma takes the languages from `source_lang_code` / `target_lang_code` fields inside the
+content part, but vLLM's chat endpoint strips those keys before the model's chat template runs (HTTP
+400 `'dict object' has no attribute ''`). `agents/translator.py` therefore renders the model's own
+chat template client-side and posts it to `/v1/completions` with `add_special_tokens: false`; this is
+token-identical to the chat path and needs no special server flags. Full-history requests can exceed
 `--max-model-len` late in long sessions; set `therapist.history_limit` (e.g. 20, as the other local
 baselines use) or raise `--max-model-len` if that happens.
