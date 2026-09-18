@@ -1756,7 +1756,12 @@ class GraphSupportMixin:
       except (TypeError, ValueError) as exc:
         raise ConversationProcessingError(f"Probability '{key}' must be numeric, got {raw_value!r}.") from exc
       if parsed < 0.0 or parsed > 1.0:
-        raise ConversationProcessingError(f"Probability '{key}' must be in [0, 1], got {parsed}.")
+        # Some providers emit a stray leading '-' on an otherwise valid value (same corruption
+        # pattern as resistance_prediction); recover it instead of failing the whole session.
+        if 0.0 <= abs(parsed) <= 1.0:
+          parsed = abs(parsed)
+        else:
+          raise ConversationProcessingError(f"Probability '{key}' must be in [0, 1], got {parsed}.")
       probs[key] = parsed
     total = sum(probs.values())
     if total <= 0:
