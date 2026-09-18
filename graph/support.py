@@ -1790,7 +1790,15 @@ class GraphSupportMixin:
         return lowered == "true"
     raise ConversationProcessingError(f"{step_name}.{key} must be a boolean, got {value!r}.")
 
-  def _require_bounded_float(self, payload: dict[str, Any], key: str, step_name: str, low: float, high: float) -> float:
+  def _require_bounded_float(
+    self,
+    payload: dict[str, Any],
+    key: str,
+    step_name: str,
+    low: float,
+    high: float,
+    recover_sign: bool = False,
+  ) -> float:
     if key not in payload:
       raise ConversationProcessingError(f"{step_name} is missing required numeric field '{key}'.")
     value = payload[key]
@@ -1799,6 +1807,10 @@ class GraphSupportMixin:
     except (TypeError, ValueError) as exc:
       raise ConversationProcessingError(f"{step_name}.{key} must be numeric, got {value!r}.") from exc
     if parsed < low or parsed > high:
+      # Some providers emit a stray leading '-' on an otherwise valid value. Only safe to undo
+      # when the field is non-negative by definition (low >= 0), never for signed fields.
+      if recover_sign and low >= 0.0 and low <= abs(parsed) <= high:
+        return abs(parsed)
       raise ConversationProcessingError(f"{step_name}.{key} must be in [{low}, {high}], got {parsed}.")
     return parsed
 
@@ -1875,6 +1887,12 @@ class GraphSupportMixin:
       "therapist",
       step_name,
     )
+    if step_name == "resistance_prediction":
+      validator = self._validate_resistance_prediction
+      max_retries = 4
+    else:
+      validator = None
+      max_retries = 2
     try:
       parsed, _meta = self.therapist.generate_structured(
         full_conversation=self._full_conversation_for_prompt(state),
@@ -1883,6 +1901,8 @@ class GraphSupportMixin:
         session_context=self._build_stage_user_context(state),
         instruction=instruction,
         expected_type=expected_type,
+        validator=validator,
+        max_retries=max_retries,
         temperature=temperature,
       )
       #print(f"    <DEBUG>{parsed}</DEBUG>") #devlog
@@ -1894,6 +1914,20 @@ class GraphSupportMixin:
         state["last_reasoning"] = reasoning
     self._trace_structured_step(traces, step_name, instruction, parsed)
     return parsed
+
+  @staticmethod
+  def _validate_resistance_prediction(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+      return "resistance_prediction must be a JSON object"
+    for key in ("p_target", "signal_clarity"):
+      try:
+        value = float(payload[key])
+      except (KeyError, TypeError, ValueError):
+        return f"resistance_prediction.{key} must be a number in [0.0, 1.0]"
+      # abs(): a stray leading '-' is recovered downstream, so it does not need a re-generation.
+      if not 0.0 <= abs(value) <= 1.0:
+        return f"resistance_prediction.{key} must be in [0.0, 1.0], got {value}"
+    return None
 
   def _run_patient_structured(
     self,
@@ -1967,8 +2001,15 @@ class GraphSupportMixin:
     )
     parsed = self._run_therapist_structured(state, traces, "resistance_prediction", instruction)
     payload = self._require_dict(parsed, "resistance_prediction")
-    p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0)
-    signal_clarity = self._require_bounded_float(payload, "signal_clarity", "resistance_prediction", 0.0, 1.0)
+    p_target = self._require_bounded_float(payload, "p_target", "resistance_prediction", 0.0, 1.0, recover_sign=True)
+    signal_clarity = self._require_bounded_float(
+      payload, "signal_clarity", "resistance_prediction", 0.0, 1.0, recover_sign=True
+    )
+    sign_recovered = [
+      key for key, value in (("p_target", p_target), ("signal_clarity", signal_clarity)) if float(payload[key]) != value
+    ]
+    if sign_recovered:
+      print(f"    [resistance_prediction] recovered sign-corrupted field(s): {', '.join(sign_recovered)}")
     prediction_update = self._apply_bayesian_predicted_resistance_update(previous_p, p_target, signal_clarity)
     prediction_update = apply_predicted_resistance_delta_clip(
       prediction_update,
@@ -1983,6 +2024,8 @@ class GraphSupportMixin:
     state["predicted_resistance"] = prediction_update["new_p"]
     trace_payload = dict(payload)
     trace_payload.update(prediction_update)
+    if sign_recovered:
+      trace_payload["sign_recovered"] = sign_recovered
     self._set_last_trace_output(traces, "resistance_prediction", trace_payload)
 
   def _apply_bayesian_predicted_resistance_update(
