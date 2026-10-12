@@ -13,6 +13,7 @@ myenv/
 AGENTS.md
 .launch_docker.sh
 .launch_docker_low.sh
+.python_docker.sh
 
 # Public data allowlist
 /data/*
@@ -102,3 +103,5 @@ AGENTS.md
 .ipynb_checkpoints/
 
 .claude/worktrees
+
+reports/

@@ -360,7 +360,7 @@ class DeepseekLLM(LLM):
       "messages": messages,
       "extra_body": {
         "provider": {
-          "order": ["deepseek", "streamlake", "novita/fp8"],
+          "order": ["gmicloud/fp8", "streamlake/fp8", "novita/fp8"],
           "allow_fallbacks": False
         }
       }
