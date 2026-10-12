@@ -59,7 +59,8 @@ if "langchain_huggingface" not in sys.modules:
   langchain_huggingface_module.HuggingFacePipeline = object
   sys.modules["langchain_huggingface"] = langchain_huggingface_module
 
-from agents.translator import MANUAL_PROMPT_TEMPLATE, Translator, chunk_text  # noqa: E402
+from agents.therapist import parse_agent_therapist_response  # noqa: E402
+from agents.translator import Translator, chunk_text  # noqa: E402
 from graph.zh_therapist import PSYCHE_R1_THINK_PREFIX, ZhTherapistGraphBuilder  # noqa: E402
 
 
@@ -128,17 +129,25 @@ class TranslatorTest(unittest.TestCase):
     self.assertEqual(chunks, ["Aaa aaa.", "Bbb bbb!", "Ccc ccc?"])
     self.assertEqual(chunk_text("第一句。第二句！", 4), ["第一句。", "第二句！"])
 
-  def test_build_messages_chat_template_and_manual_modes(self) -> None:
+  def test_build_prompt_matches_the_model_chat_template_byte_for_byte(self) -> None:
+    # Frozen copy of google/translategemma-12b-it's chat_template.jinja output for a single text turn
+    # with add_generation_prompt=True (verified against AutoTokenizer.apply_chat_template). The
+    # instruction text is the model's own; changing it would change the experiment.
     translator = Translator.__new__(Translator)
-    translator.prompt_mode = "chat_template"
-    messages = translator.build_messages("hello", "en", "zh")
     self.assertEqual(
-      messages,
-      [{"role": "user", "content": [{"type": "text", "source_lang_code": "en", "target_lang_code": "zh", "text": "hello"}]}],
+      translator.build_prompt("  hello  ", "en", "zh"),
+      "<bos><start_of_turn>user\n"
+      "You are a professional English (en) to Chinese (zh) translator. Your goal is to accurately "
+      "convey the meaning and nuances of the original English text while adhering to Chinese "
+      "grammar, vocabulary, and cultural sensitivities.\n"
+      "Produce only the Chinese translation, without any additional explanations or commentary. "
+      "Please translate the following English text into Chinese:\n\n\n"
+      "hello<end_of_turn>\n"
+      "<start_of_turn>model\n",
     )
-    translator.prompt_mode = "manual"
-    manual = translator.build_messages("hello", "zh", "en")
-    self.assertEqual(manual[0]["content"], MANUAL_PROMPT_TEMPLATE.format(source="Chinese", target="English", text="hello"))
+    reverse = translator.build_prompt("你好", "zh", "en")
+    self.assertIn("professional Chinese (zh) to English (en) translator", reverse)
+    self.assertTrue(reverse.endswith("into English:\n\n\n你好<end_of_turn>\n<start_of_turn>model\n"))
 
   def test_translate_joins_chunk_translations(self) -> None:
     translator = Translator.__new__(Translator)
@@ -148,11 +157,57 @@ class TranslatorTest(unittest.TestCase):
     self.assertEqual(translator.translate("   ", "en", "zh"), "")
 
 
+class ThinkBlockParsingTest(unittest.TestCase):
+  def test_single_block_is_split_into_reasoning_and_utterance(self) -> None:
+    self.assertEqual(parse_agent_therapist_response("<think>推理</think>\n回答"), ("推理", "回答"))
+
+  def test_plain_text_without_tags_is_the_utterance(self) -> None:
+    self.assertEqual(parse_agent_therapist_response("回答"), ("", "回答"))
+
+  def test_closing_tag_without_opening_tag_still_splits(self) -> None:
+    self.assertEqual(parse_agent_therapist_response("推理</think>回答"), ("推理", "回答"))
+
+  def test_unclosed_think_block_yields_an_empty_utterance(self) -> None:
+    # finish_reason=length mid-reasoning: the monologue must not leak through as an utterance.
+    self.assertEqual(parse_agent_therapist_response("<think>推理被截断了"), ("推理被截断了", ""))
+
+  def test_every_think_block_is_stripped_from_the_utterance(self) -> None:
+    raw = "<think>我的推理</think>\n我的回答\n<think>幻觉出来的下一轮</think>\n幻觉回答"
+    reasoning, utterance = parse_agent_therapist_response(raw)
+    self.assertEqual(reasoning, "我的推理")
+    self.assertNotIn("<think>", utterance)
+    self.assertNotIn("</think>", utterance)
+    self.assertIn("我的回答", utterance)
+
+  def test_trailing_unclosed_block_after_a_complete_one_is_cut_off(self) -> None:
+    reasoning, utterance = parse_agent_therapist_response("<think>我的推理</think>\n我的回答\n<think>被截断的第二段")
+    self.assertEqual((reasoning, utterance), ("我的推理", "我的回答"))
+
+
 class ZhRequestBuildingTest(unittest.TestCase):
   def test_soulchat2_greeting_request_has_system_and_plain_greeting_cue(self) -> None:
     builder = make_builder("soulchat2", [])
     messages = builder._build_zh_request_messages(builder._ensure_state_defaults(state_with([])))
     self.assertEqual(messages, [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": GREETING_PROMPT}])
+
+  def test_psyche_r1_replays_the_think_block_of_past_therapist_turns(self) -> None:
+    builder = make_builder("psyche_r1", [])
+    history = [
+      {"utterance_index": 1, "role": "therapist", "content": "Hello.", "content_zh": "你好。", "reasoning_zh": "先建立关系。"},
+      {"utterance_index": 2, "role": "patient", "content": "I feel down.", "content_zh": "我很低落。"},
+    ]
+    messages = builder._build_zh_request_messages(builder._ensure_state_defaults(state_with(history)))
+    self.assertEqual(messages[1], {"role": "assistant", "content": "<think>先建立关系。</think>\n你好。"})
+
+  def test_soulchat2_history_never_gets_a_think_block(self) -> None:
+    builder = make_builder("soulchat2", [])
+    history = [
+      {"utterance_index": 1, "role": "therapist", "content": "Hello.", "content_zh": "你好。"},
+      {"utterance_index": 2, "role": "patient", "content": "I feel down.", "content_zh": "我很低落。"},
+    ]
+    messages = builder._build_zh_request_messages(builder._ensure_state_defaults(state_with(history)))
+    self.assertEqual(messages[1], {"role": "assistant", "content": "你好。"})
+    self.assertNotIn("<think>", messages[1]["content"])
 
   def test_psyche_r1_wraps_every_user_turn_and_keeps_answers_only(self) -> None:
     builder = make_builder("psyche_r1", [])
@@ -182,20 +237,32 @@ class ZhRequestBuildingTest(unittest.TestCase):
     messages = builder._build_zh_request_messages(builder._ensure_state_defaults(state_with(history)))
     self.assertEqual([m["content"] for m in messages[1:]], ["多说一些。", "工作很难。"])
 
-  def test_normalize_messages_preserves_content_zh(self) -> None:
+  def test_normalize_messages_preserves_content_zh_and_reasoning_zh(self) -> None:
     builder = make_builder("soulchat2", [])
     state = builder._ensure_state_defaults(
       state_with(
         [
-          {"utterance_index": 1, "role": "therapist", "content": "Hello.", "content_zh": "你好。"},
+          {"utterance_index": 1, "role": "therapist", "content": "Hello.", "content_zh": "你好。", "reasoning_zh": "先建立关系。"},
           {"utterance_index": 2, "role": "patient", "content": "Hi."},
           {"role": "narrator", "content": "ignored"},
         ]
       )
     )
     self.assertEqual(state["messages"][0]["content_zh"], "你好。")
+    self.assertEqual(state["messages"][0]["reasoning_zh"], "先建立关系。")
     self.assertNotIn("content_zh", state["messages"][1])
+    self.assertNotIn("reasoning_zh", state["messages"][1])
     self.assertEqual(len(state["messages"]), 2)
+
+  def test_resumed_psyche_r1_session_still_replays_the_think_block(self) -> None:
+    # A resume reloads messages from JSON: reasoning_zh must survive _normalize_messages or the
+    # resumed session silently falls back to answer-only history.
+    builder = make_builder("psyche_r1", [])
+    resumed = builder._ensure_state_defaults(
+      state_with([{"utterance_index": 1, "role": "therapist", "content": "Hello.", "content_zh": "你好。", "reasoning_zh": "先建立关系。"}])
+    )
+    messages = builder._build_zh_request_messages(resumed)
+    self.assertEqual(messages[1]["content"], "<think>先建立关系。</think>\n你好。")
 
 
 class ZhTherapistTurnTest(unittest.TestCase):
@@ -244,6 +311,22 @@ class ZhTherapistTurnTest(unittest.TestCase):
     state = builder.therapist_turn(state_with([]))
     self.assertEqual(len(builder.zh_model.requests), 2)
     self.assertTrue(state["session_ended"])
+    self.assertEqual(state["session_ended_reason"], "conversation_error")
+    self.assertIn("empty utterance", state["conversation_error"])
+
+  def test_therapist_turn_stores_reasoning_zh_for_the_next_request(self) -> None:
+    builder = make_builder("psyche_r1", ["<think>来访者情绪低落。</think>\n我听到你最近很辛苦。", "<think>继续探索。</think>\n可以多说一些吗？"])
+    state = builder.therapist_turn(state_with([]))
+    self.assertEqual(state["messages"][-1]["reasoning_zh"], "来访者情绪低落。")
+    state["messages"].append({"utterance_index": 2, "role": "patient", "content": "Work is hard.", "content_zh": "工作很难。"})
+    state["utterance_index"] = 2
+    state = builder.therapist_turn(state)
+    self.assertEqual(builder.zh_model.requests[1][1]["content"], "<think>来访者情绪低落。</think>\n我听到你最近很辛苦。")
+
+  def test_unclosed_think_block_counts_as_an_empty_utterance(self) -> None:
+    builder = make_builder("psyche_r1", ["<think>推理被截断了", "<think>还是被截断了"])
+    state = builder.therapist_turn(state_with([]))
+    self.assertEqual(len(builder.zh_model.requests), 2)
     self.assertEqual(state["session_ended_reason"], "conversation_error")
     self.assertIn("empty utterance", state["conversation_error"])
 

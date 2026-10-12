@@ -19,28 +19,38 @@ AGENT_THERAPIST_STRICT_USER_INSTRUCTION = "Generate ONLY next therapist utteranc
 AGENT_THERAPIST_LENGTH_RESTRICTION = "Maintain the utterance under 70 words."
 THINK_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
 THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
+THINK_OPEN_RE = re.compile(r"<think>", re.IGNORECASE)
 THINK_DASH_RE = re.compile(r"<think>(.*?)---(.*)", re.DOTALL | re.IGNORECASE)
+
+
+def _cut_at_unclosed_think(text: str) -> str:
+  # A "<think>" with no closing tag means the generation was truncated mid-reasoning, so nothing from
+  # there on is a therapist utterance.
+  open_match = THINK_OPEN_RE.search(text)
+  return text[: open_match.start()].strip() if open_match is not None else text.strip()
 
 
 def parse_agent_therapist_response(raw_text: str) -> tuple[str, str]:
   text = (raw_text or "").strip()
-  match = THINK_BLOCK_RE.search(text)
-  if match is not None:
-    reasoning = match.group(1).strip()
-    utterance = f"{text[:match.start()]}{text[match.end():]}".strip()
-    return reasoning, utterance
+  blocks = THINK_BLOCK_RE.findall(text)
+  if blocks:
+    # Extra <think> blocks come from the model hallucinating further turns; the first block is this
+    # turn's own reasoning and every block is stripped so none of them leaks into the utterance.
+    return blocks[0].strip(), _cut_at_unclosed_think(THINK_BLOCK_RE.sub("\n", text))
 
   dash_match = THINK_DASH_RE.search(text)
   if dash_match is not None:
     return dash_match.group(1).strip(), dash_match.group(2).strip()
 
   close_match = THINK_CLOSE_RE.search(text)
-  if close_match is None:
-    return "", text
+  if close_match is not None:
+    return text[: close_match.start()].strip(), text[close_match.end() :].strip()
 
-  reasoning = text[:close_match.start()].strip()
-  utterance = text[close_match.end():].strip()
-  return reasoning, utterance
+  open_match = THINK_OPEN_RE.search(text)
+  if open_match is not None:
+    # Unclosed <think> (e.g. finish_reason=length): reasoning only, empty utterance -> retried upstream.
+    return text[open_match.end() :].strip(), ""
+  return "", text
 
 
 def _has_reasoning_and_utterance(reasoning: str, utterance: str) -> bool:
