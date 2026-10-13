@@ -55,13 +55,9 @@ python finetuning/train_queue_manager.py \
 
 `agent_simulation_zh.py` runs the same simulation with a Chinese therapist model behind a
 translation layer: patient utterances are translated EN→ZH before reaching the therapist and
-therapist utterances ZH→EN before reaching the patient, the closing moderator and CTRS. The English
-text is stored in `content`, the Chinese original in `content_zh`; Psyche-R1 reasoning traces are kept
-in Chinese. The therapist follows each repo's conventions (SoulChat2.0: PsyDT REBT system prompt, full
-history, temperature 0.75 / top_p 0.9; Psyche-R1: Chinese `ft_prompts/standard_zh.txt` system prompt,
-`<think>` prefix from its `run.py`, temperature 0.7 / top_p 0.9). Configs live in `configs/zh_baselines/`.
+therapist utterances ZH→EN before reaching the patient, the closing moderator and CTRS.
 
-Weights: `ft_models/Psyche-R1` from HuggingFace (`MindIntLab/Psyche-R1`); SoulChat2.0 is only on ModelScope:
+Weights used: `ft_models/Psyche-R1` from HuggingFace (`MindIntLab/Psyche-R1`); SoulChat2.0 is only on ModelScope:
 
 ```bash
 scripts/download_modelscope.sh YIRONGCHEN/SoulChat2.0-Qwen2-7B ft_models/SoulChat2.0-Qwen2-7B
@@ -79,11 +75,3 @@ CUDA_VISIBLE_DEVICES=1 vllm serve google/translategemma-12b-it --port 8001 --max
 python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --n-profiles 1   # smoke test
 python agent_simulation_zh.py --cfg configs/zh_baselines/soulchat2_wor.yaml --multiprocessing --n-processes 8 --eval
 ```
-
-TranslateGemma takes the languages from `source_lang_code` / `target_lang_code` fields inside the
-content part, but vLLM's chat endpoint strips those keys before the model's chat template runs (HTTP
-400 `'dict object' has no attribute ''`). `agents/translator.py` therefore renders the model's own
-chat template client-side and posts it to `/v1/completions` with `add_special_tokens: false`; this is
-token-identical to the chat path and needs no special server flags. Full-history requests can exceed
-`--max-model-len` late in long sessions; set `therapist.history_limit` (e.g. 20, as the other local
-baselines use) or raise `--max-model-len` if that happens.
