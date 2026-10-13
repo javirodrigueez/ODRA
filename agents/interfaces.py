@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -10,7 +11,7 @@ from langchain_aws import ChatBedrock  # pyright: ignore[reportMissingImports]
 from langchain_core.prompts import PromptTemplate  # pyright: ignore[reportMissingImports]
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline  # pyright: ignore[reportMissingImports]
 from omegaconf import OmegaConf  # pyright: ignore[reportMissingImports]
-from openai import OpenAI  # pyright: ignore[reportMissingImports]
+from openai import OpenAI, RateLimitError  # pyright: ignore[reportMissingImports]
 
 load_dotenv()
 
@@ -360,7 +361,7 @@ class DeepseekLLM(LLM):
       "messages": messages,
       "extra_body": {
         "provider": {
-          "order": ["gmicloud/fp8", "streamlake/fp8", "novita/fp8"],
+          "order": ["atlas-cloud/fp8", "baidu/fp8", "digitalocean"],
           "allow_fallbacks": False
         }
       }
@@ -368,7 +369,17 @@ class DeepseekLLM(LLM):
     for key in GENERATION_CONFIG_KEYS:
       if key in kwargs and kwargs[key] is not None:
         create_kwargs[key] = kwargs[key]
-    response = self.chat_model.chat.completions.create(**create_kwargs)
+    for attempt in range(6):
+      try:
+        response = self.chat_model.chat.completions.create(**create_kwargs)
+      except RateLimitError:  # 429 from OpenRouter admission control or the upstream provider
+        if attempt == 5:
+          raise
+        time.sleep(15 * 2 ** attempt)
+        continue
+      if response.choices:  # OpenRouter sometimes returns an upstream provider error with choices=None
+        break
+      time.sleep(2 ** attempt)
     return str(response.choices[0].message.content).replace('\n', '').removeprefix('```json').removesuffix('```')
 
 class OpenaiLLM(LLM):

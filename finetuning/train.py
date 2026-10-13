@@ -121,10 +121,28 @@ def restore_transformers_import_utils_patch(finder: TransformersImportUtilsPatch
     _TRANSFORMERS_IMPORT_UTILS_PATCH.clear()
 
 
+def patch_transformers_4572_tokenizer_config() -> None:
+    # transformers 4.57.2 reads a local config.json as a dict and then accesses
+    # `_config.model_type`, crashing on local checkpoints (fixed in 4.57.3).
+    import transformers
+    if transformers.__version__ != "4.57.2":
+        return
+    import types
+    import transformers.tokenization_utils_base as tub
+
+    class AttrDict(dict):
+        def __getattr__(self, name: str) -> Any:
+            return self.get(name)
+
+    tub.json = types.SimpleNamespace(**{k: getattr(json, k) for k in dir(json) if not k.startswith("_")})
+    tub.json.load = lambda f, **kwargs: json.load(f, object_hook=AttrDict, **kwargs)
+
+
 _unsloth_import_patch_finder = install_unsloth_import_patch()
 from unsloth import FastLanguageModel
 from unsloth.chat_templates import get_chat_template, train_on_responses_only
 restore_transformers_import_utils_patch(_unsloth_import_patch_finder)
+patch_transformers_4572_tokenizer_config()
 
 import torch
 import wandb

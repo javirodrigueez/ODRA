@@ -393,6 +393,8 @@ def print_summary(
 def run_queue(args: argparse.Namespace) -> int:
     jobs = load_jobs(args.config)
     gpus = parse_gpus(args.gpus)
+    # repeat each GPU id so several jobs can share one GPU (e.g. 0,1 x2 -> slots 0,0,1,1)
+    gpus = [gpu for gpu in gpus for _ in range(args.jobs_per_gpu)]
     if gpus and args.max_parallel > len(gpus):
         raise SystemExit(
             f"--max-parallel={args.max_parallel} requires at least that many --gpus entries."
@@ -502,6 +504,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Comma-separated GPU ids. Each parallel slot gets one CUDA_VISIBLE_DEVICES value.",
+    )
+    parser.add_argument(
+        "--jobs-per-gpu",
+        type=int,
+        default=1,
+        help="Number of parallel slots assigned to each GPU in --gpus.",
     )
     parser.add_argument(
         "--state-file",

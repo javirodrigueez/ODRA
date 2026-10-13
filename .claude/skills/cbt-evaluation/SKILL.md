@@ -33,7 +33,7 @@ Use these defaults unless the user requests changes:
 From the ReasonCBT repository root, run:
 
 ```bash
-python .codex/skills/cbt-evaluation/scripts/run_cbt_evaluation.py \
+python .claude/skills/cbt-evaluation/scripts/run_cbt_evaluation.py \
   --input models/THERAPIST_CHECKPOINT \
   --output /outs/local/THERAPIST_CHECKPOINT-evaluation \
   --evaluations 2
@@ -44,7 +44,7 @@ Add `--tokenizer PATH` only when the checkpoint needs a different tokenizer. Add
 For distinct simulation conditions, supply one YAML per parallel pipeline. The runner reads each config's checkpoint, localhost port, and output directory without modifying the source YAML:
 
 ```bash
-python .codex/skills/cbt-evaluation/scripts/run_cbt_evaluation.py \
+python .claude/skills/cbt-evaluation/scripts/run_cbt_evaluation.py \
   --configs evaluation/configs/condition-a.yaml evaluation/configs/condition-b.yaml \
   --output /outs/local/combined-evaluation \
   --gpus 0,1

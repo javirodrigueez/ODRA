@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import random
 from typing import Any, Literal, cast
@@ -709,10 +710,22 @@ class TherapyGraphBuilder(
       return "end"
     return "continue"
 
+  def _with_turn_retries(self, turn_fn: Any, max_retries: int = 2) -> Any:
+    # A malformed LLM reply (e.g. a missing JSON field) ends the session with conversation_error.
+    # Re-run the whole turn from an untouched copy of the incoming state before giving up.
+    def run(state: SessionState) -> SessionState:
+      for attempt in range(max_retries + 1):
+        result = turn_fn(copy.deepcopy(state))
+        if not result.get("conversation_error") or state.get("conversation_error") or attempt == max_retries:
+          return result
+        print(f"    <RETRY>{turn_fn.__name__} attempt {attempt + 2} after: {result['conversation_error']}</RETRY>")
+      return result
+    return run
+
   def create_chain(self) -> Any:
     workflow = StateGraph(SessionState)
-    workflow.add_node("therapist_turn", self.therapist_turn)
-    workflow.add_node("patient_turn", self.patient_turn)
+    workflow.add_node("therapist_turn", self._with_turn_retries(self.therapist_turn))
+    workflow.add_node("patient_turn", self._with_turn_retries(self.patient_turn))
     workflow.add_edge(START, "therapist_turn")
     workflow.add_edge("therapist_turn", "patient_turn")
     workflow.add_conditional_edges(
