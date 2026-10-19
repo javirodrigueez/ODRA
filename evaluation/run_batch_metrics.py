@@ -33,6 +33,22 @@ DEFAULT_OUTPUT_COST_PER_1M = 5.0
 MAX_BATCH_REQUESTS = 50_000
 MAX_BATCH_FILE_BYTES = 200 * 1024 * 1024
 
+# Anthropic judge (--judge sonnet): Message Batches API, one request per sample (no `n`).
+JUDGE_MODELS = {"gpt": MODEL_NAME, "sonnet": "claude-sonnet-5-5"}
+# Batch prices (50% of standard): gpt-4o $2.50/$10 -> $1.25/$5; Sonnet 5.5 $2/$10 -> $1/$5.
+JUDGE_COSTS_PER_1M = {"gpt": (DEFAULT_INPUT_COST_PER_1M, DEFAULT_OUTPUT_COST_PER_1M), "sonnet": (1.0, 5.0)}
+CACHE_WRITE_COST_MULTIPLIER = 1.25  # Anthropic 5-minute cache writes, relative to the input price.
+CACHE_READ_COST_MULTIPLIER = 0.1  # Anthropic cache reads, relative to the input price.
+ANTHROPIC_BATCH_ENDPOINT = "/v1/messages/batches"
+ANTHROPIC_MAX_TOKENS = 4096  # Judge outputs are ~100 tokens (CTRS/WAI) and ~1k tokens (PANAS).
+# Sonnet 5.5 rejects temperature and `thinking: disabled`; between_tools is its no-thinking mode.
+ANTHROPIC_THINKING = {"type": "between_tools"}
+ANTHROPIC_EFFORT = "high"
+ANTHROPIC_MAX_BATCH_REQUESTS = 100_000
+ANTHROPIC_MAX_BATCH_BYTES = 256 * 1024 * 1024
+# ~5 bytes/token in the JSONL (~6 for escaped non-ASCII), so this keeps one batch below 256 MB.
+ANTHROPIC_MAX_BATCH_TOKENS = 20_000_000
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALUATION_ROOT = Path(__file__).resolve().parent
 CTRS_PROMPTS_ROOT = EVALUATION_ROOT / "prompts" / "ctrs"
@@ -609,6 +625,46 @@ def write_jsonl(path: Path, specs: list[BatchRequest]) -> None:
   atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
 
 
+def anthropic_custom_ids(index: int, max_iter: int) -> list[str]:
+  # Anthropic custom ids must match ^[a-zA-Z0-9_-]{1,64}$; request_map keeps the link to the original id.
+  return [f"r{index:06d}_s{sample}" for sample in range(max_iter)]
+
+
+def anthropic_params(body: dict[str, Any]) -> dict[str, Any]:
+  messages = body["messages"]
+  system = "\n\n".join(str(message["content"]) for message in messages if message["role"] == "system")
+  params = {
+    "model": body["model"],
+    "max_tokens": ANTHROPIC_MAX_TOKENS,
+    "messages": [
+      {"role": message["role"], "content": message["content"]}
+      for message in messages
+      if message["role"] != "system"
+    ],
+    "thinking": ANTHROPIC_THINKING,
+    "output_config": {"effort": ANTHROPIC_EFFORT},
+  }
+  if system:
+    params["system"] = system
+  return params
+
+
+def write_anthropic_jsonl(path: Path, specs: list[BatchRequest], request_map: dict[str, dict[str, Any]]) -> None:
+  lines = [
+    json.dumps({"custom_id": anthropic_id, "params": anthropic_params(spec.body)}, ensure_ascii=True)
+    for spec in specs
+    for anthropic_id in request_map[spec.custom_id]["anthropic_custom_ids"]
+  ]
+  atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
+
+
+def judge_shard_options(judge: str, max_iter: int, token_limit: int) -> tuple[int, int, int | None]:
+  # Returns (token limit, requests per spec, max requests per batch).
+  if judge == "sonnet":
+    return min(token_limit, ANTHROPIC_MAX_BATCH_TOKENS), max_iter, ANTHROPIC_MAX_BATCH_REQUESTS
+  return token_limit, 1, None
+
+
 def _get_token_encoding(model: str) -> Any | None:
   try:
     import tiktoken  # pyright: ignore[reportMissingImports]
@@ -657,6 +713,8 @@ def shard_specs_by_enqueued_tokens(
   phase_name: str,
   specs: list[BatchRequest],
   token_limit: int,
+  samples: int = 1,
+  max_requests: int | None = None,
 ) -> list[BatchShard]:
   if token_limit < 1:
     raise BatchMetricsError(f"--limit must be a positive integer, got: {token_limit}")
@@ -665,13 +723,14 @@ def shard_specs_by_enqueued_tokens(
   current_tokens = 0
 
   for spec in specs:
-    spec_tokens = estimate_request_enqueued_tokens(spec)
+    spec_tokens = estimate_request_enqueued_tokens(spec) * samples
     if spec_tokens > token_limit:
       raise BatchMetricsError(
         f"Request {spec.custom_id} has {spec_tokens} estimated enqueued tokens, "
         f"which exceeds the per-batch limit of {token_limit}."
       )
-    if current_specs and current_tokens + spec_tokens > token_limit:
+    too_many_requests = max_requests is not None and (len(current_specs) + 1) * samples > max_requests
+    if current_specs and (current_tokens + spec_tokens > token_limit or too_many_requests):
       shards.append(
         BatchShard(
           name=f"{phase_name}/shard_{len(shards) + 1:04d}",
@@ -701,18 +760,20 @@ def summarize_batch_plan(
   token_limit: int,
   *,
   status: str = "planned",
+  samples: int = 1,
+  max_requests: int | None = None,
 ) -> dict[str, Any]:
-  shards = shard_specs_by_enqueued_tokens(phase_name, specs, token_limit) if specs else []
+  shards = shard_specs_by_enqueued_tokens(phase_name, specs, token_limit, samples, max_requests) if specs else []
   return {
     "phase": phase_name,
     "status": status if specs or status != "planned" else "skipped",
-    "request_count": len(specs),
+    "request_count": len(specs) * samples,
     "batch_count": len(shards),
     "enqueued_tokens": sum(shard.enqueued_tokens for shard in shards),
     "batches": [
       {
         "name": shard.name,
-        "request_count": len(shard.specs),
+        "request_count": len(shard.specs) * samples,
         "enqueued_tokens": shard.enqueued_tokens,
       }
       for shard in shards
@@ -734,15 +795,20 @@ def shard_progress(items: list[Any], description: str) -> Iterable[Any]:
   )
 
 
-def validate_batch_input(path: Path, request_count: int) -> None:
-  if request_count > MAX_BATCH_REQUESTS:
+def validate_batch_input(
+  path: Path,
+  request_count: int,
+  max_requests: int = MAX_BATCH_REQUESTS,
+  max_bytes: int = MAX_BATCH_FILE_BYTES,
+) -> None:
+  if request_count > max_requests:
     raise BatchMetricsError(
-      f"Batch has {request_count} requests; maximum supported per batch is {MAX_BATCH_REQUESTS}."
+      f"Batch has {request_count} requests; maximum supported per batch is {max_requests}."
     )
   size = path.stat().st_size
-  if size > MAX_BATCH_FILE_BYTES:
+  if size > max_bytes:
     raise BatchMetricsError(
-      f"Batch input file is {size} bytes; maximum supported size is {MAX_BATCH_FILE_BYTES} bytes."
+      f"Batch input file is {size} bytes; maximum supported size is {max_bytes} bytes."
     )
 
 
@@ -834,8 +900,13 @@ def response_usage_cost(
   usage = body.get("usage") or {}
   prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0
   completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
+  # Anthropic-only usage fields (absent for OpenAI, so these terms are 0 there).
+  cache_write_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+  cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
   return (
     (float(prompt_tokens) * input_cost_per_1m)
+    + (float(cache_write_tokens) * input_cost_per_1m * CACHE_WRITE_COST_MULTIPLIER)
+    + (float(cache_read_tokens) * input_cost_per_1m * CACHE_READ_COST_MULTIPLIER)
     + (float(completion_tokens) * output_cost_per_1m)
   ) / 1_000_000
 
@@ -1039,6 +1110,7 @@ def compute_signature(
   azure: bool = False,
   limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
   run_from_json: Path | None = None,
+  judge: str = "gpt",
 ) -> dict[str, Any]:
   files = [
     {
@@ -1049,7 +1121,7 @@ def compute_signature(
     }
     for record in records
   ]
-  return {
+  signature = {
     "input_dir": str(input_dir.resolve()),
     "output_dir": str(output_dir.resolve()),
     "model": model,
@@ -1063,6 +1135,22 @@ def compute_signature(
     "run_from_json": str(run_from_json.resolve()) if run_from_json is not None else "",
     "files": files,
   }
+  if judge != "gpt":
+    # Only non-default judges extend the signature, so existing GPT artifacts keep their hash.
+    signature.update(
+      {
+        "judge": judge,
+        "provider": "anthropic",
+        "endpoint": ANTHROPIC_BATCH_ENDPOINT,
+        "batch_endpoint": ANTHROPIC_BATCH_ENDPOINT,
+        "anthropic_params": {
+          "max_tokens": ANTHROPIC_MAX_TOKENS,
+          "thinking": ANTHROPIC_THINKING,
+          "effort": ANTHROPIC_EFFORT,
+        },
+      }
+    )
+  return signature
 
 
 def signature_hash(signature: dict[str, Any]) -> str:
@@ -1295,6 +1383,8 @@ def prepare_phase_artifacts(
   phase_name: str,
   specs: list[BatchRequest],
   manifest: dict[str, Any],
+  judge: str = "gpt",
+  max_iter: int = 1,
 ) -> dict[str, Any]:
   phase_dir = artifact_dir / phase_name
   phase_dir.mkdir(parents=True, exist_ok=True)
@@ -1309,12 +1399,23 @@ def prepare_phase_artifacts(
   input_jsonl_path = phase_artifact_path(artifact_dir, phase_name, "input.jsonl")
 
   if specs and not request_map_path.exists():
-    atomic_write_json(request_map_path, request_map_from_specs(specs))
+    request_map = request_map_from_specs(specs)
+    if judge == "sonnet":
+      for index, spec in enumerate(specs):
+        request_map[spec.custom_id]["anthropic_custom_ids"] = anthropic_custom_ids(index, max_iter)
+    atomic_write_json(request_map_path, request_map)
   if specs and not input_jsonl_path.exists():
-    write_jsonl(input_jsonl_path, specs)
+    if judge == "sonnet":
+      write_anthropic_jsonl(input_jsonl_path, specs, load_request_map(request_map_path))
+    else:
+      write_jsonl(input_jsonl_path, specs)
 
   request_count = len(load_request_map(request_map_path)) if request_map_path.exists() else len(specs)
-  validate_batch_input(input_jsonl_path, request_count)
+  if judge == "sonnet":
+    request_count *= max_iter
+    validate_batch_input(input_jsonl_path, request_count, ANTHROPIC_MAX_BATCH_REQUESTS, ANTHROPIC_MAX_BATCH_BYTES)
+  else:
+    validate_batch_input(input_jsonl_path, request_count)
   phase.setdefault("status", "prepared")
   phase["request_count"] = request_count
   phase["request_map"] = str(request_map_path)
@@ -1418,6 +1519,147 @@ def poll_until_complete(
         raise BatchMetricsError(f"Batch phase {phase_name} completed with {failed_count} failed requests.")
       if not phase.get("output_jsonl"):
         raise BatchMetricsError(f"Batch phase {phase_name} completed without an output file.")
+      return
+
+    if time.monotonic() >= deadline:
+      raise BatchMetricsError(
+        f"Timed out waiting for batch phase {phase_name} after {local_timeout_hours} hours."
+      )
+    time.sleep(max(0.0, poll_interval))
+
+
+def anthropic_create_batch(
+  client: Any,
+  phase_name: str,
+  phase: dict[str, Any],
+  manifest: dict[str, Any],
+  artifact_dir: Path,
+) -> None:
+  if phase.get("batch_id"):
+    return
+  with Path(str(phase["input_jsonl"])).open("r", encoding="utf-8") as f:
+    requests = [json.loads(line) for line in f if line.strip()]
+  batch = client.messages.batches.create(requests=requests)
+  if not batch.id:
+    raise BatchMetricsError(f"Anthropic batch creation did not return a batch id for phase {phase_name}")
+  phase["batch_id"] = batch.id
+  phase["status"] = batch.processing_status
+  phase["batch"] = batch.model_dump(mode="json")
+  save_manifest(artifact_dir, manifest)
+
+
+def convert_anthropic_results(
+  results_by_id: dict[str, dict[str, Any]],
+  request_map: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+  # Merge the max_iter single-sample results of each item into one OpenAI-like output line
+  # (choices + summed usage), so parse_phase_outputs and --resume read them unchanged.
+  output_lines: list[dict[str, Any]] = []
+  error_lines: list[dict[str, Any]] = []
+  for custom_id, spec in request_map.items():
+    choices = []
+    usage = {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+    }
+    failed = {}
+    for index, anthropic_id in enumerate(spec["anthropic_custom_ids"]):
+      result = (results_by_id.get(anthropic_id) or {}).get("result") or {"type": "missing"}
+      if result.get("type") != "succeeded":
+        failed[anthropic_id] = result
+        continue
+      message = result["message"]
+      text = "".join(block["text"] for block in message.get("content") or [] if block.get("type") == "text")
+      choices.append(
+        {
+          "index": index,
+          "message": {"role": "assistant", "content": text},
+          "finish_reason": message.get("stop_reason"),
+        }
+      )
+      for key in usage:
+        usage[key] += (message.get("usage") or {}).get(key) or 0
+    if failed:
+      # Same as an OpenAI error-file line: the item counts as a failed request.
+      error_lines.append(
+        {"custom_id": custom_id, "response": None, "error": {"code": "anthropic_sample_failed", "samples": failed}}
+      )
+      continue
+    output_lines.append(
+      {
+        "custom_id": custom_id,
+        "response": {"status_code": 200, "body": {"model": message.get("model"), "choices": choices, "usage": usage}},
+        "error": None,
+      }
+    )
+  return output_lines, error_lines
+
+
+def anthropic_download_phase_outputs(
+  client: Any,
+  phase_name: str,
+  phase: dict[str, Any],
+  artifact_dir: Path,
+) -> None:
+  results_path = phase_artifact_path(artifact_dir, phase_name, "results.jsonl")
+  if not phase.get("results_jsonl"):
+    lines = [
+      json.dumps(result.model_dump(mode="json"), ensure_ascii=True)
+      for result in client.messages.batches.results(phase["batch_id"])
+    ]
+    atomic_write_text(results_path, "\n".join(lines) + ("\n" if lines else ""))
+    phase["results_jsonl"] = str(results_path)
+
+  with results_path.open("r", encoding="utf-8") as f:
+    results = [json.loads(line) for line in f if line.strip()]
+  results_by_id = {result["custom_id"]: result for result in results}
+  request_map = load_request_map(Path(str(phase["request_map"])))
+  output_lines, error_lines = convert_anthropic_results(results_by_id, request_map)
+  output_path = phase_artifact_path(artifact_dir, phase_name, "output.jsonl")
+  atomic_write_text(output_path, "".join(json.dumps(line, ensure_ascii=True) + "\n" for line in output_lines))
+  phase["output_jsonl"] = str(output_path)
+  if error_lines:
+    error_path = phase_artifact_path(artifact_dir, phase_name, "error.jsonl")
+    atomic_write_text(error_path, "".join(json.dumps(line, ensure_ascii=True) + "\n" for line in error_lines))
+    phase["error_jsonl"] = str(error_path)
+  phase["failed_item_count"] = len(error_lines)
+
+
+def anthropic_poll_until_complete(
+  client: Any,
+  phase_name: str,
+  phase: dict[str, Any],
+  manifest: dict[str, Any],
+  artifact_dir: Path,
+  poll_interval: float,
+  local_timeout_hours: float,
+) -> None:
+  if phase.get("output_jsonl"):
+    return
+  batch_id = str(phase.get("batch_id") or "")
+  if not batch_id:
+    raise BatchMetricsError(f"Phase {phase_name} cannot be polled before a batch is created.")
+
+  deadline = time.monotonic() + (local_timeout_hours * 3600)
+  while True:
+    batch = client.messages.batches.retrieve(batch_id)
+    phase["status"] = batch.processing_status
+    phase["batch"] = batch.model_dump(mode="json")
+    phase["request_counts"] = batch.request_counts.model_dump(mode="json")
+    save_manifest(artifact_dir, manifest)
+
+    if batch.processing_status == "ended":
+      anthropic_download_phase_outputs(client, phase_name, phase, artifact_dir)
+      save_manifest(artifact_dir, manifest)
+      if phase["failed_item_count"] > 0:
+        counts = phase["request_counts"]
+        raise BatchMetricsError(
+          f"Batch phase {phase_name} completed with {phase['failed_item_count']} failed requests "
+          f"(samples errored={counts.get('errored')}, expired={counts.get('expired')}, "
+          f"canceled={counts.get('canceled')})."
+        )
       return
 
     if time.monotonic() >= deadline:
@@ -1533,6 +1775,7 @@ def run_phase_shards(
   token_limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
   resume_jsonls: list[Path] | None = None,
   resume_custom_ids: set[str] | None = None,
+  judge: str = "gpt",
 ) -> dict[str, dict[str, Any]]:
   phase = manifest.setdefault("phases", {}).setdefault(phase_name, {})
   if phase.get("status") == "parsed":
@@ -1544,7 +1787,12 @@ def run_phase_shards(
 
   resumed_specs, pending_specs = filter_specs_missing_from_resume(specs, resume_custom_ids or set())
   pending_request_count = len(pending_specs)
-  shards = shard_specs_by_enqueued_tokens(phase_name, pending_specs, token_limit) if pending_specs else []
+  shard_token_limit, samples, max_requests = judge_shard_options(judge, max_iter, token_limit)
+  shards = (
+    shard_specs_by_enqueued_tokens(phase_name, pending_specs, shard_token_limit, samples, max_requests)
+    if pending_specs
+    else []
+  )
   phase.update(
     {
       "status": "running",
@@ -1578,8 +1826,23 @@ def run_phase_shards(
       "enqueued_tokens": shard.enqueued_tokens,
     }
     save_manifest(artifact_dir, manifest)
-    shard_phase = prepare_phase_artifacts(artifact_dir, shard_name, shard_specs, manifest)
+    shard_phase = prepare_phase_artifacts(artifact_dir, shard_name, shard_specs, manifest, judge, max_iter)
     save_manifest(artifact_dir, manifest)
+    if judge == "sonnet":
+      if shard_phase.get("status") != "parsed" and not shard_phase.get("batch_id"):
+        anthropic_create_batch(client, shard_name, shard_phase, manifest, artifact_dir)
+      if not shard_phase.get("output_jsonl"):
+        anthropic_poll_until_complete(
+          client,
+          shard_name,
+          shard_phase,
+          manifest,
+          artifact_dir,
+          poll_interval,
+          local_timeout_hours,
+        )
+      shard_phases.append(shard_phase)
+      continue
     if shard_phase.get("status") != "parsed" and not shard_phase.get("batch_id"):
       upload_and_create_batch(client, shard_name, shard_phase, manifest, artifact_dir, batch_endpoint)
     if not shard_phase.get("output_jsonl"):
@@ -1689,6 +1952,23 @@ def make_openai_client(*, azure: bool = False) -> Any:
   return OpenAI(api_key=api_key, base_url="https://api.openai.com/v1")
 
 
+def make_anthropic_client() -> Any:
+  if load_dotenv is not None:
+    load_dotenv(dotenv_path=REPO_ROOT / ".env")
+  api_key = os.getenv("ANTHROPIC_API_KEY")
+  if not api_key:
+    raise BatchMetricsError("Missing Anthropic API key. Set ANTHROPIC_API_KEY.")
+  try:
+    import anthropic
+  except ImportError as exc:
+    raise BatchMetricsError("The anthropic Python package is required for --judge sonnet.") from exc
+  return anthropic.Anthropic(api_key=api_key)
+
+
+def make_judge_client(judge: str, azure: bool) -> Any:
+  return make_anthropic_client() if judge == "sonnet" else make_openai_client(azure=azure)
+
+
 def phase_requires_client(manifest: dict[str, Any], phase_name: str, specs: list[BatchRequest]) -> bool:
   phase = manifest.get("phases", {}).get(phase_name, {})
   if str(phase.get("status") or "") in {"skipped", "skipped_existing_outputs", "parsed"}:
@@ -1708,9 +1988,11 @@ def build_batch_plan(
   token_limit: int,
   resume_custom_ids: set[str] | None = None,
   force_recompute: bool = False,
+  judge: str = "gpt",
 ) -> tuple[dict[str, Any], list[BatchRequest], list[BatchRequest]]:
   if token_limit < 1:
     raise BatchMetricsError(f"--limit must be a positive integer, got: {token_limit}")
+  token_limit, samples, max_requests = judge_shard_options(judge, max_iter, token_limit)
 
   panas_before_complete = (
     True
@@ -1744,16 +2026,18 @@ def build_batch_plan(
   phase1_status = "skipped_existing_outputs" if panas_before_complete and "panas" not in excluded_metrics else "planned"
   phase_summaries = [
     {
-      **summarize_batch_plan("panas_before", phase1_pending, token_limit, status=phase1_status),
-      "request_count": len(phase1_specs),
-      "resumed_request_count": len(phase1_resumed),
-      "pending_request_count": len(phase1_pending),
+      **summarize_batch_plan(
+        "panas_before", phase1_pending, token_limit, status=phase1_status, samples=samples, max_requests=max_requests
+      ),
+      "request_count": len(phase1_specs) * samples,
+      "resumed_request_count": len(phase1_resumed) * samples,
+      "pending_request_count": len(phase1_pending) * samples,
     },
     {
-      **summarize_batch_plan("main", phase2_pending, token_limit),
-      "request_count": len(phase2_specs),
-      "resumed_request_count": len(phase2_resumed),
-      "pending_request_count": len(phase2_pending),
+      **summarize_batch_plan("main", phase2_pending, token_limit, samples=samples, max_requests=max_requests),
+      "request_count": len(phase2_specs) * samples,
+      "resumed_request_count": len(phase2_resumed) * samples,
+      "pending_request_count": len(phase2_pending) * samples,
     },
   ]
   plan = {
@@ -1765,6 +2049,8 @@ def build_batch_plan(
     "enqueued_tokens": sum(int(phase["enqueued_tokens"]) for phase in phase_summaries),
     "phases": phase_summaries,
   }
+  if judge != "gpt":
+    plan.update({"judge": judge, "model": model, "requests_per_item": samples})
   return plan, phase1_specs, phase2_specs
 
 
@@ -1774,15 +2060,16 @@ def run_batch_metrics(
   max_iter: int = DEFAULT_MAX_ITER,
   *,
   client: Any | None = None,
-  model: str = MODEL_NAME,
+  model: str | None = None,
+  judge: str = "gpt",
   exc_wai: bool = False,
   exc_ctrs: bool = False,
   exc_panas: bool = False,
   panas_v2: bool = False,
   poll_interval: float = DEFAULT_POLL_INTERVAL,
   local_timeout_hours: float = DEFAULT_LOCAL_TIMEOUT_HOURS,
-  input_cost_per_1m: float = DEFAULT_INPUT_COST_PER_1M,
-  output_cost_per_1m: float = DEFAULT_OUTPUT_COST_PER_1M,
+  input_cost_per_1m: float | None = None,
+  output_cost_per_1m: float | None = None,
   azure: bool = False,
   limit: int = DEFAULT_ENQUEUED_TOKEN_LIMIT,
   dry_run: bool = False,
@@ -1793,6 +2080,15 @@ def run_batch_metrics(
     raise BatchMetricsError(f"MAX_ITER must be a positive integer, got: {max_iter}")
   if limit < 1:
     raise BatchMetricsError(f"--limit must be a positive integer, got: {limit}")
+  if judge not in JUDGE_MODELS:
+    raise BatchMetricsError(f"Unknown judge: {judge}")
+  if azure and judge != "gpt":
+    raise BatchMetricsError("--azure is only supported with --judge gpt.")
+  model = model or JUDGE_MODELS[judge]
+  if input_cost_per_1m is None:
+    input_cost_per_1m = JUDGE_COSTS_PER_1M[judge][0]
+  if output_cost_per_1m is None:
+    output_cost_per_1m = JUDGE_COSTS_PER_1M[judge][1]
   resume_paths = [Path(path).resolve() for path in (resume_jsonls or [])]
   for resume_path in resume_paths:
     if not resume_path.is_file():
@@ -1838,6 +2134,7 @@ def run_batch_metrics(
       limit,
       resume_custom_ids,
       force_recompute=run_from_json_path is not None,
+      judge=judge,
     )
     plan["signature"] = compute_signature(
       input_path,
@@ -1850,6 +2147,7 @@ def run_batch_metrics(
       azure=azure,
       limit=limit,
       run_from_json=run_from_json_path,
+      judge=judge,
     )
     return plan
 
@@ -1864,6 +2162,7 @@ def run_batch_metrics(
     azure=azure,
     limit=limit,
     run_from_json=run_from_json_path,
+    judge=judge,
   )
   artifact_dir, manifest, resumed = load_or_create_manifest(output_path, signature)
   if not resumed:
@@ -1901,7 +2200,7 @@ def run_batch_metrics(
     else:
       _, pending_phase1_specs = filter_specs_missing_from_resume(phase1_specs, resume_custom_ids)
       if active_client is None and phase_requires_client(manifest, "panas_before", pending_phase1_specs):
-        active_client = make_openai_client(azure=azure)
+        active_client = make_judge_client(judge, azure)
       run_phase_shards(
         active_client,
         "panas_before",
@@ -1919,6 +2218,7 @@ def run_batch_metrics(
         limit,
         resume_paths,
         resume_custom_ids,
+        judge,
       )
 
     before_payloads = (
@@ -1937,7 +2237,7 @@ def run_batch_metrics(
     )
     _, pending_phase2_specs = filter_specs_missing_from_resume(phase2_specs, resume_custom_ids)
     if active_client is None and phase_requires_client(manifest, "main", pending_phase2_specs):
-      active_client = make_openai_client(azure=azure)
+      active_client = make_judge_client(judge, azure)
     run_phase_shards(
       active_client,
       "main",
@@ -1955,6 +2255,7 @@ def run_batch_metrics(
       limit,
       resume_paths,
       resume_custom_ids,
+      judge,
     )
 
     write_final_outputs(output_path, staged_outputs)
@@ -1980,7 +2281,7 @@ def run_batch_metrics(
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-    description="Run CTRS, WAI, PANAS-before, and PANAS-after evaluations through the OpenAI Batch API."
+    description="Run CTRS, WAI, PANAS-before, and PANAS-after evaluations through the OpenAI or Anthropic Batch API."
   )
   parser.add_argument("input_dir", type=Path, help="Directory containing one JSON file per conversation.")
   parser.add_argument(
@@ -1999,8 +2300,24 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
   )
   parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
   parser.add_argument("--local-timeout-hours", type=float, default=DEFAULT_LOCAL_TIMEOUT_HOURS)
-  parser.add_argument("--input-cost-per-1m", type=float, default=DEFAULT_INPUT_COST_PER_1M)
-  parser.add_argument("--output-cost-per-1m", type=float, default=DEFAULT_OUTPUT_COST_PER_1M)
+  parser.add_argument(
+    "--judge",
+    choices=sorted(JUDGE_MODELS),
+    default="gpt",
+    help="Judge: gpt (gpt-4o, OpenAI Batch API) or sonnet (claude-sonnet-5-5, Anthropic Message Batches API).",
+  )
+  parser.add_argument(
+    "--input-cost-per-1m",
+    type=float,
+    default=None,
+    help="Input price in USD per 1M tokens. Default: judge batch price (gpt 1.25, sonnet 1.0).",
+  )
+  parser.add_argument(
+    "--output-cost-per-1m",
+    type=float,
+    default=None,
+    help="Output price in USD per 1M tokens. Default: judge batch price (gpt 5.0, sonnet 5.0).",
+  )
   parser.add_argument(
     "--limit",
     type=int,
@@ -2046,6 +2363,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 def print_dry_run_plan(plan: dict[str, Any]) -> None:
   print("Batch evaluation dry run.")
+  if plan.get("judge"):
+    print(f"Judge: {plan['judge']} ({plan['model']}), {plan['requests_per_item']} request(s) per metric item")
   print(f"Enqueued token limit: {plan['enqueued_token_limit']}")
   print(f"Total batches: {plan['batch_count']}")
   print(f"Total requests: {plan['request_count']}")
@@ -2076,6 +2395,7 @@ def main(argv: Iterable[str] | None = None) -> int:
       exc_ctrs=args.exc_ctrs,
       exc_panas=args.exc_panas,
       panas_v2=args.panas_v2,
+      judge=args.judge,
       azure=args.azure,
       limit=args.limit,
       dry_run=args.dry_run,
