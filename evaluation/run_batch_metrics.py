@@ -645,8 +645,9 @@ def anthropic_params(body: dict[str, Any]) -> dict[str, Any]:
     ],
     "thinking": ANTHROPIC_THINKING,
     "output_config": {"effort": ANTHROPIC_EFFORT},
-    "cache_control": ANTHROPIC_CACHE_CONTROL,
   }
+  if int(body.get("n") or 1) > 1:  # caching only pays off when identical samples are repeated
+    params["cache_control"] = ANTHROPIC_CACHE_CONTROL
   if system:
     params["system"] = system
   return params
@@ -1150,7 +1151,7 @@ def compute_signature(
           "max_tokens": ANTHROPIC_MAX_TOKENS,
           "thinking": ANTHROPIC_THINKING,
           "effort": ANTHROPIC_EFFORT,
-          "cache_control": ANTHROPIC_CACHE_CONTROL,
+          "cache_control": ANTHROPIC_CACHE_CONTROL if max_iter > 1 else None,
         },
       }
     )
