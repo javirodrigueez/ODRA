@@ -44,6 +44,8 @@ ANTHROPIC_MAX_TOKENS = 4096  # Judge outputs are ~100 tokens (CTRS/WAI) and ~1k 
 # Sonnet 5.5 rejects temperature and `thinking: disabled`; between_tools is its no-thinking mode.
 ANTHROPIC_THINKING = {"type": "between_tools"}
 ANTHROPIC_EFFORT = "high"
+# Top-level automatic prompt caching: the max_iter identical samples of an item can reuse the cached prompt.
+ANTHROPIC_CACHE_CONTROL = {"type": "ephemeral"}
 ANTHROPIC_MAX_BATCH_REQUESTS = 100_000
 ANTHROPIC_MAX_BATCH_BYTES = 256 * 1024 * 1024
 # ~5 bytes/token in the JSONL (~6 for escaped non-ASCII), so this keeps one batch below 256 MB.
@@ -643,6 +645,7 @@ def anthropic_params(body: dict[str, Any]) -> dict[str, Any]:
     ],
     "thinking": ANTHROPIC_THINKING,
     "output_config": {"effort": ANTHROPIC_EFFORT},
+    "cache_control": ANTHROPIC_CACHE_CONTROL,
   }
   if system:
     params["system"] = system
@@ -1147,6 +1150,7 @@ def compute_signature(
           "max_tokens": ANTHROPIC_MAX_TOKENS,
           "thinking": ANTHROPIC_THINKING,
           "effort": ANTHROPIC_EFFORT,
+          "cache_control": ANTHROPIC_CACHE_CONTROL,
         },
       }
     )
